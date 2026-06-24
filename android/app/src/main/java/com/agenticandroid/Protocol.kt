@@ -51,6 +51,7 @@ val ProtocolJson = Json {
     classDiscriminator = "type"
     ignoreUnknownKeys = true
     encodeDefaults = true
+    explicitNulls = false // omit null result/error; TS Zod rejects explicit null on optional fields
 }
 
 fun encodeInner(inner: Inner): String = ProtocolJson.encodeToString(Inner.serializer(), inner)

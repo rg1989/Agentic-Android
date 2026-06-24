@@ -22,6 +22,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -51,6 +52,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -161,7 +164,7 @@ class PairingActivity : ComponentActivity() {
     }
 
     @androidx.camera.core.ExperimentalGetImage
-    private fun analyzeFrame(proxy: ImageAnalysis.ImageProxy) {
+    private fun analyzeFrame(proxy: ImageProxy) {
         val mediaImage = proxy.image
         if (mediaImage == null) { proxy.close(); return }
         if (scanned.get()) { proxy.close(); return }

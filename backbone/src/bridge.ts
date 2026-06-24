@@ -181,7 +181,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const self = generateIdentity();
     const relayUrl = process.env.RELAY_URL ?? "http://127.0.0.1:8787";
     fs.writeFileSync(cp, JSON.stringify({ self, relayUrl } satisfies BridgeConfig, null, 2));
-    const payload = Buffer.from(JSON.stringify({ edPub: self.edPub, fp: self.fp, relayUrl })).toString("base64");
+    const payload = Buffer.from(JSON.stringify({ edPub: self.edPub, fp: self.fp, relayUrl })).toString("base64url");
     console.error("No pairing yet. Scan this on the phone (Pair Agent), then paste the phone's edPub into", cp, "as `peerEdPub`:\n");
     console.error("  PAIR:" + payload + "\n");
     process.exit(0);

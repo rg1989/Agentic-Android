@@ -2,8 +2,11 @@
 package com.agenticandroid.capabilities
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
@@ -101,11 +104,71 @@ class CameraCaptureCapability(
      *   4. imageReader.acquireLatestImage() -> planes[0].buffer -> ByteArray
      *   5. close session + device
      */
+    /** Real camera2 still capture: open back camera -> JPEG ImageReader -> one STILL_CAPTURE -> bytes. */
+    @SuppressLint("MissingPermission") // permission checked in execute()
     private suspend fun captureFrame(width: Int, height: Int): ByteArray {
-        // Stub: synthetic JPEG-shaped payload so the bus/crypto path is exercised on a real device
-        // before camera2 wiring is complete.  Replace this entire function body with real camera2.
-        val size = width * height * 3 / 8 // rough JPEG estimate
-        return ByteArray(size) { i -> ((i * 13 + 7) and 0xff).toByte() }
+        val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val cameraId = cm.cameraIdList.firstOrNull {
+            cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+        } ?: cm.cameraIdList.firstOrNull() ?: error("no camera available")
+        val chars = cm.getCameraCharacteristics(cameraId)
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        val sizes = map?.getOutputSizes(ImageFormat.JPEG)
+        // pick the JPEG size closest to the requested area (cap at ~8MP to keep blobs reasonable)
+        val want = width.toLong() * height
+        val size = sizes?.filter { it.width.toLong() * it.height <= 8_300_000L }
+            ?.minByOrNull { kotlin.math.abs(it.width.toLong() * it.height - want) }
+            ?: sizes?.firstOrNull()
+            ?: android.util.Size(width, height)
+        val orientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+
+        val reader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 2)
+        val thread = HandlerThread("cam-capture").apply { start() }
+        val handler = Handler(thread.looper)
+        var device: CameraDevice? = null
+        try {
+            return suspendCancellableCoroutine { cont ->
+                reader.setOnImageAvailableListener({ r ->
+                    val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                    try {
+                        val buf = img.planes[0].buffer
+                        val arr = ByteArray(buf.remaining()); buf.get(arr)
+                        if (cont.isActive) cont.resume(arr)
+                    } finally { img.close() }
+                }, handler)
+
+                cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
+                    override fun onOpened(d: CameraDevice) {
+                        device = d
+                        d.createCaptureSession(listOf(reader.surface), object : CameraCaptureSession.StateCallback() {
+                            override fun onConfigured(session: CameraCaptureSession) {
+                                val req = d.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                    addTarget(reader.surface)
+                                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                    set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                    set(CaptureRequest.JPEG_ORIENTATION, orientation)
+                                }.build()
+                                session.capture(req, null, handler)
+                            }
+                            override fun onConfigureFailed(session: CameraCaptureSession) {
+                                if (cont.isActive) cont.resumeWithException(IllegalStateException("capture session config failed"))
+                            }
+                        }, handler)
+                    }
+                    override fun onDisconnected(d: CameraDevice) { d.close() }
+                    override fun onError(d: CameraDevice, error: Int) {
+                        d.close()
+                        if (cont.isActive) cont.resumeWithException(IllegalStateException("camera error $error"))
+                    }
+                }, handler)
+
+                cont.invokeOnCancellation { runCatching { device?.close() } }
+            }
+        } finally {
+            runCatching { device?.close() }
+            reader.close()
+            thread.quitSafely()
+        }
     }
 }
 

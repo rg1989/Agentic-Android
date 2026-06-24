@@ -59,6 +59,12 @@ class BusEndpoint(
             }))
         }
 
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            // Surface the real error (cleartext blocked, host unreachable, refused) instead of a
+            // silent 15s timeout. No-op if connect already succeeded.
+            connectDone?.completeExceptionally(t)
+        }
+
         override fun onMessage(webSocket: WebSocket, text: String) {
             val obj = ProtocolJson.parseToJsonElement(text)
             val map = (obj as? JsonObject) ?: return

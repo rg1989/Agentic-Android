@@ -13,10 +13,14 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- list/launch installed apps (Android 11+ package visibility) -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application
         android:label="Agentic Android"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:supportsRtl="true">
 
         <activity
@@ -27,6 +31,29 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- QR-scan pairing screen (Q5). Launched from MainActivity's "Pair agent" button. -->
+        <activity
+            android:name=".pairing.PairingActivity"
+            android:exported="false" />
+
+        <!-- Transparent biometric approval activity for `ask`-sensitivity capabilities (Q8). -->
+        <activity
+            android:name=".pairing.ConfirmerActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:exported="false" />
+
+        <!-- Deny action on the approval notification. -->
+        <receiver
+            android:name=".pairing.ConfirmerDenyReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.agenticandroid.CONFIRMER_DENY" />
+            </intent-filter>
+        </receiver>
 
         <!-- Always-on connection holder (Q2: persistent socket; FCM re-wakes it when Doze kills it). -->
         <service
@@ -43,18 +70,16 @@
             </intent-filter>
         </service>
 
-        <!-- Tier 2 (next milestone): computer-use via Accessibility. Declared but disabled until built. -->
-        <!--
+        <!-- Tier 2: computer-use via Accessibility (tap/swipe/type/read/screenshot). -->
         <service
-            android:name=".automation.UiAutomationService"
+            android:name=".automation.AgentAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
             <meta-data android:name="android.accessibilityservice"
-                android:resource="@xml/ui_automation_config" />
+                android:resource="@xml/accessibility_config" />
         </service>
-        -->
     </application>
 </manifest>

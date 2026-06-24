@@ -45,8 +45,7 @@ object Crypto {
     // ---- signing (relay auth) ----
     fun sign(edSecB64: String, message: ByteArray): String {
         val sig = ByteArray(Sign.BYTES)
-        val len = LongArray(1)
-        ls.cryptoSignDetached(sig, len, message, message.size.toLong(), dec(edSecB64))
+        ls.cryptoSignDetached(sig, message, message.size.toLong(), dec(edSecB64))
         return enc(sig)
     }
 

@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import com.agenticandroid.capabilities.registerTier1
 import com.agenticandroid.pairing.Confirmer
 import com.agenticandroid.pairing.Pairing
 import kotlinx.coroutines.CoroutineScope
@@ -26,7 +27,7 @@ import kotlinx.serialization.json.JsonObject
  */
 class PhoneAgentService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val registry = CapabilityRegistry().apply { register(RingCapability()) /* + camera/location/sms */ }
+    private val registry = CapabilityRegistry() // populated by registerTier1() once the bus is up
     private val policy = ConsentPolicy()
     @Volatile var micMuted = false // hard mic mute for the always-on wake word (Q12 trust)
 
@@ -46,6 +47,7 @@ class PhoneAgentService : Service() {
         if (bus != null) return
         val pairing = Pairing.load(this) ?: return // not paired yet — PairingActivity handles this
         val b = BusEndpoint(pairing.self, pairing.peerEdPub, pairing.relayUrl)
+        registerTier1(registry, b, this) // camera / location / sms / notifications (Q4 swap point)
         b.onRequest = handler@{ req, agentFp ->
             if (req.method == "list_capabilities")
                 return@handler CapResult(result = registry.catalog(agentFp, policy))
