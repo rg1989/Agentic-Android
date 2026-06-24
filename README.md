@@ -57,3 +57,4 @@ scheduling** that fires later and wakes the agent.
 | Runnable relay + bridge entrypoints | ✅ smoke-tested |
 | Android app: transport, crypto, consent, Tier-1 providers, pairing/biometric, voice scaffold | 🟡 scaffold, unverified (needs Android SDK + JDK 17/21 + device) |
 | Tier-2 computer-use (Accessibility), warm voice loop, Noise-IK | ⬜ designed, not yet built |
+# Agentic-Android
