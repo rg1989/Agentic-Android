@@ -9,7 +9,6 @@ import android.content.Intent
 import android.os.IBinder
 import com.agenticandroid.capabilities.registerTier1
 import com.agenticandroid.pairing.Confirmer
-import com.agenticandroid.pairing.Pairing
 import com.agenticandroid.voice.TextToSpeech
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +35,7 @@ data class CapInfo(val method: String, val summary: String)
  */
 class PhoneAgentService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val registry = CapabilityRegistry() // populated by registerTier1() once the bus is up
+    private var registry = CapabilityRegistry() // rebuilt per connection (bound to the active agent's bus)
     private val policy = ConsentPolicy()
     @Volatile var micMuted = false // hard mic mute for the always-on wake word (Q12 trust)
 
@@ -47,6 +46,7 @@ class PhoneAgentService : Service() {
         super.onCreate()
         instance = this
         SettingsStore.init(this)
+        Agents.init(this)
         tts = TextToSpeech(this).also { it.init { } }
         startForeground(1, buildNotification())
     }
@@ -65,8 +65,32 @@ class PhoneAgentService : Service() {
 
     private fun ensureConnected() {
         if (bus != null) return
-        val pairing = Pairing.load(this) ?: return // not paired yet — PairingActivity handles this
-        val b = BusEndpoint(pairing.self, pairing.peerEdPub, pairing.relayUrl)
+        connectActive()
+    }
+
+    /** Switch the active agent and reconnect the bus to it. */
+    fun switchAgent(id: String) {
+        if (Agents.activeId.value == id && bus != null) return
+        Agents.setActive(this, id)
+        reconnect()
+    }
+
+    /** Tear down the current connection and reconnect to whichever agent is active now. */
+    fun reconnect() {
+        bus?.close()
+        bus = null
+        connected.value = false
+        chat.value = emptyList() // a fresh conversation for the agent we're switching to
+        status.value = null
+        agentName.value = Agents.active()?.name
+        connectActive()
+    }
+
+    private fun connectActive() {
+        val active = Agents.active() ?: return // not paired yet — PairingActivity handles this
+        agentName.value = active.name
+        registry = CapabilityRegistry() // fresh registry bound to this agent's bus
+        val b = BusEndpoint(Agents.self(this), active.peerEdPub, active.relayUrl)
         registerTier1(registry, b, this) // camera / location / sms / notifications (Q4 swap point)
         capabilities.value = registry.all().map { CapInfo(it.method, it.summary) } // for the settings screen
         b.onRequest = handler@{ req, agentFp ->
@@ -96,7 +120,10 @@ class PhoneAgentService : Service() {
                     status.value = (ev.data["label"] as? JsonPrimitive)?.content
                 }
                 "agent_identity" -> {
-                    agentName.value = (ev.data["name"] as? JsonPrimitive)?.content
+                    val name = (ev.data["name"] as? JsonPrimitive)?.content
+                    agentName.value = name
+                    // Remember the agent's real name on its profile so the picker shows it.
+                    if (!name.isNullOrBlank()) Agents.active()?.let { Agents.setName(this, it.id, name) }
                 }
             }
         }

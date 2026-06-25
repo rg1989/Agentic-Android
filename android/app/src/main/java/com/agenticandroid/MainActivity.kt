@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,7 +62,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.agenticandroid.pairing.Pairing
 import com.agenticandroid.pairing.PairingActivity
 
 /**
@@ -73,12 +75,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SettingsStore.init(this)
+        Agents.init(this)
         val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
         requestPerms.launch(perms.toTypedArray())
         startForegroundService(Intent(this, PhoneAgentService::class.java))
-
-        val paired = Pairing.load(this) != null
 
         setContent {
             AgentTheme {
@@ -86,6 +87,9 @@ class MainActivity : ComponentActivity() {
                 val connected by PhoneAgentService.connected.collectAsState()
                 val agentName by PhoneAgentService.agentName.collectAsState()
                 val status by PhoneAgentService.status.collectAsState()
+                val profiles by Agents.profiles.collectAsState()
+                val activeId by Agents.activeId.collectAsState()
+                val paired = profiles.isNotEmpty()
                 var input by remember { mutableStateOf("") }
                 val listState = rememberLazyListState()
                 val context = LocalContext.current
@@ -93,7 +97,8 @@ class MainActivity : ComponentActivity() {
                     val target = if (status != null) messages.size else messages.size - 1
                     if (target >= 0) listState.animateScrollToItem(target)
                 }
-                val who = agentName ?: if (paired) "your agent" else "no agent"
+                val active = profiles.firstOrNull { it.id == activeId }
+                val who = agentName ?: active?.name ?: if (paired) "your agent" else "no agent"
 
                 // hold-to-talk voice → transcript fills the field live, sends on release; chimes per state
                 val chimes = remember { Chimes() }
@@ -126,7 +131,29 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Text(if (!paired) "⚪" else if (connected) "🟢" else "🟡", style = MaterialTheme.typography.labelSmall)
                         Spacer(Modifier.width(7.dp))
-                        Text(who, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                        Box(Modifier.weight(1f)) {
+                            var menuOpen by remember { mutableStateOf(false) }
+                            Row(
+                                Modifier.clickable(enabled = paired) { menuOpen = true },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(who, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                                if (paired) Text(" ▾", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                profiles.forEach { p ->
+                                    DropdownMenuItem(
+                                        text = { Text((if (p.id == activeId) "● " else "○ ") + p.name) },
+                                        onClick = { menuOpen = false; PhoneAgentService.instance?.switchAgent(p.id) },
+                                    )
+                                }
+                                if (paired) HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Pair another agent…") },
+                                    onClick = { menuOpen = false; startActivity(Intent(this@MainActivity, PairingActivity::class.java)) },
+                                )
+                            }
+                        }
                         if (!paired) {
                             TextButton(onClick = { startActivity(Intent(this@MainActivity, PairingActivity::class.java)) }) { Text("Pair") }
                         } else {

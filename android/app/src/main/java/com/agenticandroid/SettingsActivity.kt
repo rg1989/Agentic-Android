@@ -1,5 +1,6 @@
 package com.agenticandroid
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,12 +29,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.agenticandroid.pairing.PairingActivity
 
-/** Proper settings page: theme (system/light/dark) and which actions the agent is allowed to use. */
+/** Proper settings page: agents, theme (system/light/dark), voice, and which actions are allowed. */
 class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SettingsStore.init(this)
+        Agents.init(this)
         setContent {
             AgentTheme {
                 val theme by SettingsStore.theme.collectAsState()
@@ -41,6 +44,8 @@ class SettingsActivity : ComponentActivity() {
                 val chimes by SettingsStore.chimes.collectAsState()
                 val voiceReplies by SettingsStore.voiceReplies.collectAsState()
                 val caps by PhoneAgentService.capabilities.collectAsState()
+                val profiles by Agents.profiles.collectAsState()
+                val activeId by Agents.activeId.collectAsState()
 
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                     Row(
@@ -54,6 +59,51 @@ class SettingsActivity : ComponentActivity() {
 
                     LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                         item {
+                            SectionLabel("Agents")
+                            if (profiles.isEmpty()) {
+                                Text(
+                                    "No agents paired yet.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                            }
+                            profiles.forEach { p ->
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .clickable { PhoneAgentService.instance?.switchAgent(p.id) }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(
+                                        selected = p.id == activeId,
+                                        onClick = { PhoneAgentService.instance?.switchAgent(p.id) },
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(p.name, style = MaterialTheme.typography.titleSmall)
+                                        Text(
+                                            p.relayUrl,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                    TextButton(onClick = {
+                                        val wasActive = p.id == activeId
+                                        Agents.remove(this@SettingsActivity, p.id)
+                                        if (wasActive) PhoneAgentService.instance?.reconnect()
+                                    }) { Text("Forget") }
+                                }
+                            }
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clickable { startActivity(Intent(this@SettingsActivity, PairingActivity::class.java)) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("＋  Pair another agent", color = MaterialTheme.colorScheme.primary)
+                            }
+                            HorizontalDivider()
                             SectionLabel("Theme")
                             listOf("system" to "System default", "light" to "Light", "dark" to "Dark").forEach { (key, label) ->
                                 Row(

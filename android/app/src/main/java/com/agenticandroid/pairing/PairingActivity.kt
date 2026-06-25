@@ -214,17 +214,16 @@ class PairingActivity : ComponentActivity() {
             bus.event("pairing.response", eventData)
             bus.close()
 
-            // TOFU: persist — from now on this bridge is our trusted peer.
-            val pairingData = PairingData(
-                self       = selfId,
-                peerEdPub  = token.edPub,
-                relayUrl   = token.relayUrl,
-            )
-            Pairing.save(this, pairingData)
+            // Append this agent as a profile (or update it) and make it active. Supports pairing
+            // several agents and switching between them; the phone keeps one identity (selfId).
+            com.agenticandroid.Agents.init(this) // ensure existing profiles are loaded before appending
+            com.agenticandroid.Agents.add(this, token.fp.take(8), token.edPub, token.relayUrl)
             update("Paired with ${token.fp.take(12)}…")
 
-            // Restart the service so it picks up the new pairing immediately.
-            startForegroundService(Intent(this, PhoneAgentService::class.java))
+            // Reconnect the running service to the newly-active agent (or start it if not running).
+            val svc = PhoneAgentService.instance
+            if (svc != null) svc.reconnect()
+            else startForegroundService(Intent(this, PhoneAgentService::class.java))
 
         }.onFailure { e ->
             scanned.set(false) // allow retry on parse/network failure
