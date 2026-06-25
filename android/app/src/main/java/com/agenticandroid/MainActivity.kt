@@ -60,12 +60,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -78,6 +80,22 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.withTimeoutOrNull
 import com.agenticandroid.pairing.PairingActivity
 
 /**
@@ -120,13 +138,17 @@ class MainActivity : ComponentActivity() {
                 // hold-to-talk voice → transcript fills the field live, sends on release; chimes per state
                 val chimes = remember { Chimes() }
                 DisposableEffect(Unit) { onDispose { chimes.release() } }
-                var recording by remember { mutableStateOf(false) }
+                var recording by remember { mutableStateOf(false) }   // capturing voice (held or locked)
+                var locked by remember { mutableStateOf(false) }      // hands-free: keeps recording after release
+                var dragY by remember { mutableStateOf(0f) }          // upward drag toward the lock threshold
+                var aboutToCancel by remember { mutableStateOf(false) } // dragged left past the cancel threshold
+                var pressed by remember { mutableStateOf(false) }     // button held down (drives press-scale)
                 val voice = remember {
                     VoiceInput(
                         context,
                         onPartial = { input = it },
                         onFinal = { t ->
-                            recording = false
+                            recording = false; locked = false
                             val s = t.trim()
                             if (s.isNotEmpty()) {
                                 chimes.sent(); PhoneAgentService.instance?.sendUserMessage(s); input = ""
@@ -134,11 +156,40 @@ class MainActivity : ComponentActivity() {
                                 chimes.error(); PhoneAgentService.instance?.setStatus(null)
                             }
                         },
-                        onError = { recording = false; chimes.error(); PhoneAgentService.instance?.setStatus(null) },
+                        onError = { recording = false; locked = false; chimes.error(); PhoneAgentService.instance?.setStatus(null) },
                     )
                 }
                 DisposableEffect(Unit) { onDispose { voice.destroy() } }
                 val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+                // --- combined hold-to-talk / tap-to-send button: gesture helpers ---
+                fun sendText() {
+                    val t = input.trim()
+                    if (t.isNotEmpty()) { PhoneAgentService.instance?.sendUserMessage(t); input = "" }
+                }
+                fun beginRecording(): Boolean {
+                    if (recording) return false
+                    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    if (!granted) { micPermission.launch(Manifest.permission.RECORD_AUDIO); return false }
+                    WakeWordService.instance?.pause() // free the mic for hold-to-talk
+                    chimes.listening()
+                    recording = true; locked = false; aboutToCancel = false; dragY = 0f; input = ""
+                    voice.start()
+                    return true
+                }
+                fun finishRecording() {
+                    if (!recording) return
+                    recording = false; locked = false
+                    PhoneAgentService.instance?.setStatus("Transcribing…")
+                    voice.finish() // onFinal sends the full accumulated transcript
+                    WakeWordService.instance?.resume()
+                }
+                fun cancelRecording() {
+                    recording = false; locked = false; input = ""
+                    voice.cancel(); chimes.error()
+                    PhoneAgentService.instance?.setStatus(null)
+                    WakeWordService.instance?.resume()
+                }
 
                 Box(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -273,82 +324,106 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
-                        // live status: Transcribing… / Sending… / Thinking… / running an action
-                        status?.let { label ->
-                            val speaking = label.startsWith("🔊")
-                            item {
-                                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.Start) {
-                                    Surface(
-                                        modifier = if (speaking) Modifier.clickable { PhoneAgentService.instance?.stopSpeaking() } else Modifier,
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                        shape = RoundedCornerShape(16.dp),
-                                    ) {
-                                        Text(
-                                            if (speaking) "$label · tap to stop" else label,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontStyle = FontStyle.Italic,
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
 
-                    // input bar: text field + hold-to-talk mic + send
+                    // animated "typing / transcribing / speaking" strip, pinned above the input bar
+                    StatusStrip(status) { PhoneAgentService.instance?.stopSpeaking() }
+
+                    // input bar: morphs between a text field and a live recording bar; ONE combined
+                    // button — tap to send, hold to talk, slide up to lock hands-free, slide left to cancel.
                     Row(
                         Modifier.fillMaxWidth().padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedTextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text(if (recording) "Listening…" else if (paired) "Message $who…" else "Pair an agent first") },
-                            maxLines = 4,
-                        )
-                        if (voice.available && paired) {
-                            Spacer(Modifier.width(8.dp))
-                            Box(
-                                Modifier.size(48.dp).clip(CircleShape)
-                                    .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(onPress = {
-                                            val granted = ContextCompat.checkSelfPermission(
-                                                context, Manifest.permission.RECORD_AUDIO,
-                                            ) == PackageManager.PERMISSION_GRANTED
-                                            if (granted) {
-                                                WakeWordService.instance?.pause() // free the mic for hold-to-talk
-                                                chimes.listening()
-                                                recording = true
-                                                voice.start()
-                                                tryAwaitRelease()
-                                                voice.stop() // onFinal/onError clears `recording`
-                                                PhoneAgentService.instance?.setStatus("Transcribing…")
-                                                WakeWordService.instance?.resume()
-                                            } else {
-                                                micPermission.launch(Manifest.permission.RECORD_AUDIO)
-                                            }
-                                        })
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_mic),
-                                    contentDescription = "Hold to talk",
-                                    tint = if (recording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(24.dp),
+                        Box(Modifier.weight(1f)) {
+                            if (recording) {
+                                val lockPxDp = 72.dp
+                                RecordingBar(
+                                    locked = locked,
+                                    lockProgress = (-dragY / with(LocalDensity.current) { lockPxDp.toPx() }).coerceIn(0f, 1f),
+                                    aboutToCancel = aboutToCancel,
+                                    live = input,
+                                    onCancel = { cancelRecording() },
+                                )
+                            } else {
+                                OutlinedTextField(
+                                    value = input,
+                                    onValueChange = { input = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    placeholder = { Text(if (paired) "Message $who…" else "Pair an agent first") },
+                                    maxLines = 4,
                                 )
                             }
                         }
-                        Spacer(Modifier.width(8.dp))
-                        Button(onClick = {
-                            val t = input.trim()
-                            if (t.isNotEmpty()) {
-                                PhoneAgentService.instance?.sendUserMessage(t)
-                                input = ""
+                        if (paired) {
+                            Spacer(Modifier.width(8.dp))
+                            val canSend = input.isNotBlank() && !recording
+                            val showSend = canSend || locked || !voice.available
+                            val scale by animateFloatAsState(
+                                if (pressed || recording) 1.12f else 1f,
+                                spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "btnScale",
+                            )
+                            Box(
+                                Modifier.size(52.dp).scale(scale).clip(CircleShape)
+                                    .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                                    // Stable key: we mutate recording/locked DURING the gesture, so keying on
+                                    // them would restart the handler mid-gesture and kill the drag loop.
+                                    .pointerInput(Unit) {
+                                        val lockPx = 72.dp.toPx()
+                                        val cancelPx = 110.dp.toPx()
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(requireUnconsumed = false)
+                                            pressed = true
+                                            val startX = down.position.x
+                                            val startY = down.position.y
+                                            // Locked (hands-free): a tap finishes and sends.
+                                            if (locked) {
+                                                val up = waitForUpOrCancellation()
+                                                pressed = false
+                                                if (up != null) finishRecording()
+                                                return@awaitEachGesture
+                                            }
+                                            // Quick tap (released within the hold window) → send text if any.
+                                            val quick = withTimeoutOrNull(180L) { waitForUpOrCancellation() }
+                                            if (quick != null) {
+                                                pressed = false
+                                                if (input.isNotBlank()) sendText()
+                                                return@awaitEachGesture
+                                            }
+                                            // Held past the window → start recording (on-device, no key).
+                                            if (!voice.available || !beginRecording()) { pressed = false; return@awaitEachGesture }
+                                            while (true) {
+                                                val ev = awaitPointerEvent()
+                                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.firstOrNull() ?: break
+                                                if (!locked) {
+                                                    dragY = ch.position.y - startY
+                                                    aboutToCancel = (ch.position.x - startX) <= -cancelPx
+                                                    if (dragY <= -lockPx) { locked = true; chimes.listening() }
+                                                }
+                                                if (!ch.pressed) {
+                                                    pressed = false
+                                                    when {
+                                                        locked -> { /* keep recording hands-free */ }
+                                                        aboutToCancel -> cancelRecording()
+                                                        else -> finishRecording()
+                                                    }
+                                                    break
+                                                }
+                                            }
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Crossfade(targetState = showSend, label = "micSend") { send ->
+                                    Icon(
+                                        painter = painterResource(if (send) R.drawable.ic_send else R.drawable.ic_mic),
+                                        contentDescription = if (send) "Send" else "Hold to talk",
+                                        tint = if (recording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
                             }
-                        }) { Text("Send") }
+                        }
                     }
                 }
                 // Listening glow around the screen edges while recording or wake-listening.
@@ -386,6 +461,101 @@ private fun ListeningGlow(active: Boolean, color: Color) {
                 size = Size(size.width - strokeW, size.height - strokeW),
                 style = Stroke(width = strokeW),
             )
+        }
+    }
+}
+
+/** Pinned "agent is typing / transcribing / speaking" strip that animates IN and OUT. */
+@Composable
+private fun StatusStrip(status: String?, onStopSpeaking: () -> Unit) {
+    var last by remember { mutableStateOf("") }
+    LaunchedEffect(status) { if (status != null) last = status }
+    AnimatedVisibility(
+        visible = status != null,
+        enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+        exit = fadeOut(tween(160)) + shrinkVertically(tween(180)),
+    ) {
+        val speaking = last.startsWith("🔊")
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp), horizontalArrangement = Arrangement.Start) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(16.dp),
+                modifier = if (speaking) Modifier.clickable { onStopSpeaking() } else Modifier,
+            ) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (speaking) {
+                        Box(Modifier.size(13.dp).clip(RoundedCornerShape(3.dp)).background(MaterialTheme.colorScheme.primary))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Speaking — tap to stop", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        Text(
+                            last.trimEnd('…', ' ', '.'),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontStyle = FontStyle.Italic,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        TypingDots(MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Three dots that breathe in sequence — the classic "typing…" indicator. */
+@Composable
+private fun TypingDots(color: Color) {
+    val t = rememberInfiniteTransition(label = "dots")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        for (i in 0 until 3) {
+            val a by t.animateFloat(
+                0.25f, 1f,
+                infiniteRepeatable(tween(500, easing = LinearEasing), RepeatMode.Reverse, initialStartOffset = StartOffset(i * 160)),
+                label = "dot$i",
+            )
+            Box(Modifier.padding(horizontal = 2.dp).size(5.dp).clip(CircleShape).background(color.copy(alpha = a)))
+        }
+    }
+}
+
+/** A red dot that pulses while recording. */
+@Composable
+private fun PulsingDot(color: Color) {
+    val t = rememberInfiniteTransition(label = "rec")
+    val a by t.animateFloat(0.4f, 1f, infiniteRepeatable(tween(700, easing = LinearEasing), RepeatMode.Reverse), label = "recA")
+    val s by t.animateFloat(0.85f, 1.15f, infiniteRepeatable(tween(700, easing = LinearEasing), RepeatMode.Reverse), label = "recS")
+    Box(Modifier.size(12.dp).scale(s).clip(CircleShape).background(color.copy(alpha = a)))
+}
+
+/** Live recording UI that replaces the text field while capturing voice (held or locked). */
+@Composable
+private fun RecordingBar(locked: Boolean, lockProgress: Float, aboutToCancel: Boolean, live: String, onCancel: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+        PulsingDot(MaterialTheme.colorScheme.error)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                when { aboutToCancel -> "Release to cancel"; locked -> "Recording… hands-free"; else -> "Listening…" },
+                color = if (aboutToCancel) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                when { live.isNotBlank() -> live; locked -> "Tap ➤ to send"; else -> "Slide ↑ to lock · ← to cancel" },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (locked) {
+            TextButton(onClick = onCancel) { Text("Cancel") }
+        } else {
+            val hue = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f + 0.65f * lockProgress)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(end = 6.dp).scale(1f + 0.15f * lockProgress)) {
+                Text("🔒", style = MaterialTheme.typography.bodyMedium, color = hue)
+                Text("↑", style = MaterialTheme.typography.labelSmall, color = hue)
+            }
         }
     }
 }
