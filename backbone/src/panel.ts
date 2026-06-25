@@ -106,6 +106,23 @@ function saveClaudeOauthToken(token: string) {
   cfg.brain = { ...(cfg.brain ?? {}), oauthToken: token };
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
 }
+/** This Mac's LAN IP (so the phone can reach the relay over Wi-Fi instead of the USB tunnel). */
+function lanIp(): string | undefined {
+  const ifaces = os.networkInterfaces();
+  for (const name of ["en0", "en1", ...Object.keys(ifaces)]) {
+    for (const a of ifaces[name] ?? []) if (a.family === "IPv4" && !a.internal) return a.address;
+  }
+  return undefined;
+}
+/** Relay address to put in the phone's pairing QR. Defaults to the LAN IP (works off the cable, same
+ *  Wi-Fi); override with PHONE_RELAY_URL (e.g. a Tailscale IP for any network). */
+function phoneRelayUrl(cfgRelayUrl: string): string {
+  if (process.env.PHONE_RELAY_URL) return process.env.PHONE_RELAY_URL;
+  const ip = lanIp();
+  if (!ip) return cfgRelayUrl;
+  try { const u = new URL(cfgRelayUrl); return `http://${ip}:${u.port || "8799"}`; } catch { return `http://${ip}:8799`; }
+}
+
 /** A clean env for spawning `claude` headlessly: drop a stray API key + the *parent* Claude-Code
  *  session vars (which make a nested `claude -p` run credential-less), and inject the saved token. */
 function claudeSpawnEnv(): NodeJS.ProcessEnv {
@@ -339,11 +356,12 @@ const SETUP_PAGE = `<!doctype html>
     <div class="qrbox">
       <img class="qr" src="/pair-qr" alt="Pairing QR code" />
       <ol>
-        <li>Make sure the phone can reach this hub (same network, or USB with the relay reachable).</li>
+        <li>Phone + this Mac on the <b>same Wi-Fi</b> (the QR points the phone at <span id="prelay">this Mac</span>).</li>
         <li>Scan the code in the app's pairing screen.</li>
         <li>This panel turns green when the phone connects.</li>
       </ol>
     </div>
+    <p class="hint">Prefer the USB cable? Run <code>adb reverse tcp:8799 tcp:8799</code>, then set PHONE_RELAY_URL=http://127.0.0.1:8799 and re-pair.</p>
   </div>
 
   <p class="foot">Need the raw controls + event log? <a href="/panel">Open the control panel →</a></p>
@@ -387,6 +405,7 @@ const SETUP_PAGE = `<!doctype html>
     set('pd','pv',s.phone.connected,s.paired&&!s.phone.connected, s.phone.connected?('Connected — '+s.phone.caps+' actions'):(s.paired?'Paired, waiting…':'Not paired — do step 2'));
     document.getElementById('step1').classList.toggle('done',s.agent.connected);
     document.getElementById('step2').classList.toggle('done',s.phone.connected);
+    if(s.phoneRelay){ const pr=document.getElementById('prelay'); if(pr) pr.textContent=s.phoneRelay; }
     const st=document.getElementById('astate');
     // Show WHICH agent is actually running (don't claim a generic success), and never auto-hide
     // the "needs login" message — only a new Connect/Stop click clears it.
@@ -587,6 +606,7 @@ async function main() {
         phone: { connected: caps.length > 0, caps: caps.length },
         paired: !!cfg.peerEdPub,
         relayUrl: cfg.relayUrl,
+        phoneRelay: phoneRelayUrl(cfg.relayUrl),
       });
     }
     if (req.method === "POST" && url.pathname === "/agent/start") {
@@ -629,7 +649,7 @@ async function main() {
       return;
     }
     if (req.method === "GET" && url.pathname === "/pair-qr") {
-      const token = "PAIR:" + Buffer.from(JSON.stringify({ edPub: cfg.self.edPub, fp: cfg.self.fp, relayUrl: cfg.relayUrl })).toString("base64url");
+      const token = "PAIR:" + Buffer.from(JSON.stringify({ edPub: cfg.self.edPub, fp: cfg.self.fp, relayUrl: phoneRelayUrl(cfg.relayUrl) })).toString("base64url");
       QRCode.toString(token, { type: "svg", margin: 1, width: 220 })
         .then((svg) => { res.setHeader("content-type", "image/svg+xml"); res.end(svg); })
         .catch((e) => { res.statusCode = 500; res.end(String(e)); });
