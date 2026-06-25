@@ -452,7 +452,7 @@ const SETUP_PAGE = `<!doctype html>
       const opt=document.querySelector('[data-relay="'+s.relayChoice+'"]');
       if(opt){ document.querySelectorAll('[data-relay]').forEach(x=>x.classList.toggle('sel',x===opt));
         if(s.relayChoice==='anywhere'){ document.getElementById('relayrow').style.display='flex';
-          const ri=document.getElementById('relayinput'); if(!ri.value && /^https?:\/\//.test(s.phoneRelay||'')) ri.value=s.phoneRelay; } } }
+          const ri=document.getElementById('relayinput'); if(!ri.value && (s.phoneRelay||'').startsWith('http')) ri.value=s.phoneRelay; } } }
     const st=document.getElementById('astate');
     if(aOk) st.textContent='now running: '+(s.agent.name||'agent');
     else if(s.agent.connected&&!aReady) st.textContent='connected, but Claude needs sign-in (see below)';
@@ -473,7 +473,7 @@ const SETUP_PAGE = `<!doctype html>
     if(kind==='anywhere'){
       // Prefill with the saved Tailscale address if there is one, and focus so it's obvious what to do.
       const cur=document.getElementById('prelay').textContent||'';
-      if(!relayInput.value && /^https?:\/\//.test(cur)) relayInput.value=cur;
+      if(!relayInput.value && cur.startsWith('http')) relayInput.value=cur;
       relayInput.focus();
     } else setRelay(kind);
   });
