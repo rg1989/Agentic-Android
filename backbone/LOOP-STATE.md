@@ -27,7 +27,7 @@ settings cover it all.
 - [x] 2. Multiple agents — profile list, pair-more, switch in UI + settings. Migration verified. (ace5943)
 - [x] 3. Polish — tap-to-stop speech, long-press copy, **auto-reconnect with backoff**.
 - [x] 4. Hub owns conversation history — persist + replay on connect. Verified (replayed 4 turns).
-- [ ] 5. Wake word (Phase 3) — needs a dependency/key decision (Vosk vs Porcupine vs no-dep). ASK USER.
+- [x] 5. Wake word (Phase 3) — **Vosk** (offline), user-chosen. Always-on WakeWordService + model.
 
 ## Log
 - init: Bluetooth icon = PhoneAgentService.kt:146 `stat_sys_data_bluetooth`. No launcher icon / no

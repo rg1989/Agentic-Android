@@ -1,0 +1,4 @@
+
+
+# Vosk wake-word model (fetched by the ensureVoskModel gradle task; ~40MB, not committed)
+app/src/main/assets/vosk-model-*/

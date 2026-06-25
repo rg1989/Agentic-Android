@@ -16,11 +16,15 @@ object SettingsStore {
     private const val KEY_DISABLED = "disabled_caps"
     private const val KEY_CHIMES = "chimes"
     private const val KEY_VOICE = "voice_replies"
+    private const val KEY_WAKE = "wake_word"
+    private const val KEY_WAKE_PHRASE = "wake_phrase"
 
     val theme = MutableStateFlow("system")
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
     val chimes = MutableStateFlow(true)
     val voiceReplies = MutableStateFlow(true) // default on — the user asked for spoken replies
+    val wakeWord = MutableStateFlow(false)    // default off — an always-on mic is opt-in
+    val wakePhrase = MutableStateFlow("hey agent")
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -32,11 +36,24 @@ object SettingsStore {
         disabledCaps.value = p.getStringSet(KEY_DISABLED, emptySet())?.toSet() ?: emptySet()
         chimes.value = p.getBoolean(KEY_CHIMES, true)
         voiceReplies.value = p.getBoolean(KEY_VOICE, true)
+        wakeWord.value = p.getBoolean(KEY_WAKE, false)
+        wakePhrase.value = p.getString(KEY_WAKE_PHRASE, "hey agent") ?: "hey agent"
     }
 
     fun setVoiceReplies(on: Boolean) {
         voiceReplies.value = on
         prefs?.edit()?.putBoolean(KEY_VOICE, on)?.apply()
+    }
+
+    fun setWakeWord(on: Boolean) {
+        wakeWord.value = on
+        prefs?.edit()?.putBoolean(KEY_WAKE, on)?.apply()
+    }
+
+    fun setWakePhrase(phrase: String) {
+        val p = phrase.lowercase() // matching trims/normalizes; don't fight typing here
+        wakePhrase.value = p
+        prefs?.edit()?.putString(KEY_WAKE_PHRASE, p)?.apply()
     }
 
     fun setTheme(v: String) {

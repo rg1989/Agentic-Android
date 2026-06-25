@@ -270,12 +270,14 @@ class MainActivity : ComponentActivity() {
                                                 context, Manifest.permission.RECORD_AUDIO,
                                             ) == PackageManager.PERMISSION_GRANTED
                                             if (granted) {
+                                                WakeWordService.instance?.pause() // free the mic for hold-to-talk
                                                 chimes.listening()
                                                 recording = true
                                                 voice.start()
                                                 tryAwaitRelease()
                                                 voice.stop() // onFinal/onError clears `recording`
                                                 PhoneAgentService.instance?.setStatus("Transcribing…")
+                                                WakeWordService.instance?.resume()
                                             } else {
                                                 micPermission.launch(Manifest.permission.RECORD_AUDIO)
                                             }

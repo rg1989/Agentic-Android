@@ -52,7 +52,18 @@ class PhoneAgentService : Service() {
         Agents.init(this)
         tts = TextToSpeech(this).also { it.init { } }
         startForeground(1, buildNotification())
+        // Start/stop the always-on wake-word service to follow the setting (needs mic permission).
+        scope.launch {
+            SettingsStore.wakeWord.collect { on ->
+                if (on && hasMicPermission()) WakeWordService.start(this@PhoneAgentService)
+                else WakeWordService.stop(this@PhoneAgentService)
+            }
+        }
     }
+
+    private fun hasMicPermission(): Boolean =
+        androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
 
     override fun onDestroy() {
         if (instance === this) instance = null
@@ -185,6 +196,7 @@ class PhoneAgentService : Service() {
     /** Stop any in-progress spoken reply (used for tap-to-stop / barge-in). */
     fun stopSpeaking() {
         tts?.stop()
+        speaking.value = false
         if (status.value == "🔊 Speaking…") status.value = null
     }
 
@@ -195,7 +207,11 @@ class PhoneAgentService : Service() {
         if (say.isBlank()) return
         android.util.Log.i("AgentTTS", "speaking: ${say.take(80)}")
         status.value = "🔊 Speaking…"
-        tts?.speak(say) { if (status.value == "🔊 Speaking…") status.value = null }
+        speaking.value = true
+        tts?.speak(say) {
+            speaking.value = false
+            if (status.value == "🔊 Speaking…") status.value = null
+        }
     }
 
     /** Phone-local transient status (e.g. "Transcribing…") shown in the chat. */
@@ -221,6 +237,8 @@ class PhoneAgentService : Service() {
         val capabilities = MutableStateFlow<List<CapInfo>>(emptyList())
         /** Transient "what's happening now" label (Transcribing…/Sending…/Thinking…/running an action). */
         val status = MutableStateFlow<String?>(null)
+        /** True while a spoken reply is playing — the wake-word service ignores input meanwhile. */
+        val speaking = MutableStateFlow(false)
     }
 
     private fun buildNotification(): Notification {

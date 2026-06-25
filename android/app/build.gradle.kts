@@ -60,5 +60,27 @@ dependencies {
     // Location capability
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
+    // Wake word — offline, on-device speech recognition (Vosk)
+    implementation("com.alphacephei:vosk-android:0.3.47")
+
     testImplementation("junit:junit:4.13.2")
 }
+
+// Fetch the Vosk wake-word model into assets if absent (kept out of git; ~40MB). Runs before build.
+val voskModelName = "vosk-model-small-en-us-0.15"
+val voskModelDir = file("src/main/assets/$voskModelName")
+val ensureVoskModel = tasks.register("ensureVoskModel") {
+    onlyIf { !voskModelDir.exists() }
+    doLast {
+        val zip = layout.buildDirectory.file("$voskModelName.zip").get().asFile
+        zip.parentFile.mkdirs()
+        val assets = file("src/main/assets").apply { mkdirs() }
+        ant.withGroovyBuilder {
+            "get"("src" to "https://alphacephei.com/vosk/models/$voskModelName.zip", "dest" to zip.absolutePath)
+            "unzip"("src" to zip.absolutePath, "dest" to assets.absolutePath)
+        }
+        // Vosk's StorageService.sync() needs a `uuid` marker the public model zip omits.
+        voskModelDir.resolve("uuid").writeText(voskModelName)
+    }
+}
+tasks.named("preBuild") { dependsOn(ensureVoskModel) }

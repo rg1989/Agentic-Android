@@ -1,9 +1,13 @@
 package com.agenticandroid
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -33,6 +38,11 @@ import com.agenticandroid.pairing.PairingActivity
 
 /** Proper settings page: agents, theme (system/light/dark), voice, and which actions are allowed. */
 class SettingsActivity : ComponentActivity() {
+    private val micPerm =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted && SettingsStore.wakeWord.value) WakeWordService.start(this)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SettingsStore.init(this)
@@ -43,6 +53,8 @@ class SettingsActivity : ComponentActivity() {
                 val disabled by SettingsStore.disabledCaps.collectAsState()
                 val chimes by SettingsStore.chimes.collectAsState()
                 val voiceReplies by SettingsStore.voiceReplies.collectAsState()
+                val wakeWord by SettingsStore.wakeWord.collectAsState()
+                val wakePhrase by SettingsStore.wakePhrase.collectAsState()
                 val caps by PhoneAgentService.capabilities.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
@@ -147,6 +159,42 @@ class SettingsActivity : ComponentActivity() {
                                     )
                                 }
                                 Switch(checked = chimes, onCheckedChange = { SettingsStore.setChimes(it) })
+                            }
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clickable {
+                                        val on = !wakeWord
+                                        SettingsStore.setWakeWord(on)
+                                        if (on && ContextCompat.checkSelfPermission(this@SettingsActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                                            micPerm.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Wake word")
+                                    Text(
+                                        "Listen all the time and respond to a spoken phrase, hands-free (uses the mic and more battery).",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(checked = wakeWord, onCheckedChange = { on ->
+                                    SettingsStore.setWakeWord(on)
+                                    if (on && ContextCompat.checkSelfPermission(this@SettingsActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                                        micPerm.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                })
+                            }
+                            if (wakeWord) {
+                                OutlinedTextField(
+                                    value = wakePhrase,
+                                    onValueChange = { SettingsStore.setWakePhrase(it) },
+                                    label = { Text("Wake phrase") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                                )
                             }
                             HorizontalDivider()
                             SectionLabel("Actions the agent can use")
