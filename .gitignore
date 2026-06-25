@@ -13,3 +13,6 @@ android/app/google-services.json
 
 # IDE
 .idea/
+
+# stack run logs
+.logs/
