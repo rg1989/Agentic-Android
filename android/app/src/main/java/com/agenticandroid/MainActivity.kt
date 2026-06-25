@@ -51,12 +51,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -80,6 +82,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lock
@@ -112,6 +115,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import com.agenticandroid.pairing.PairingActivity
 
@@ -146,9 +150,9 @@ class MainActivity : ComponentActivity() {
                 val listState = rememberLazyListState()
                 val context = LocalContext.current
                 val clipboard = LocalClipboardManager.current
-                LaunchedEffect(messages.size, status) {
-                    val target = if (status != null) messages.size else messages.size - 1
-                    if (target >= 0) listState.animateScrollToItem(target)
+                val scope = rememberCoroutineScope()
+                LaunchedEffect(messages.size) {
+                    if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
                 }
                 val active = profiles.firstOrNull { it.id == activeId }
                 val who = agentName ?: active?.name ?: if (paired) "your agent" else "no agent"
@@ -295,10 +299,11 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // transcript
+                    // transcript (Box wraps it so a "scroll to latest" button can float at the bottom-center)
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     ) {
                         if (messages.isEmpty()) {
                             item {
@@ -353,6 +358,29 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    // floating "scroll to latest" button, centered at the bottom of the transcript;
+                    // pops in only when scrolled up (canScrollForward = there's content below).
+                    val showScrollDown = listState.canScrollForward
+                    val sdAlpha by animateFloatAsState(if (showScrollDown) 1f else 0f, tween(150), label = "scrollDown")
+                    if (sdAlpha > 0.01f) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            tonalElevation = 3.dp,
+                            shadowElevation = 6.dp,
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp)
+                                .size(40.dp)
+                                .graphicsLayer { alpha = sdAlpha; scaleX = 0.7f + 0.3f * sdAlpha; scaleY = 0.7f + 0.3f * sdAlpha }
+                                .clickable(enabled = showScrollDown) {
+                                    scope.launch { listState.animateScrollToItem(messages.lastIndex.coerceAtLeast(0)) }
+                                },
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Scroll to latest", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    } // end transcript Box
 
                     // `/` command palette: type "/" to browse the agent's skills & commands, like the TUI.
                     val slashActive = !recording && input.startsWith("/") && !input.contains(' ')

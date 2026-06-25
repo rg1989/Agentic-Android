@@ -176,16 +176,20 @@ function probeAuth(): Promise<{ ok: boolean; command?: string }> {
   });
 }
 
+// The agent's conversation memory. Each `claude -p` is stateless on its own, so we keep ONE Claude
+// session alive across turns via --resume — otherwise the agent forgets what it just said (e.g. offers
+// to "peek at a session", you say "yeah peek", and a fresh amnesiac process grabs the camera instead).
+let sessionId: string | undefined;
+/** Start a fresh conversation (e.g. on /clear or /reset). */
+function resetSession() { sessionId = undefined; }
+
 /** Run one turn through the user's CLI agent. Defaults assume `claude -p` JSON output. */
 function runTurn(text: string): Promise<string> {
   return new Promise((resolve) => {
-    const args = [
-      "-p", "--output-format", "json",
-      "--mcp-config", mcpConfig(),
-      "--dangerously-skip-permissions", // unattended: don't prompt for each phone tool
-      "--append-system-prompt", SYSTEM,
-      text,
-    ];
+    const args = ["-p", "--output-format", "json", "--mcp-config", mcpConfig(), "--dangerously-skip-permissions"];
+    if (sessionId) args.push("--resume", sessionId);      // continue the same conversation (memory!)
+    else args.push("--append-system-prompt", SYSTEM);     // seed identity/instructions on the first turn
+    args.push(text);
     const child = spawn(CLI, args, { env: claudeEnv() });
     let out = "", err = "";
     child.stdout.on("data", (d) => (out += d));
@@ -194,8 +198,11 @@ function runTurn(text: string): Promise<string> {
     child.on("close", () => {
       try {
         const j = JSON.parse(out);
+        if (typeof j.session_id === "string") sessionId = j.session_id; // remember the thread for next turn
         if (j.is_error) {
           const msg = String(j.result ?? "unknown");
+          // A stale/expired session can't be resumed — drop it so the next turn starts cleanly.
+          if (sessionId && /session|resume|no conversation|not found/i.test(msg)) resetSession();
           if (NEEDS_LOGIN.test(msg)) resolve(LOGIN_HELP);
           else resolve(`Agent error: ${msg}`);
         } else resolve(String(j.result ?? "(no reply)"));
@@ -236,6 +243,12 @@ async function main() {
     let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
     if (m.t === "user") {
       const text = String(m.text ?? "");
+      // Let the user start a fresh conversation (these TUI commands are no-ops through `claude -p`).
+      if (/^\/(clear|reset|new)\s*$/i.test(text.trim())) {
+        resetSession();
+        ws.send(JSON.stringify({ t: "event", topic: "assistant_message", data: { text: "Started a fresh conversation — earlier messages are forgotten." } }));
+        return;
+      }
       ws.send(JSON.stringify({ t: "event", topic: "agent_status", data: { label: "Thinking…" } }));
       void runTurn(text).then((reply) => {
         // Self-heal readiness from the REAL result: a fresh token starting to work (or breaking) flips
