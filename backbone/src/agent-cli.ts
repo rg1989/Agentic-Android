@@ -9,10 +9,21 @@
  * point is that auth lives entirely in the user's own tool.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { WebSocket } from "ws";
+
+/** The headless token saved via the setup UI (~/.agentic-android/agent.json brain.oauthToken). */
+function savedToken(): string | undefined {
+  try {
+    const dir = process.env.AGENTIC_HOME ?? path.join(os.homedir(), ".agentic-android");
+    const t = JSON.parse(fs.readFileSync(path.join(dir, "agent.json"), "utf8")).brain?.oauthToken;
+    if (typeof t === "string" && t.trim()) return t.trim();
+  } catch { /* */ }
+  return process.env.CLAUDE_CODE_OAUTH_TOKEN;
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HUB_WS = process.env.HUB_URL ?? `ws://127.0.0.1:${process.env.AGENT_PORT ?? 8124}`;
@@ -54,6 +65,7 @@ function runTurn(text: string): Promise<string> {
     // If launched under a Claude Code session, drop the child-session vars so `claude` authenticates
     // with its own (subscription/token) creds instead of running credential-less.
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || (k.startsWith("CLAUDE_CODE_") && k !== "CLAUDE_CODE_OAUTH_TOKEN")) delete env[k];
+    const tk = savedToken(); if (tk) env.CLAUDE_CODE_OAUTH_TOKEN = tk;
     const child = spawn(CLI, args, { env });
     let out = "", err = "";
     child.stdout.on("data", (d) => (out += d));
