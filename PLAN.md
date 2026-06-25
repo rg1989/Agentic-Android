@@ -21,10 +21,10 @@ today, another tomorrow) and the **phone/app** (the user's device + input surfac
 Neither the agent nor the phone owns state — the **hub** does. Swapping the agent or the app must
 not lose anything, because the hub holds it. Flow: **phone ⇄ hub ⇄ agent**.
 
-**Current reality (honest):** the hub and the agent are still the *same process* — `panel.ts` owns
-the bus *and* runs the brain, and the `relay` is the dumb transport both sides dial into. Target:
-the hub is a standalone service exposing an agent-facing interface; agents connect in and are
-swapped without touching the hub. Tracked as **Phase H**.
+**Current reality:** the hub (`panel.ts`) and the agent (`agent.ts`) are **separate processes** — the
+agent dials the hub's local WebSocket (`:8124`) and is swapped without touching the hub or re-pairing.
+The hub owns config, event log, media, and now the conversation. The `relay` is the dumb transport
+both sides reach. Remaining for Phase H: run the hub as a managed OS service (launchd/systemd).
 
 ---
 
@@ -52,35 +52,34 @@ Make a single exchange feel alive. No new dependencies.
 - [x] **Settings → Voice & sounds**: Chimes on/off. Verified persists to disk both ways
       (`agent_settings.xml`). (Audible test = user; like real STT/TTS.)
 
-## Phase 2 — Spoken replies (TTS) + barge-in
-- [ ] Speak `assistant_message` via Android `TextToSpeech` (Settings: Voice replies on/off).
-- [ ] "Speaking…" status + tap-to-stop; stop TTS when a new turn starts.
-- [ ] Settings: pick TTS voice/locale, speech rate.
+## Phase 2 — Spoken replies (TTS) + barge-in  ← **DONE (device-verified)**
+- [x] Speak `assistant_message` via Android `TextToSpeech` (Settings: Speak replies on/off, default on).
+- [x] **Speech cleaning**: a separate `SpeechText.forSpeech()` pass strips JSON/braces/URLs/emoji and
+      shortens long numbers for the *ear only* (chat keeps full text). Unit-tested.
+- [x] "🔊 Speaking…" status + tap-to-stop; barge-in stops TTS when a new turn starts.
+- [ ] Settings: pick TTS voice/locale, speech rate. (later)
 
-## Phase 3 — Always-on wake word (persistent, background)
-The headline feature. A foreground service listens for a wake phrase, then runs the
-listen→transcribe→send→reply→speak loop hands-free, with a chime at each state transition.
-- **Engine decision (open, see below):** default **Vosk** (offline, open-source, no key/cloud —
-  fits the self-hosted ethos) for hotword spotting; keep SpeechRecognizer for command capture so
-  we don't run heavy STT continuously. Alt: Picovoice Porcupine (smaller/better, needs free key).
-- [ ] Foreground `WakeWordService` (own notification, mic ownership, hard-mute respected — the
-      `micMuted` flag already exists in `PhoneAgentService`).
-- [ ] State machine: idle → wake-detected (chime) → listening (chime) → transcribing → sending →
-      thinking → responding (speak). Each transition chimes + updates the chat status.
-- [ ] Battery/Doze handling; restart on boot (`RECEIVE_BOOT_COMPLETED` already declared).
-- [ ] Settings → Voice & sounds: Wake word on/off, wake phrase, sensitivity, per-state chime
-      on/off, "listen timeout".
+## Phase 3 — Always-on wake word  ← **DONE (Vosk; listen path device-verified)**
+Engine: **Vosk** (offline, on-device, no key) — user-chosen. Vosk does both hotword spotting and
+command capture in one continuous stream (no mic handoff).
+- [x] Foreground `WakeWordService` (microphone FGS, own notification). Loads
+      `vosk-model-small-en-us-0.15` (fetched by a gradle task, gitignored; +`uuid` marker).
+- [x] On the wake phrase → capture the rest of the utterance (or the next one) → `sendUserMessage`.
+      Half-duplex: ignores the agent's own TTS (`speaking` flag), paused while hold-to-talk owns the mic.
+- [x] Settings → Voice & sounds: Wake word on/off (opt-in, off by default) + editable wake phrase.
+- [ ] Per-state chimes / sensitivity / listen-timeout knobs; boot restart. (later)
+- Note: "speak the phrase → triggers" is voice/hardware-dependent (user-verified). Parsing unit-tested;
+  model-load + listen path verified via logcat.
 
-## Phase 4 — Multiple agents
-- [ ] **Data model**: replace single pairing with a list of `AgentProfile {id, name, relayUrl,
-      peerEdPub}` + an `activeAgentId`. The phone keeps **one** identity keypair; each agent knows
-      the phone's pubkey. (Migrate the existing single pairing into profile #1.)
-- [ ] **Pair more**: pairing flow appends a profile instead of overwriting (drop the TOFU
-      "first wins" lock; key it per relay).
-- [ ] **Switch**: a picker in the header (tap the agent name) + a list in Settings → Agents.
-      Switching rebuilds the `BusEndpoint` for the selected profile and reconnects.
-- [ ] **Manage**: rename / remove an agent; show connection state per profile.
-- [ ] (Later) keep several connected at once and route per message.
+## Phase 4 — Multiple agents  ← **DONE (one-active; migration device-verified)**
+- [x] **Data model**: `Agents` store — list of `AgentProfile {id, name, peerEdPub, relayUrl}` +
+      `activeId` (encrypted). One identity keypair. Legacy single pairing migrated to profile #1.
+- [x] **Pair more**: pairing appends/updates a profile (keyed by peer fingerprint) and reconnects.
+- [x] **Switch**: header picker (tap the agent name) + Settings → Agents. Switching rebuilds the
+      `BusEndpoint` (fresh registry) and reconnects; the agent's announced name is saved on the profile.
+- [x] **Manage**: Forget an agent; the active profile shows the live connection state.
+- [ ] (Later) keep several connected at once and route per message. Two-distinct-agent switching
+      reuses the verified connect path but needs a second paired hub to exercise live.
 
 ## Phase H — Make the hub a real, separate service (architectural)
 The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
@@ -91,16 +90,18 @@ The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
       the agent → hub survives + `/say` returns 503; restart → reconnects, full loop works (battery,
       photo, identity, status). Brain talks only to an `AgentBus` interface — no bus/blob/media access.
 - [x] Phone connects to the hub; the hub mediates and (for media) persists every exchange.
-- [~] **Hub owns state**: config, event log, **media** under `~/.agentic-android/` (media owned by
-      the hub now). Conversation history still in-process — move it into the hub next.
+- [x] **Hub owns state**: config, event log, **media**, and now **conversation history**
+      (`conversation.jsonl`, per agent) under `~/.agentic-android/`. The hub replays history to the
+      phone on connect (`whoami` → `history` event); the phone renders it. Device-verified.
 - [ ] **Run as a managed service** on the machine (launchd/systemd): auto-start, restart on crash,
-      relay folded in or beneath the hub.
+      relay folded in or beneath the hub. (The *phone* now auto-reconnects with backoff.)
 - [ ] Multiple agents connectable at once; route/select per the multi-agent work (Phase 4).
 
 ## Phase 5 — Polish
+- [x] Tap-to-stop spoken replies; long-press a message to copy.
+- [x] Durable connection: auto-reconnect with exponential backoff on a dropped link.
 - [ ] Animated typing dots, haptics on state changes, message timestamps.
 - [ ] Per-state custom chime sounds; "do not disturb" windows for the wake word.
-- [ ] Retry/offline affordances in the chat.
 
 ---
 
@@ -110,14 +111,12 @@ The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
 | Theme (system/light/dark) | 0 | [x] |
 | Actions the agent can use (per-capability on/off) | 0 | [x] |
 | Chimes on/off | 1 | [x] |
-| Voice replies (TTS) on/off | 2 | [ ] |
+| Speak replies (TTS) on/off | 2 | [x] |
 | TTS voice / rate | 2 | [ ] |
-| Wake word on/off | 3 | [ ] |
-| Wake phrase | 3 | [ ] |
-| Wake sensitivity | 3 | [ ] |
-| Per-state chime on/off | 3 | [ ] |
-| Listen timeout | 3 | [ ] |
-| Agents: list / add / switch / rename / remove | 4 | [ ] |
+| Wake word on/off | 3 | [x] |
+| Wake phrase | 3 | [x] |
+| Wake sensitivity / listen timeout / per-state chime | 3 | [ ] |
+| Agents: list / add / switch / forget | 4 | [x] |
 
 ## Protocol additions (brain ↔ phone, over the existing bus)
 - `agent_status` (brain→phone): `{ label: string }` — transient "what I'm doing now". Cleared by
@@ -132,6 +131,9 @@ The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
    add concurrent later.
 
 ## Where to resume
-Pointer lives here + in `backbone/LOOP-STATE.md`. Each phase's checklist is the resumable unit:
-pick the first `[ ]` in the lowest unfinished phase. **Next: Phase 2 — Spoken replies (TTS).**
-(Phase 1 done & device-verified.)
+Pointer lives here + in `backbone/LOOP-STATE.md`. Phases 1–5 are done (one-active multi-agent;
+wake word offline via Vosk; TTS with speech-cleaning; hub-owned history; auto-reconnect). **What's
+left:** run the hub as a managed service (Phase H — launchd/systemd); multiple agents connected at
+once + per-message routing (Phase 4 later); the smaller knobs (TTS voice/rate, wake sensitivity/
+timeout, typing dots/haptics/timestamps). Set `ANTHROPIC_API_KEY` (agent.json `brain`) to swap the
+keyword stub for real Claude.
