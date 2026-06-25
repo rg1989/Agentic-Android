@@ -39,6 +39,8 @@ function configDir(): string {
 }
 function configPath(): string { return path.join(configDir(), "agent.json"); }
 function eventsPath(): string { return path.join(configDir(), "panel-events.jsonl"); }
+/** The agent's consolidated photo folder, next to its config: ~/.agentic-android/media/photos/ */
+function mediaDir(): string { return path.join(configDir(), "media", "photos"); }
 
 // ---------- persistent event log ----------
 const events: LogEvent[] = [];
@@ -262,6 +264,22 @@ async function main() {
     getCaps: () => caps,
     log: (ty, s, d) => logEvent(ty as EventType, s, d),
     getCfg: readBrainCfg,
+    // The HUB persists media that flows through it (the hub owns state, not the replaceable agent):
+    // ~/.agentic-android/media/photos. Available to the user and to whatever agent is connected.
+    saveMedia: async (blobId, contentType) => {
+      try {
+        const bytes = await bus.getBlob(blobId);
+        fs.mkdirSync(mediaDir(), { recursive: true });
+        const ext = contentType.includes("png") ? "png" : "jpg";
+        const file = path.join(mediaDir(), `photo_${Date.now()}.${ext}`);
+        fs.writeFileSync(file, Buffer.from(bytes));
+        logEvent("response", `saved photo → ${file}`, { file, bytes: bytes.length });
+        return file;
+      } catch (e) {
+        logEvent("error", "saveMedia failed", { error: String(e) });
+        return null;
+      }
+    },
   });
 
   // inbound phone events: a user's voice/text message -> the brain; everything else -> log (+ optional shell agent)

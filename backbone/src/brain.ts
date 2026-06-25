@@ -21,6 +21,18 @@ export interface BrainDeps {
   getCaps: () => Cap[];
   log: (type: string, summary: string, detail?: unknown) => void;
   getCfg: () => BrainCfg;
+  /** Hand a media blob (e.g. a photo) to the HUB to persist in its media store. The hub owns state. */
+  saveMedia?: (blobId: string, contentType: string) => Promise<string | null>;
+}
+
+/** If a tool result carries an image blob, save it to the agent's media folder. */
+async function persistBlobIfImage(deps: BrainDeps, r: { status: string; result?: unknown }): Promise<string | null> {
+  if (!deps.saveMedia || r.status !== "ok" || !r.result || typeof r.result !== "object") return null;
+  const res = r.result as { blob_id?: string; content_type?: string };
+  if (res.blob_id && (res.content_type ?? "").startsWith("image/")) {
+    return deps.saveMedia(res.blob_id, res.content_type ?? "image/jpeg");
+  }
+  return null;
 }
 
 const DEFAULT_SYSTEM =
@@ -107,6 +119,7 @@ async function anthropicLoop(deps: BrainDeps, userText: string, cfg: BrainCfg, k
       deps.bus.event("agent_status", { label: friendlyStatus(method) });
       const r = await deps.bus.request(method, (block.input ?? {}) as Record<string, unknown>);
       deps.log(r.status === "ok" ? "response" : "error", `${method} ${r.status}`, r.status === "ok" ? r.result : r.error);
+      await persistBlobIfImage(deps, r);
       results.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(r.status === "ok" ? r.result : r.error) });
     }
     messages.push({ role: "user", content: results });
@@ -123,6 +136,7 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string> {
     deps.bus.event("agent_status", { label: friendlyStatus(method) });
     const r = await deps.bus.request(method, args);
     deps.log(r.status === "ok" ? "response" : "error", `${method} ${r.status}`, r.status === "ok" ? r.result : r.error);
+    await persistBlobIfImage(deps, r);
     return r;
   };
   const methods = new Set(deps.getCaps().map((c) => c.method));

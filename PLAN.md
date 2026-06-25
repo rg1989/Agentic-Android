@@ -6,9 +6,25 @@ hold-to-talk), it chimes to tell you it's listening, transcribes, shows what it'
 agents** (one per computer) and switch between them from the UI. Everything tunable lives in
 **Settings**.
 
-Architecture (unchanged): **you → agent(s) → phone**. The agent (a self-hosted/cloud brain) owns
-the bus and drives the phone; the phone app is your input/output surface; the control panel is
-monitoring. This plan only adds to the phone app + the brain's event vocabulary.
+## Architecture — the hub is the glue (read this first)
+
+The system is **glue** between two **replaceable** things: the **agent** (any LLM brain — Claude
+today, another tomorrow) and the **phone/app** (the user's device + input surface). The glue is the
+**hub**: a persistent service on the machine that
+
+- the **phone connects to** (the app),
+- the **agent connects to** (a replaceable client),
+- **holds all state** — config, event history, conversation, and media (photos) — in one place
+  under `~/.agentic-android/`, and
+- **mediates everything** between the user (on the phone) and the agent.
+
+Neither the agent nor the phone owns state — the **hub** does. Swapping the agent or the app must
+not lose anything, because the hub holds it. Flow: **phone ⇄ hub ⇄ agent**.
+
+**Current reality (honest):** the hub and the agent are still the *same process* — `panel.ts` owns
+the bus *and* runs the brain, and the `relay` is the dumb transport both sides dial into. Target:
+the hub is a standalone service exposing an agent-facing interface; agents connect in and are
+swapped without touching the hub. Tracked as **Phase H**.
 
 ---
 
@@ -65,6 +81,18 @@ listen→transcribe→send→reply→speak loop hands-free, with a chime at each
       Switching rebuilds the `BusEndpoint` for the selected profile and reconnects.
 - [ ] **Manage**: rename / remove an agent; show connection state per profile.
 - [ ] (Later) keep several connected at once and route per message.
+
+## Phase H — Make the hub a real, separate service (architectural)
+The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
+- [~] **Hub owns state**: config, event log, conversation history, **media** all live under
+      `~/.agentic-android/`. Media store landed this turn (`media/photos/`); history/conversation
+      still in-process.
+- [ ] **Split the agent out of the hub**: define an agent-facing interface (local socket/HTTP/WS)
+      the brain connects to, instead of the brain running inside `panel.ts`. Swapping agents =
+      pointing a different agent at the hub; nothing else changes.
+- [ ] **Run as a managed service** on the machine (launchd/systemd): auto-start, restart on crash,
+      relay folded in or beneath the hub.
+- [ ] Phone connects to the hub; the hub mediates and persists every user⇄agent exchange.
 
 ## Phase 5 — Polish
 - [ ] Animated typing dots, haptics on state changes, message timestamps.
