@@ -11,6 +11,8 @@
     "hub": "tsx src/panel.ts",
     "panel": "tsx src/panel.ts",
     "agent": "tsx src/agent.ts",
+    "agent:claude": "tsx src/agent-cli.ts",
+    "mcp:phone": "tsx src/phone-mcp.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

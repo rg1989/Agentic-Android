@@ -179,8 +179,10 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string> {
     await call("ui.global", { action: "home" });
     return `🏠 Went to the home screen.`;
   }
-  // default: list what I can do
-  return `No LLM key set, so I'm running the keyword brain (set ANTHROPIC_API_KEY for the real Claude). ` +
-    `Try: "take a photo", "battery?", "turn on the flashlight", "ring my phone", "screenshot", "where am I". ` +
-    `I have ${deps.getCaps().length} phone capabilities.`;
+  // default: introduce myself + what I can do (no API key required to use the system —
+  // connect your own agent for a real brain; this built-in one is just a keyword fallback).
+  return `Hi — I'm the built-in basic agent (keywords, no AI model). For a real brain, connect your ` +
+    `own agent on your machine (e.g. your Claude — your subscription, no API key needed). ` +
+    `Meanwhile I can: "take a photo", "battery?", "flashlight on", "ring my phone", "screenshot", "where am I". ` +
+    `(${deps.getCaps().length} phone tools.)`;
 }

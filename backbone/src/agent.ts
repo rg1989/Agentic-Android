@@ -36,7 +36,7 @@ function displayName(): string {
   const c = readBrainCfg();
   if (c.name) return c.name;
   const hasKey = !!process.env[c.apiKeyEnv || "ANTHROPIC_API_KEY"];
-  return c.provider === "anthropic" && hasKey ? "Claude" : "Keyword agent";
+  return c.provider === "anthropic" && hasKey ? "Claude" : "Basic agent";
 }
 
 async function main() {
