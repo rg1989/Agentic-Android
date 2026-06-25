@@ -96,14 +96,17 @@ function writeAgentCfg(next: AgentCfg) {
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
 }
 
+/** Tokens are base64url-ish and never contain whitespace; copying one out of a terminal often wraps
+ * it and injects spaces/newlines mid-string, which silently 401s. Strip ALL whitespace, not just ends. */
+function cleanToken(t: string): string { return t.replace(/\s+/g, ""); }
 /** Headless Claude auth token (from `claude setup-token`), if the user saved one. */
 function claudeOauthToken(): string | undefined {
-  try { const t = loadCfg().brain?.oauthToken; if (typeof t === "string" && t.trim()) return t.trim(); } catch { /* */ }
-  return process.env.CLAUDE_CODE_OAUTH_TOKEN || undefined;
+  try { const t = loadCfg().brain?.oauthToken; if (typeof t === "string" && cleanToken(t)) return cleanToken(t); } catch { /* */ }
+  return process.env.CLAUDE_CODE_OAUTH_TOKEN ? cleanToken(process.env.CLAUDE_CODE_OAUTH_TOKEN) : undefined;
 }
 function saveClaudeOauthToken(token: string) {
   const cfg = loadCfg();
-  cfg.brain = { ...(cfg.brain ?? {}), oauthToken: token };
+  cfg.brain = { ...(cfg.brain ?? {}), oauthToken: cleanToken(token) };
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
 }
 /** This Mac's LAN IP (so the phone can reach the relay over Wi-Fi instead of the USB tunnel). */

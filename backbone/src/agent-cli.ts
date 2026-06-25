@@ -20,9 +20,11 @@ function savedToken(): string | undefined {
   try {
     const dir = process.env.AGENTIC_HOME ?? path.join(os.homedir(), ".agentic-android");
     const t = JSON.parse(fs.readFileSync(path.join(dir, "agent.json"), "utf8")).brain?.oauthToken;
-    if (typeof t === "string" && t.trim()) return t.trim();
+    // Strip ALL whitespace, not just ends: copying a token out of a terminal often wraps it and
+    // injects spaces/newlines mid-string, which silently 401s. Tokens never contain whitespace.
+    if (typeof t === "string" && t.replace(/\s+/g, "")) return t.replace(/\s+/g, "");
   } catch { /* */ }
-  return process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  return process.env.CLAUDE_CODE_OAUTH_TOKEN?.replace(/\s+/g, "");
 }
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
