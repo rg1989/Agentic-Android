@@ -39,7 +39,12 @@ class VoiceInput(
         sr?.setRecognitionListener(object : RecognitionListener {
             override fun onResults(results: Bundle?) {
                 append(results)
-                if (listening && !finishing) scheduleRestart() else deliverFinal()
+                // Keep the live bar in sync: short segments may finalize with few/no partials,
+                // so push the accumulated text here too — otherwise it vanishes between segments.
+                if (listening && !finishing) {
+                    if (acc.isNotEmpty()) onPartial(acc.toString())
+                    scheduleRestart()
+                } else deliverFinal()
             }
             override fun onPartialResults(partial: Bundle?) {
                 val seg = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()

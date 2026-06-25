@@ -32,8 +32,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -135,7 +139,14 @@ class PairingActivity : ComponentActivity() {
                     ) {
                         when {
                             isSuccess -> {
-                                Text("Paired ✓", style = MaterialTheme.typography.headlineSmall)
+                                Icon(
+                                    Icons.Rounded.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(56.dp),
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text("Paired", style = MaterialTheme.typography.headlineSmall)
                                 Spacer(Modifier.height(8.dp))
                                 Text("Your phone is linked to the agent.", style = MaterialTheme.typography.bodyMedium)
                                 Spacer(Modifier.height(20.dp))

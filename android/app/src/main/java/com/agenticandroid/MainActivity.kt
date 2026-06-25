@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -74,12 +75,23 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.PersonAddAlt
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.res.painterResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Spring
@@ -203,8 +215,9 @@ class MainActivity : ComponentActivity() {
                         Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(if (!paired) "⚪" else if (connected) "🟢" else "🟡", style = MaterialTheme.typography.labelSmall)
-                        Spacer(Modifier.width(7.dp))
+                        val dotColor = if (!paired) Color(0xFF9AA0A6) else if (connected) Color(0xFF34C759) else Color(0xFFFFB020)
+                        Box(Modifier.size(9.dp).clip(CircleShape).background(dotColor))
+                        Spacer(Modifier.width(8.dp))
                         Box(Modifier.weight(1f)) {
                             var menuOpen by remember { mutableStateOf(false) }
                             Row(
@@ -212,18 +225,22 @@ class MainActivity : ComponentActivity() {
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(who, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                                if (paired) Text(" ▾", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                if (paired) Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Switch agent", tint = Color.Gray)
                             }
                             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                                 profiles.forEach { p ->
                                     DropdownMenuItem(
-                                        text = { Text((if (p.id == activeId) "● " else "○ ") + p.name) },
+                                        text = { Text(p.name) },
+                                        leadingIcon = {
+                                            if (p.id == activeId) Icon(Icons.Rounded.Check, contentDescription = "Active", tint = MaterialTheme.colorScheme.primary)
+                                        },
                                         onClick = { menuOpen = false; PhoneAgentService.instance?.switchAgent(p.id) },
                                     )
                                 }
                                 if (paired) HorizontalDivider()
                                 DropdownMenuItem(
                                     text = { Text("Pair another agent…") },
+                                    leadingIcon = { Icon(Icons.Rounded.PersonAddAlt, contentDescription = null) },
                                     onClick = { menuOpen = false; startActivity(Intent(this@MainActivity, PairingActivity::class.java)) },
                                 )
                             }
@@ -234,15 +251,18 @@ class MainActivity : ComponentActivity() {
                             if (connected) {
                                 Text("connected", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                             } else {
-                                Text(
-                                    "connecting… ⟳",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.clickable { PhoneAgentService.instance?.reconnect() }.padding(4.dp),
-                                )
+                                Row(
+                                    Modifier.clickable { PhoneAgentService.instance?.reconnect() }.padding(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Rounded.Refresh, contentDescription = "Reconnect",
+                                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(3.dp))
+                                    Text("connecting…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
                             }
                             IconButton(onClick = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }) {
-                                Text("⚙", style = MaterialTheme.typography.titleMedium)
+                                Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                             }
                         }
                     }
@@ -280,7 +300,7 @@ class MainActivity : ComponentActivity() {
                         if (messages.isEmpty()) {
                             item {
                                 Text(
-                                    "This is $who — it can see and control this phone for you.\n\nTry:\n• \"take a photo\"\n• \"what's my battery?\"\n• \"turn on the flashlight\"\n• \"ring my phone\"\n• \"where am I?\"\n\nOr hold 🎤 and speak.",
+                                    "This is $who — it can see and control this phone for you.\n\nTry:\n• \"take a photo\"\n• \"what's my battery?\"\n• \"turn on the flashlight\"\n• \"ring my phone\"\n• \"where am I?\"\n\nOr hold the mic and speak.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(16.dp),
                                 )
@@ -421,7 +441,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Crossfade(targetState = showSend, label = "micSend") { send ->
                                     Icon(
-                                        painter = painterResource(if (send) R.drawable.ic_send else R.drawable.ic_mic),
+                                        imageVector = if (send) Icons.AutoMirrored.Rounded.Send else Icons.Rounded.Mic,
                                         contentDescription = if (send) "Send" else "Hold to talk",
                                         tint = if (recording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
                                         modifier = Modifier.size(24.dp),
@@ -500,7 +520,7 @@ private fun StatusStrip(status: String?, onStopSpeaking: () -> Unit) {
             ) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (speaking) {
-                        Box(Modifier.size(13.dp).clip(RoundedCornerShape(3.dp)).background(MaterialTheme.colorScheme.primary))
+                        Icon(Icons.Rounded.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Speaking — tap to stop", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                     } else {
@@ -568,7 +588,7 @@ private fun RecordingBar(locked: Boolean, aboutToCancel: Boolean, live: String, 
                 )
             } else {
                 Text(
-                    if (locked) "Tap ➤ to send" else "Slide ↑ to lock · ← to cancel",
+                    if (locked) "Tap send when you're done" else "Slide up to lock · left to cancel",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
@@ -597,20 +617,22 @@ private fun LockHintOverlay(progress: Float) {
             modifier = Modifier.width(46.dp).padding(vertical = 11.dp),
         ) {
             // The lock visibly "closes" and grows as you near the threshold.
-            Text(
-                if (near) "🔒" else "🔓",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.scale(1f + 0.3f * progress),
+            Icon(
+                if (near) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                contentDescription = "Slide up to lock",
+                tint = if (near) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp).scale(1f + 0.3f * progress),
             )
-            Spacer(Modifier.height(7.dp))
+            Spacer(Modifier.height(4.dp))
             // Three up-chevrons rippling upward — reads as "swipe up". They dim as you get close.
             for (i in 0 until 3) {
                 val phase = ((shimmer + i / 3f) % 1f)
                 val ripple = (1f - kotlin.math.abs(phase - 0.5f) * 2f).coerceIn(0f, 1f)
-                Text(
-                    "⌃",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = (0.2f + 0.8f * ripple) * (1f - 0.6f * progress)),
+                Icon(
+                    Icons.Rounded.KeyboardArrowUp,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = (0.2f + 0.8f * ripple) * (1f - 0.6f * progress)),
+                    modifier = Modifier.size(16.dp).offset(y = (4 - i * 6).dp),
                 )
             }
         }
