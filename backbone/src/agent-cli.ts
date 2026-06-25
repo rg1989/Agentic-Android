@@ -51,6 +51,86 @@ function tsxBin(): string {
   return fs.existsSync(local) ? local : "tsx";
 }
 
+// ---------- slash-command / skill discovery (so the phone can show a `/` menu like the TUI) ----------
+type SlashCmd = { invoke: string; description: string; hint?: string; kind: "skill" | "command"; group: string };
+
+function fmField(text: string, key: string): string | undefined {
+  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) return undefined;
+  const lines = fm[1].split(/\r?\n/);
+  const idx = lines.findIndex((l) => new RegExp(`^${key}:`).test(l));
+  if (idx < 0) return undefined;
+  const inline = lines[idx].slice(lines[idx].indexOf(":") + 1).trim();
+  // Plain inline value (most skills/commands).
+  if (inline && !/^[|>][+-]?$/.test(inline)) return inline.replace(/^["']|["']$/g, "");
+  // YAML block scalar (`description: >`): join the following indented lines.
+  const cont: string[] = [];
+  for (let i = idx + 1; i < lines.length; i++) {
+    if (/^\s+\S/.test(lines[i])) cont.push(lines[i].trim());
+    else if (lines[i].trim() === "") continue;
+    else break;
+  }
+  return cont.join(" ").trim() || undefined;
+}
+const clip = (s = "", n = 160) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+/** Skills live one dir deep with a SKILL.md; invoked as `/<prefix><dir>` (prefix = "plugin:" or ""). */
+function scanSkills(dir: string, prefix: string, group: string, out: SlashCmd[]) {
+  let names: string[]; try { names = fs.readdirSync(dir); } catch { return; }
+  for (const name of names) {
+    let text: string; try { text = fs.readFileSync(path.join(dir, name, "SKILL.md"), "utf8"); } catch { continue; }
+    out.push({ invoke: prefix + name, description: clip(fmField(text, "description") ?? ""), kind: "skill", group });
+  }
+}
+/** Commands are *.md, possibly nested; a nested dir becomes a `:` namespace (`commands/gsd/x.md` → `/gsd:x`). */
+function scanCommands(dir: string, plugin: string, group: string, out: SlashCmd[]) {
+  const found: { parts: string[]; file: string }[] = [];
+  const walk = (d: string, parts: string[]) => {
+    let entries: fs.Dirent[]; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.isDirectory()) walk(path.join(d, e.name), [...parts, e.name]);
+      else if (e.name.endsWith(".md")) found.push({ parts: [...parts, e.name.slice(0, -3)], file: path.join(d, e.name) });
+    }
+  };
+  walk(dir, []);
+  for (const { parts, file } of found) {
+    let text: string; try { text = fs.readFileSync(file, "utf8"); } catch { continue; }
+    out.push({
+      invoke: (plugin ? [plugin, ...parts] : parts).join(":"),
+      description: clip(fmField(text, "description") ?? ""),
+      hint: fmField(text, "argument-hint"),
+      kind: "command", group,
+    });
+  }
+}
+
+/** Replicate the Claude TUI's discovery: user skills/commands, project commands, and plugin skills/commands. */
+function discoverSlash(): SlashCmd[] {
+  const home = os.homedir();
+  const out: SlashCmd[] = [];
+  scanSkills(path.join(home, ".claude", "skills"), "", "Skills", out);
+  scanCommands(path.join(home, ".claude", "commands"), "", "Commands", out);
+  scanCommands(path.join(process.cwd(), ".claude", "commands"), "", "Project", out);
+  const pcache = path.join(home, ".claude", "plugins", "cache");
+  let mkts: string[]; try { mkts = fs.readdirSync(pcache); } catch { mkts = []; }
+  for (const mkt of mkts) {
+    let plugins: string[]; try { plugins = fs.readdirSync(path.join(pcache, mkt)); } catch { continue; }
+    for (const plugin of plugins) {
+      let vers: string[]; try { vers = fs.readdirSync(path.join(pcache, mkt, plugin)); } catch { continue; }
+      for (const ver of vers) {
+        const vdir = path.join(pcache, mkt, plugin, ver);
+        try { if (!fs.statSync(vdir).isDirectory()) continue; } catch { continue; }
+        scanSkills(path.join(vdir, "skills"), plugin + ":", `Plugin: ${plugin}`, out);
+        scanCommands(path.join(vdir, "commands"), plugin, `Plugin: ${plugin}`, out);
+      }
+    }
+  }
+  const seen = new Set<string>();
+  return out
+    .filter((c) => c.invoke && !c.invoke.includes(" ") && (seen.has(c.invoke) ? false : (seen.add(c.invoke), true)))
+    .sort((a, b) => a.group.localeCompare(b.group) || a.invoke.localeCompare(b.invoke));
+}
+
 /** MCP config handed to the CLI: a `phone` server = our stdio phone-mcp, pointed at this hub. */
 function mcpConfig(): string {
   return JSON.stringify({
@@ -131,6 +211,14 @@ async function main() {
   ws.on("open", () => {
     ws.send(JSON.stringify({ t: "hello", name: "Claude (your subscription)" }));
     console.error(`agent-cli connected to hub ${HUB_WS}; CLI = "${CLI}"`);
+    // Publish the slash command/skill catalog so the phone's `/` menu mirrors what this agent can run.
+    if (path.basename(CLI).includes("claude")) {
+      try {
+        const commands = discoverSlash();
+        ws.send(JSON.stringify({ t: "event", topic: "agent_commands", data: { commands } }));
+        console.error(`published ${commands.length} slash commands/skills to the phone`);
+      } catch (e) { console.error("slash discovery failed:", String(e)); }
+    }
     // Don't claim "ready" on the WS link alone — actually verify Claude can authenticate here, so the
     // phone/web show the truth (and the exact fix) instead of "connected" followed by a 401 on first message.
     void probeAuth().then((p) => {
@@ -165,5 +253,10 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await main();
+  if (process.argv.includes("--list-commands")) {
+    const c = discoverSlash();
+    console.log(`${c.length} slash commands/skills:\n` + c.map((x) => `  /${x.invoke}  [${x.kind}]  ${x.description.slice(0, 60)}`).join("\n"));
+  } else {
+    await main();
+  }
 }

@@ -78,6 +78,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lock
@@ -136,6 +138,7 @@ class MainActivity : ComponentActivity() {
                 val connected by PhoneAgentService.connected.collectAsState()
                 val agentName by PhoneAgentService.agentName.collectAsState()
                 val status by PhoneAgentService.status.collectAsState()
+                val commands by PhoneAgentService.commands.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
                 val paired = profiles.isNotEmpty()
@@ -351,6 +354,20 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // `/` command palette: type "/" to browse the agent's skills & commands, like the TUI.
+                    val slashActive = !recording && input.startsWith("/") && !input.contains(' ')
+                    val slashMatches = if (slashActive) {
+                        val q = input.drop(1)
+                        commands.filter { it.invoke.contains(q, ignoreCase = true) || it.description.contains(q, ignoreCase = true) }.take(60)
+                    } else emptyList()
+                    AnimatedVisibility(
+                        visible = slashMatches.isNotEmpty(),
+                        enter = fadeIn(tween(140)) + expandVertically(tween(180)),
+                        exit = fadeOut(tween(120)) + shrinkVertically(tween(160)),
+                    ) {
+                        SlashPalette(slashMatches) { c -> input = "/" + c.invoke + " " }
+                    }
+
                     // animated "typing / transcribing / speaking" strip, pinned above the input bar
                     StatusStrip(status) { PhoneAgentService.instance?.stopSpeaking() }
 
@@ -497,6 +514,47 @@ private fun ListeningGlow(active: Boolean, color: Color) {
                 size = Size(size.width - strokeW, size.height - strokeW),
                 style = Stroke(width = strokeW),
             )
+        }
+    }
+}
+
+/** The `/` command menu: scrollable list of the agent's skills & commands, filtered as you type. */
+@Composable
+private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 3.dp,
+        shadowElevation = 8.dp,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp).heightIn(max = 300.dp),
+    ) {
+        LazyColumn {
+            items(matches) { c ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { onPick(c) }.padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (c.kind == "skill") Icons.Rounded.AutoAwesome else Icons.Rounded.Bolt,
+                        contentDescription = c.kind,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(11.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("/${c.invoke}", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (c.description.isNotBlank()) {
+                            Text(
+                                c.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

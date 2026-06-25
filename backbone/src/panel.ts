@@ -491,6 +491,7 @@ async function main() {
   let agentName: string | null = null;
   let agentReady: boolean | null = null; // null = unknown (probing); false = connected but can't auth
   let agentStatus: { label?: string; command?: string } = {};
+  let agentCommands: unknown[] = []; // slash command/skill catalog the agent published, for the phone's `/` menu
   let pendingSay: ((text: string) => void) | null = null; // resolves /say with the next agent reply
 
   // ---- agent process control: start/stop the brain straight from the setup UI (no terminal) ----
@@ -585,7 +586,7 @@ async function main() {
       let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
       if (m.t === "hello") {
         agentSock = ws; agentName = String(m.name ?? "agent");
-        agentReady = null; agentStatus = {}; // readiness unknown until the agent reports it
+        agentReady = null; agentStatus = {}; agentCommands = []; // readiness/catalog unknown until the agent reports
         logEvent("connection", `agent connected: "${agentName}"`);
         bus.event("agent_identity", { name: agentName }); // tell the phone who's here now
         ws.send(JSON.stringify({ t: "ready", catalog: caps }));
@@ -599,6 +600,11 @@ async function main() {
           agentStatus = { label: data.label as string | undefined, command: (data as any).command as string | undefined };
           bus.event("agent_status", data);
         }
+        else if (topic === "agent_commands") {
+          agentCommands = Array.isArray((data as any).commands) ? (data as any).commands : [];
+          bus.event("agent_commands", { commands: agentCommands });
+          logEvent("connection", `agent published ${agentCommands.length} slash commands`);
+        }
         else if (topic === "assistant_message") {
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
@@ -607,7 +613,7 @@ async function main() {
         }
       }
     });
-    ws.on("close", () => { if (agentSock === ws) { agentSock = null; agentName = null; agentReady = null; agentStatus = {}; logEvent("connection", "agent disconnected"); } });
+    ws.on("close", () => { if (agentSock === ws) { agentSock = null; agentName = null; agentReady = null; agentStatus = {}; agentCommands = []; logEvent("connection", "agent disconnected"); } });
   });
   logEvent("connection", `agent WebSocket on ws://127.0.0.1:${AGENT_PORT}`);
 
@@ -620,6 +626,8 @@ async function main() {
       // If the agent connected but can't authenticate, a freshly-opened phone would otherwise miss the
       // one-time status event — replay it so the phone shows the warning, not a silent "connected".
       if (agentReady === false && agentStatus.label) bus.event("agent_status", { label: agentStatus.label });
+      // Replay the slash catalog so a phone that connects after the agent still gets the `/` menu.
+      if (agentCommands.length) bus.event("agent_commands", { commands: agentCommands });
       logEvent("connection", `identified to phone as "${agentName ?? "No agent"}" (replayed ${Math.min(conversation.length, 100)} turns)`);
       return;
     }

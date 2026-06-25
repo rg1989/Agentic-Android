@@ -23,6 +23,9 @@ import kotlinx.serialization.json.JsonPrimitive
 /** A line in the on-phone chat with the agent. `imagePath` (a local JPEG) renders as an inline preview. */
 data class ChatMsg(val role: String, val text: String, val imagePath: String? = null)
 
+/** A slash command/skill the connected agent exposes, shown in the phone's `/` menu. */
+data class SlashCommand(val invoke: String, val description: String, val hint: String?, val kind: String, val group: String)
+
 /** One registered capability, surfaced to the settings screen (method + human summary). */
 data class CapInfo(val method: String, val summary: String)
 
@@ -134,6 +137,21 @@ class PhoneAgentService : Service() {
                 "agent_status" -> {
                     status.value = (ev.data["label"] as? JsonPrimitive)?.content
                 }
+                "agent_commands" -> {
+                    val list = (ev.data["commands"] as? JsonArray)?.mapNotNull { el ->
+                        val o = el as? JsonObject ?: return@mapNotNull null
+                        val invoke = (o["invoke"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                        SlashCommand(
+                            invoke = invoke,
+                            description = (o["description"] as? JsonPrimitive)?.content ?: "",
+                            hint = (o["hint"] as? JsonPrimitive)?.content,
+                            kind = (o["kind"] as? JsonPrimitive)?.content ?: "command",
+                            group = (o["group"] as? JsonPrimitive)?.content ?: "",
+                        )
+                    }.orEmpty()
+                    commands.value = list
+                    android.util.Log.i("AgentCommands", "received ${list.size} slash commands")
+                }
                 "agent_identity" -> {
                     val name = (ev.data["name"] as? JsonPrimitive)?.content
                     agentName.value = name
@@ -237,6 +255,8 @@ class PhoneAgentService : Service() {
         val capabilities = MutableStateFlow<List<CapInfo>>(emptyList())
         /** Transient "what's happening now" label (Transcribing…/Sending…/Thinking…/running an action). */
         val status = MutableStateFlow<String?>(null)
+        /** Slash commands/skills the connected agent exposes, for the `/` menu. */
+        val commands = MutableStateFlow<List<SlashCommand>>(emptyList())
         /** True while a spoken reply is playing — the wake-word service ignores input meanwhile. */
         val speaking = MutableStateFlow(false)
     }
