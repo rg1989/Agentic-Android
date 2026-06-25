@@ -1,14 +1,16 @@
 /**
- * Control panel — a web UI for driving the phone by hand AND watching everything that happens.
- * Connects to the relay as the paired agent (identity from ~/.agentic-android/agent.json), and:
- *   - exposes a button per phone capability (manual calls),
- *   - records every event (request / response / error / inbound phone event / agent run /
- *     connection / config change) to a persistent log with search + per-type toggles,
- *   - lets you configure WHICH agent drives inbound phone events (Claude / Codex / any command
- *     template with a {prompt} placeholder), persisted into agent.json.
+ * The HUB — the persistent glue on the machine. It owns the phone connection + identity + all state,
+ * and the (replaceable) agent connects IN to it:
+ *   - phone side: connects to the relay as the paired identity (~/.agentic-android/agent.json);
+ *   - agent side: a local WebSocket the agent dials into (the brain runs in a SEPARATE process,
+ *     `pnpm agent`). The hub forwards the user's messages to the agent, executes the capability
+ *     calls the agent asks for, persists media + the event log, and relays replies back to the phone;
+ *   - human side: a web UI to drive the phone by hand + watch every event.
  *
- * Run: `pnpm panel` then open http://127.0.0.1:8123
- * Note: shares the agent identity with the MCP bridge — run ONE of them at a time.
+ * The agent owns no state — swap it freely; the hub holds config, history, and media.
+ *
+ * Run: `pnpm panel` (or `pnpm hub`) → http://127.0.0.1:8123, agent WS on :8124.
+ * Note: shares the phone identity with the MCP bridge — run ONE of them at a time.
  */
 import http from "node:http";
 import fs from "node:fs";
@@ -16,9 +18,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { WebSocketServer, WebSocket } from "ws";
 import { ready } from "./crypto.ts";
 import { BusEndpoint } from "./peer.ts";
-import { makeBrain, type BrainCfg } from "./brain.ts";
 
 interface Cap { method: string; sensitivity: string; summary: string }
 let caps: Cap[] = []; // populated in the background once the phone answers
@@ -72,28 +74,7 @@ function writeAgentCfg(next: AgentCfg) {
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
 }
 
-// Brain (the agent that drives the phone) config, persisted under agent.json `brain`.
-function readBrainCfg(): BrainCfg {
-  const b = (loadCfg().brain ?? {}) as Partial<BrainCfg>;
-  return {
-    provider: b.provider ?? "anthropic", // falls back to a keyword stub if the key env is unset
-    model: b.model ?? "claude-opus-4-8",
-    apiKeyEnv: b.apiKeyEnv ?? "ANTHROPIC_API_KEY",
-    maxSteps: b.maxSteps ?? 8,
-    system: b.system,
-    name: b.name,
-  };
-}
-
-/** Human-readable name the agent announces to the phone (a name or a URL). */
-function agentDisplayName(): string {
-  const c = readBrainCfg();
-  if (c.name) return c.name;
-  const hasKey = !!process.env[c.apiKeyEnv || "ANTHROPIC_API_KEY"];
-  return c.provider === "anthropic" && hasKey ? "Claude" : "Keyword agent";
-}
-
-/** Spawn the configured agent with the event prompt substituted in. User-configured local command. */
+/** Spawn the configured shell-agent for non-message phone events (optional, legacy). */
 function runAgent(template: string, prompt: string) {
   const cmd = template.replace(/\{prompt\}/g, prompt.replace(/(["\\$`])/g, "\\$1"));
   const child = spawn(cmd, { shell: true, stdio: "ignore", detached: true });
@@ -258,41 +239,82 @@ async function main() {
   await bus.connect();
   logEvent("connection", `connected to relay ${cfg.relayUrl}`, { relayUrl: cfg.relayUrl });
 
-  // The brain: turns a user's message into phone actions + a reply (the assistant).
-  const runBrain = makeBrain({
-    bus,
-    getCaps: () => caps,
-    log: (ty, s, d) => logEvent(ty as EventType, s, d),
-    getCfg: readBrainCfg,
-    // The HUB persists media that flows through it (the hub owns state, not the replaceable agent):
-    // ~/.agentic-android/media/photos. Available to the user and to whatever agent is connected.
-    saveMedia: async (blobId, contentType) => {
-      try {
-        const bytes = await bus.getBlob(blobId);
-        fs.mkdirSync(mediaDir(), { recursive: true });
-        const ext = contentType.includes("png") ? "png" : "jpg";
-        const file = path.join(mediaDir(), `photo_${Date.now()}.${ext}`);
-        fs.writeFileSync(file, Buffer.from(bytes));
-        logEvent("response", `saved photo → ${file}`, { file, bytes: bytes.length });
-        return file;
-      } catch (e) {
-        logEvent("error", "saveMedia failed", { error: String(e) });
-        return null;
-      }
-    },
-  });
+  // ---------- the agent connects IN over a local WebSocket; the brain runs as its OWN process ----------
+  const AGENT_PORT = Number(process.env.AGENT_PORT ?? 8124);
+  let agentSock: WebSocket | null = null;
+  let agentName: string | null = null;
+  let pendingSay: ((text: string) => void) | null = null; // resolves /say with the next agent reply
 
-  // inbound phone events: a user's voice/text message -> the brain; everything else -> log (+ optional shell agent)
+  /** The hub owns media: when a tool result carries an image blob, save it to ~/.agentic-android/media. */
+  async function saveMediaFromResult(result: unknown) {
+    if (!result || typeof result !== "object") return;
+    const r = result as { blob_id?: string; content_type?: string };
+    if (!r.blob_id || !(r.content_type ?? "").startsWith("image/")) return;
+    try {
+      const bytes = await bus.getBlob(r.blob_id);
+      fs.mkdirSync(mediaDir(), { recursive: true });
+      const ext = (r.content_type ?? "").includes("png") ? "png" : "jpg";
+      const file = path.join(mediaDir(), `photo_${Date.now()}.${ext}`);
+      fs.writeFileSync(file, Buffer.from(bytes));
+      logEvent("response", `saved photo → ${file}`, { file, bytes: bytes.length });
+    } catch (e) { logEvent("error", "saveMedia failed", { error: String(e) }); }
+  }
+
+  /** Execute a capability the agent asked for, against the phone; persist media; log. */
+  async function execForAgent(method: string, params: Record<string, unknown>) {
+    logEvent("request", method, params);
+    try {
+      const resp = await bus.request(method, params ?? {});
+      if (resp.status === "ok") { logEvent("response", `${method} ok`, resp.result); await saveMediaFromResult(resp.result); }
+      else logEvent("error", `${method} error`, resp.error);
+      return resp;
+    } catch (e) {
+      logEvent("error", `${method} threw: ${String(e)}`);
+      return { status: "error" as const, result: undefined, error: { code: "HUB_ERROR", message: String(e), retriable: false } };
+    }
+  }
+
+  const agentWss = new WebSocketServer({ port: AGENT_PORT });
+  agentWss.on("connection", (ws) => {
+    ws.on("message", (raw) => {
+      let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
+      if (m.t === "hello") {
+        agentSock = ws; agentName = String(m.name ?? "agent");
+        logEvent("connection", `agent connected: "${agentName}"`);
+        bus.event("agent_identity", { name: agentName }); // tell the phone who's here now
+        ws.send(JSON.stringify({ t: "ready", catalog: caps }));
+      } else if (m.t === "tool") {
+        void execForAgent(String(m.method), m.params ?? {}).then((resp) =>
+          ws.send(JSON.stringify({ t: "result", id: m.id, status: resp.status, result: resp.result, error: resp.error })));
+      } else if (m.t === "event") {
+        const topic = String(m.topic); const data = (m.data ?? {}) as Record<string, unknown>;
+        if (topic === "agent_status") bus.event("agent_status", data);
+        else if (topic === "assistant_message") {
+          bus.event("assistant_message", data);
+          logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
+          pendingSay?.(String(data.text ?? "")); pendingSay = null;
+        }
+      }
+    });
+    ws.on("close", () => { if (agentSock === ws) { agentSock = null; agentName = null; logEvent("connection", "agent disconnected"); } });
+  });
+  logEvent("connection", `agent WebSocket on ws://127.0.0.1:${AGENT_PORT}`);
+
+  // ---------- phone -> hub -> agent ----------
   bus.onEvent((ev) => {
     if (ev.topic === "whoami") {
-      // the phone is asking who it's connected to
-      bus.event("agent_identity", { name: agentDisplayName(), relay: cfg.relayUrl });
-      logEvent("connection", `identified to phone as "${agentDisplayName()}"`);
+      bus.event("agent_identity", { name: agentName ?? "No agent connected", relay: cfg.relayUrl });
+      logEvent("connection", `identified to phone as "${agentName ?? "No agent"}"`);
       return;
     }
     if (ev.topic === "user_message") {
       const text = String((ev.data as { text?: unknown }).text ?? "");
-      void runBrain(text);
+      logEvent("user_message", text, { text });
+      if (agentSock) agentSock.send(JSON.stringify({ t: "user", text }));
+      else {
+        bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." });
+        logEvent("error", "user_message but no agent connected");
+      }
       return;
     }
     logEvent("phone_event", `phone event: ${ev.topic}`, ev.data);
@@ -304,11 +326,14 @@ async function main() {
     }
   });
 
+  /** Push the catalog to the connected agent (called whenever caps refresh). */
+  function pushCatalog() { if (agentSock?.readyState === WebSocket.OPEN) agentSock.send(JSON.stringify({ t: "catalog", catalog: caps })); }
+
   // Fetch the phone's catalog in the BACKGROUND so the panel serves even if the phone is offline.
   const refreshCatalog = async () => {
     try {
       const r = await bus.request("list_capabilities", {});
-      if (r.status === "ok") { caps = (r.result as { capabilities: Cap[] }).capabilities; logEvent("connection", `catalog: ${caps.length} capabilities`); }
+      if (r.status === "ok") { caps = (r.result as { capabilities: Cap[] }).capabilities; logEvent("connection", `catalog: ${caps.length} capabilities`); pushCatalog(); }
     } catch { /* phone offline; retry below */ }
   };
   void (async () => { for (let i = 0; i < 30 && caps.length === 0; i++) { await refreshCatalog(); if (caps.length === 0) await new Promise((r) => setTimeout(r, 3000)); } })();
@@ -340,8 +365,17 @@ async function main() {
     if (req.method === "POST" && url.pathname === "/say") {
       let body = ""; req.on("data", (c) => (body += c));
       req.on("end", async () => {
-        try { const { text } = JSON.parse(body || "{}"); const reply = await runBrain(String(text ?? "")); json({ reply }); }
-        catch (e) { json({ error: String(e) }, 500); }
+        try {
+          const { text } = JSON.parse(body || "{}");
+          if (!agentSock) return json({ error: "no agent connected (run `pnpm agent`)" }, 503);
+          logEvent("user_message", String(text ?? ""), { text, via: "/say" });
+          const reply = await new Promise<string>((resolve) => {
+            const timer = setTimeout(() => { pendingSay = null; resolve("(no reply within timeout)"); }, 60_000);
+            pendingSay = (t) => { clearTimeout(timer); resolve(t); };
+            agentSock!.send(JSON.stringify({ t: "user", text: String(text ?? "") }));
+          });
+          json({ reply });
+        } catch (e) { json({ error: String(e) }, 500); }
       });
       return;
     }

@@ -84,15 +84,18 @@ listen→transcribe→send→reply→speak loop hands-free, with a chime at each
 
 ## Phase H — Make the hub a real, separate service (architectural)
 The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
-- [~] **Hub owns state**: config, event log, conversation history, **media** all live under
-      `~/.agentic-android/`. Media store landed this turn (`media/photos/`); history/conversation
-      still in-process.
-- [ ] **Split the agent out of the hub**: define an agent-facing interface (local socket/HTTP/WS)
-      the brain connects to, instead of the brain running inside `panel.ts`. Swapping agents =
-      pointing a different agent at the hub; nothing else changes.
+- [x] **Split the agent out of the hub** (device-verified): the hub (`panel.ts`) exposes an agent
+      WebSocket on `:8124`; the brain runs as its OWN process ([agent.ts](backbone/src/agent.ts),
+      `pnpm agent`) that connects in. Hub forwards user messages → agent; agent asks the hub to run
+      capabilities; hub executes against the phone, persists media, relays replies. Verified: kill
+      the agent → hub survives + `/say` returns 503; restart → reconnects, full loop works (battery,
+      photo, identity, status). Brain talks only to an `AgentBus` interface — no bus/blob/media access.
+- [x] Phone connects to the hub; the hub mediates and (for media) persists every exchange.
+- [~] **Hub owns state**: config, event log, **media** under `~/.agentic-android/` (media owned by
+      the hub now). Conversation history still in-process — move it into the hub next.
 - [ ] **Run as a managed service** on the machine (launchd/systemd): auto-start, restart on crash,
       relay folded in or beneath the hub.
-- [ ] Phone connects to the hub; the hub mediates and persists every user⇄agent exchange.
+- [ ] Multiple agents connectable at once; route/select per the multi-agent work (Phase 4).
 
 ## Phase 5 — Polish
 - [ ] Animated typing dots, haptics on state changes, message timestamps.
