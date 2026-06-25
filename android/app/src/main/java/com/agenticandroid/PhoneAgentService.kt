@@ -13,8 +13,16 @@ import com.agenticandroid.pairing.Pairing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
+/** A line in the on-phone chat with the agent. */
+data class ChatMsg(val role: String, val text: String)
+
+/** One registered capability, surfaced to the settings screen (method + human summary). */
+data class CapInfo(val method: String, val summary: String)
 
 /**
  * Foreground service (Q2) — holds the persistent relay connection so the phone is reachable from
@@ -35,7 +43,15 @@ class PhoneAgentService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
+        SettingsStore.init(this)
         startForeground(1, buildNotification())
+    }
+
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        connected.value = false
+        super.onDestroy()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -48,6 +64,7 @@ class PhoneAgentService : Service() {
         val pairing = Pairing.load(this) ?: return // not paired yet — PairingActivity handles this
         val b = BusEndpoint(pairing.self, pairing.peerEdPub, pairing.relayUrl)
         registerTier1(registry, b, this) // camera / location / sms / notifications (Q4 swap point)
+        capabilities.value = registry.all().map { CapInfo(it.method, it.summary) } // for the settings screen
         b.onRequest = handler@{ req, agentFp ->
             if (req.method == "list_capabilities")
                 return@handler CapResult(result = registry.catalog(agentFp, policy))
@@ -61,16 +78,57 @@ class PhoneAgentService : Service() {
                 Sensitivity.ALLOW -> cap.execute(req.params)
             }
         }
-        b.onEvent = { /* phone is the requester for events; none expected inbound in v1 */ }
+        b.onEvent = { ev ->
+            when (ev.topic) {
+                "assistant_message" -> {
+                    status.value = null // the reply landed — clear the "thinking…" indicator
+                    val txt = (ev.data["text"] as? JsonPrimitive)?.content ?: ""
+                    if (txt.isNotEmpty()) chat.value = chat.value + ChatMsg("assistant", txt)
+                }
+                "agent_status" -> {
+                    status.value = (ev.data["label"] as? JsonPrimitive)?.content
+                }
+                "agent_identity" -> {
+                    agentName.value = (ev.data["name"] as? JsonPrimitive)?.content
+                }
+            }
+        }
         bus = b
-        scope.launch { runCatching { b.connect() } }
+        scope.launch {
+            runCatching {
+                b.connect()
+                connected.value = true
+                b.event("whoami", JsonObject(emptyMap())) // ask the agent who it is
+            }
+        }
     }
 
-    /** Phone-initiated event path (capability B) — e.g. a transcribed wake-word utterance. */
-    fun sendUserMessage(text: String) =
-        bus?.event("user_message", JsonObject(mapOf("text" to kotlinx.serialization.json.JsonPrimitive(text))))
+    /** Phone-initiated message to the agent (the user typed/spoke it). */
+    fun sendUserMessage(text: String) {
+        chat.value = chat.value + ChatMsg("user", text)
+        status.value = "Sending…"
+        bus?.event("user_message", JsonObject(mapOf("text" to JsonPrimitive(text))))
+    }
+
+    /** Phone-local transient status (e.g. "Transcribing…") shown in the chat. */
+    fun setStatus(label: String?) { status.value = label }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    companion object {
+        /** Set while the service is alive, so the UI can call sendUserMessage. */
+        @Volatile var instance: PhoneAgentService? = null
+        /** The chat transcript, observed by MainActivity. */
+        val chat = MutableStateFlow<List<ChatMsg>>(emptyList())
+        /** True once the relay connection is established. */
+        val connected = MutableStateFlow(false)
+        /** Human-readable name of the paired agent, announced over the connection. */
+        val agentName = MutableStateFlow<String?>(null)
+        /** All registered capabilities, for the settings screen's on/off list. */
+        val capabilities = MutableStateFlow<List<CapInfo>>(emptyList())
+        /** Transient "what's happening now" label (Transcribing…/Sending…/Thinking…/running an action). */
+        val status = MutableStateFlow<String?>(null)
+    }
 
     private fun buildNotification(): Notification {
         val ch = "agent"

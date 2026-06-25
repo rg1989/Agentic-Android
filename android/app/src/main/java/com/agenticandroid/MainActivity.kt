@@ -2,76 +2,233 @@ package com.agenticandroid
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.agenticandroid.pairing.Pairing
 import com.agenticandroid.pairing.PairingActivity
 
 /**
- * Minimal Compose UI (Q4 swap point). Status + pair + mic mute + (later) per-capability consent toggles.
- * Intentionally thin: the UI is a swappable consumer of the same bus.
+ * Chat with your agent. You talk to the agent (a self-hosted/cloud brain); it sees and operates this
+ * phone on your behalf. Text or hold-to-talk voice input; the gear opens Settings (theme + actions).
  */
 class MainActivity : ComponentActivity() {
     private val requestPerms =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* best-effort */ }
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Ask up front for the notification (foreground-service visibility on Android 13+) and
-        // location permissions so the first capability round-trip can succeed. JIT per-capability
-        // prompting is the longer-term plan (DESIGN Q-permissions); this is enough to test.
-        val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        SettingsStore.init(this)
+        val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
         requestPerms.launch(perms.toTypedArray())
-
         startForegroundService(Intent(this, PhoneAgentService::class.java))
 
-        // Generate-or-load the phone's own identity so we can show its edPub: the operator pastes
-        // this into the bridge's agent.json as `peerEdPub` to finish pairing (DESIGN Q5).
-        val self = Pairing.selfIdentity(this)
         val paired = Pairing.load(this) != null
 
         setContent {
-            MaterialTheme {
-                var muted by remember { mutableStateOf(false) }
-                Column(androidx.compose.ui.Modifier.padding(24.dp)) {
-                    Text("Agentic Android", style = MaterialTheme.typography.headlineSmall)
-                    Spacer(androidx.compose.ui.Modifier.height(8.dp))
-                    Text(if (paired) "Status: paired ✓" else "Status: not paired — tap Pair agent")
-                    Spacer(androidx.compose.ui.Modifier.height(12.dp))
-                    Text("This phone's fingerprint:", style = MaterialTheme.typography.labelMedium)
-                    Text(self.fp.take(16) + "…")
-                    Spacer(androidx.compose.ui.Modifier.height(8.dp))
-                    Text("This phone's edPub (paste into bridge agent.json as peerEdPub):",
-                        style = MaterialTheme.typography.labelMedium)
-                    Text(self.edPub, style = MaterialTheme.typography.bodySmall)
-                    Spacer(androidx.compose.ui.Modifier.height(16.dp))
-                    Button(onClick = {
-                        startActivity(Intent(this@MainActivity, PairingActivity::class.java))
-                    }) { Text("Pair agent") }
-                    Spacer(androidx.compose.ui.Modifier.height(16.dp))
-                    Column {
-                        Text("Mute microphone (wake word)")
-                        Switch(checked = muted, onCheckedChange = { muted = it /* TODO: bind to service.micMuted */ })
+            AgentTheme {
+                val messages by PhoneAgentService.chat.collectAsState()
+                val connected by PhoneAgentService.connected.collectAsState()
+                val agentName by PhoneAgentService.agentName.collectAsState()
+                val status by PhoneAgentService.status.collectAsState()
+                var input by remember { mutableStateOf("") }
+                val listState = rememberLazyListState()
+                val context = LocalContext.current
+                LaunchedEffect(messages.size, status) {
+                    val target = if (status != null) messages.size else messages.size - 1
+                    if (target >= 0) listState.animateScrollToItem(target)
+                }
+                val who = agentName ?: if (paired) "your agent" else "no agent"
+
+                // hold-to-talk voice → transcript fills the field live, sends on release; chimes per state
+                val chimes = remember { Chimes() }
+                DisposableEffect(Unit) { onDispose { chimes.release() } }
+                var recording by remember { mutableStateOf(false) }
+                val voice = remember {
+                    VoiceInput(
+                        context,
+                        onPartial = { input = it },
+                        onFinal = { t ->
+                            recording = false
+                            val s = t.trim()
+                            if (s.isNotEmpty()) {
+                                chimes.sent(); PhoneAgentService.instance?.sendUserMessage(s); input = ""
+                            } else {
+                                chimes.error(); PhoneAgentService.instance?.setStatus(null)
+                            }
+                        },
+                        onError = { recording = false; chimes.error(); PhoneAgentService.instance?.setStatus(null) },
+                    )
+                }
+                DisposableEffect(Unit) { onDispose { voice.destroy() } }
+                val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+                Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+                    // thin header: who you're connected to
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(if (!paired) "⚪" else if (connected) "🟢" else "🟡", style = MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.width(7.dp))
+                        Text(who, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                        if (!paired) {
+                            TextButton(onClick = { startActivity(Intent(this@MainActivity, PairingActivity::class.java)) }) { Text("Pair") }
+                        } else {
+                            Text(if (connected) "connected" else "connecting…", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            IconButton(onClick = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }) {
+                                Text("⚙", style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
                     }
-                    // TODO: list capabilities with per-agent allow/ask/deny toggles (Q8).
+                    HorizontalDivider(thickness = 0.5.dp)
+
+                    // transcript
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+                    ) {
+                        if (messages.isEmpty()) {
+                            item {
+                                Text(
+                                    "This is $who — it can see and control this phone for you.\n\nTry:\n• \"take a photo\"\n• \"what's my battery?\"\n• \"turn on the flashlight\"\n• \"ring my phone\"\n• \"where am I?\"\n\nOr hold 🎤 and speak.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp),
+                                )
+                            }
+                        }
+                        items(messages) { m ->
+                            val isUser = m.role == "user"
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+                            ) {
+                                Surface(
+                                    modifier = Modifier.widthIn(max = 300.dp),
+                                    color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(16.dp),
+                                ) {
+                                    Text(
+                                        m.text,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        color = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                        // live status: Transcribing… / Sending… / Thinking… / running an action
+                        status?.let { label ->
+                            item {
+                                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.Start) {
+                                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp)) {
+                                        Text(
+                                            label,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontStyle = FontStyle.Italic,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // input bar: text field + hold-to-talk mic + send
+                    Row(
+                        Modifier.fillMaxWidth().padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text(if (recording) "Listening…" else if (paired) "Message $who…" else "Pair an agent first") },
+                            maxLines = 4,
+                        )
+                        if (voice.available && paired) {
+                            Spacer(Modifier.width(6.dp))
+                            Box(
+                                Modifier.size(48.dp).clip(CircleShape)
+                                    .background(if (recording) Color(0xFFD32F2F) else MaterialTheme.colorScheme.secondaryContainer)
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(onPress = {
+                                            val granted = ContextCompat.checkSelfPermission(
+                                                context, Manifest.permission.RECORD_AUDIO,
+                                            ) == PackageManager.PERMISSION_GRANTED
+                                            if (granted) {
+                                                chimes.listening()
+                                                recording = true
+                                                voice.start()
+                                                tryAwaitRelease()
+                                                voice.stop() // onFinal/onError clears `recording`
+                                                PhoneAgentService.instance?.setStatus("Transcribing…")
+                                            } else {
+                                                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
+                                        })
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) { Text(if (recording) "●" else "🎤") }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = {
+                            val t = input.trim()
+                            if (t.isNotEmpty()) {
+                                PhoneAgentService.instance?.sendUserMessage(t)
+                                input = ""
+                            }
+                        }) { Text("Send") }
+                    }
                 }
             }
         }

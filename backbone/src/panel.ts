@@ -79,7 +79,16 @@ function readBrainCfg(): BrainCfg {
     apiKeyEnv: b.apiKeyEnv ?? "ANTHROPIC_API_KEY",
     maxSteps: b.maxSteps ?? 8,
     system: b.system,
+    name: b.name,
   };
+}
+
+/** Human-readable name the agent announces to the phone (a name or a URL). */
+function agentDisplayName(): string {
+  const c = readBrainCfg();
+  if (c.name) return c.name;
+  const hasKey = !!process.env[c.apiKeyEnv || "ANTHROPIC_API_KEY"];
+  return c.provider === "anthropic" && hasKey ? "Claude" : "Keyword agent";
 }
 
 /** Spawn the configured agent with the event prompt substituted in. User-configured local command. */
@@ -257,6 +266,12 @@ async function main() {
 
   // inbound phone events: a user's voice/text message -> the brain; everything else -> log (+ optional shell agent)
   bus.onEvent((ev) => {
+    if (ev.topic === "whoami") {
+      // the phone is asking who it's connected to
+      bus.event("agent_identity", { name: agentDisplayName(), relay: cfg.relayUrl });
+      logEvent("connection", `identified to phone as "${agentDisplayName()}"`);
+      return;
+    }
     if (ev.topic === "user_message") {
       const text = String((ev.data as { text?: unknown }).text ?? "");
       void runBrain(text);
@@ -297,7 +312,7 @@ async function main() {
       if (q) out = out.filter((e) => JSON.stringify(e).toLowerCase().includes(q));
       return json(out);
     }
-    if (req.method === "GET" && url.pathname === "/catalog") return json(caps);
+    if (req.method === "GET" && url.pathname === "/catalog") { void refreshCatalog().then(() => json(caps)); return; }
     if (req.method === "GET" && url.pathname.startsWith("/blob/")) {
       const id = url.pathname.slice("/blob/".length);
       bus.getBlob(id).then((bytes) => { res.setHeader("content-type", "image/jpeg"); res.end(Buffer.from(bytes)); })

@@ -14,7 +14,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { BusEndpoint } from "./peer.ts";
 
 export interface Cap { method: string; sensitivity: string; summary: string }
-export interface BrainCfg { provider: string; model: string; apiKeyEnv: string; maxSteps: number; system?: string }
+export interface BrainCfg { provider: string; model: string; apiKeyEnv: string; maxSteps: number; system?: string; name?: string }
 
 export interface BrainDeps {
   bus: BusEndpoint;
@@ -31,9 +31,28 @@ const DEFAULT_SYSTEM =
 
 const toName = (m: string) => m.replace(/[^a-zA-Z0-9_-]/g, "_");
 
+/** Friendly "what I'm doing now" label for a capability, shown as a live status on the phone. */
+function friendlyStatus(method: string): string {
+  const map: Record<string, string> = {
+    "camera.capture": "📷 Taking a photo…",
+    "ui.screenshot": "🖼️ Capturing the screen…",
+    "device.info": "📱 Checking the device…",
+    "torch.set": "🔦 Toggling the flashlight…",
+    "phone.ring": "🔔 Ringing the phone…",
+    "location.get": "📍 Getting your location…",
+    "vibrate": "📳 Buzzing…",
+    "ui.read": "👀 Reading the screen…",
+    "ui.tap": "👆 Tapping…",
+    "ui.swipe": "👆 Swiping…",
+    "ui.global": "🧭 Navigating…",
+  };
+  return map[method] ?? `⚙️ Running ${method}…`;
+}
+
 export function makeBrain(deps: BrainDeps) {
   return async function runBrain(userText: string): Promise<string> {
     deps.log("user_message", userText, { text: userText });
+    deps.bus.event("agent_status", { label: "Thinking…" }); // live status on the phone
     const cfg = deps.getCfg();
     const key = process.env[cfg.apiKeyEnv || "ANTHROPIC_API_KEY"];
     let reply: string;
@@ -65,6 +84,7 @@ async function anthropicLoop(deps: BrainDeps, userText: string, cfg: BrainCfg, k
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: userText }];
   for (let step = 0; step < (cfg.maxSteps || 8); step++) {
     deps.log("llm", `thinking (step ${step + 1})`, { model: cfg.model || "claude-opus-4-8" });
+    deps.bus.event("agent_status", { label: "Thinking…" });
     const resp = await client.messages.create({
       model: cfg.model || "claude-opus-4-8",
       max_tokens: 4000,
@@ -84,6 +104,7 @@ async function anthropicLoop(deps: BrainDeps, userText: string, cfg: BrainCfg, k
       if (block.type !== "tool_use") continue;
       const method = nameToMethod.get(block.name) ?? block.name;
       deps.log("tool", method, block.input);
+      deps.bus.event("agent_status", { label: friendlyStatus(method) });
       const r = await deps.bus.request(method, (block.input ?? {}) as Record<string, unknown>);
       deps.log(r.status === "ok" ? "response" : "error", `${method} ${r.status}`, r.status === "ok" ? r.result : r.error);
       results.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(r.status === "ok" ? r.result : r.error) });
@@ -99,6 +120,7 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string> {
   const has = (...w: string[]) => w.some((x) => t.includes(x));
   const call = async (method: string, args: Record<string, unknown> = {}) => {
     deps.log("tool", method, args);
+    deps.bus.event("agent_status", { label: friendlyStatus(method) });
     const r = await deps.bus.request(method, args);
     deps.log(r.status === "ok" ? "response" : "error", `${method} ${r.status}`, r.status === "ok" ? r.result : r.error);
     return r;
@@ -108,15 +130,18 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string> {
 
   if (has("photo", "picture", "camera", "selfie") && can("camera.capture")) {
     const r = await call("camera.capture", { width: 1280, height: 720 });
-    return r.status === "ok" ? `📷 Took a photo (see it in the log). ${JSON.stringify(r.result)}` : `Couldn't take a photo: ${JSON.stringify(r.error)}`;
+    return r.status === "ok" ? `📷 Took a photo — you can view it in the control panel.` : `Couldn't take a photo: ${JSON.stringify(r.error)}`;
   }
   if (has("screenshot", "screen") && can("ui.screenshot")) {
     const r = await call("ui.screenshot");
-    return r.status === "ok" ? `🖼️ Screenshot captured (in the log).` : `Screenshot failed: ${JSON.stringify(r.error)}`;
+    return r.status === "ok" ? `🖼️ Captured a screenshot — view it in the control panel.` : `Screenshot failed: ${JSON.stringify(r.error)}`;
   }
   if (has("battery", "device", "phone info", "model", "charge") && can("device.info")) {
     const r = await call("device.info");
-    return r.status === "ok" ? `📱 ${JSON.stringify(r.result)}` : `Couldn't read device info.`;
+    if (r.status !== "ok") return `Couldn't read device info.`;
+    const d = r.result as Record<string, unknown>;
+    const batt = d.battery_pct != null ? `${d.battery_pct}%${d.charging ? " and charging" : ""}` : "unknown";
+    return `📱 ${[d.manufacturer, d.model].filter(Boolean).join(" ")} running Android ${d.android ?? "?"}. Battery is at ${batt}.`;
   }
   if (has("flashlight", "torch", "light") && can("torch.set")) {
     const on = !has("off");
@@ -129,7 +154,13 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string> {
   }
   if (has("location", "where am i", "gps") && can("location.get")) {
     const r = await call("location.get");
-    return r.status === "ok" ? `📍 ${JSON.stringify(r.result)}` : `Couldn't get location: ${JSON.stringify(r.error)}`;
+    if (r.status !== "ok") return `Couldn't get location: ${JSON.stringify(r.error)}`;
+    const g = r.result as { lat?: number; lon?: number; accuracy_m?: number };
+    if (g.lat != null && g.lon != null) {
+      const acc = g.accuracy_m != null ? ` (±${Math.round(g.accuracy_m)}m)` : "";
+      return `📍 You're at ${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}${acc}.\nhttps://maps.google.com/?q=${g.lat},${g.lon}`;
+    }
+    return `📍 ${JSON.stringify(g)}`;
   }
   if (has("vibrate", "buzz") && can("vibrate")) {
     await call("vibrate", { ms: 600 });

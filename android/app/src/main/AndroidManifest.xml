@@ -21,16 +21,23 @@
         android:label="Agentic Android"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:supportsRtl="true">
 
         <activity
             android:name=".MainActivity"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Settings: theme + which actions the agent may use. Launched from MainActivity's gear. -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false" />
 
         <!-- QR-scan pairing screen (Q5). Launched from MainActivity's "Pair agent" button. -->
         <activity

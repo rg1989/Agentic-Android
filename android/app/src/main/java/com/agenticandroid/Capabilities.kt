@@ -34,17 +34,23 @@ interface Capability {
 class CapabilityRegistry {
     private val caps = LinkedHashMap<String, Capability>()
     fun register(c: Capability) { caps[c.method] = c }
-    fun get(method: String): Capability? = caps[method]
+    /** Disabled capabilities (SettingsStore) are hidden from the agent — get() returns null → UNKNOWN_METHOD. */
+    fun get(method: String): Capability? = caps[method]?.takeIf { SettingsStore.isEnabled(method) }
     fun methods(): Collection<String> = caps.keys
+    /** Every registered capability, ignoring the user's on/off toggles — for the settings screen. */
+    fun all(): List<Capability> = caps.values.toList()
 
-    /** Catalog advertised to the agent, with sensitivity resolved per requesting agent. */
+    /** Catalog advertised to the agent, with sensitivity resolved per requesting agent. Disabled caps omitted. */
     fun catalog(agentFp: String, policy: ConsentPolicy): JsonObject = buildJsonObject {
         put("capabilities", kotlinx.serialization.json.buildJsonArray {
-            for (c in caps.values) add(buildJsonObject {
-                put("method", c.method)
-                put("sensitivity", policy.effective(agentFp, c.method, c.sensitivity).name.lowercase())
-                put("summary", c.summary)
-            })
+            for (c in caps.values) {
+                if (!SettingsStore.isEnabled(c.method)) continue
+                add(buildJsonObject {
+                    put("method", c.method)
+                    put("sensitivity", policy.effective(agentFp, c.method, c.sensitivity).name.lowercase())
+                    put("summary", c.summary)
+                })
+            }
         })
     }
 }
