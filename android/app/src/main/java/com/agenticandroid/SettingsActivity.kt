@@ -39,6 +39,7 @@ class SettingsActivity : ComponentActivity() {
                 val theme by SettingsStore.theme.collectAsState()
                 val disabled by SettingsStore.disabledCaps.collectAsState()
                 val chimes by SettingsStore.chimes.collectAsState()
+                val voiceReplies by SettingsStore.voiceReplies.collectAsState()
                 val caps by PhoneAgentService.capabilities.collectAsState()
 
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -67,6 +68,21 @@ class SettingsActivity : ComponentActivity() {
                             }
                             HorizontalDivider()
                             SectionLabel("Voice & sounds")
+                            Row(
+                                Modifier.fillMaxWidth().clickable { SettingsStore.setVoiceReplies(!voiceReplies) }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Speak replies")
+                                    Text(
+                                        "Reads the agent's replies aloud, cleaned up for listening.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(checked = voiceReplies, onCheckedChange = { SettingsStore.setVoiceReplies(it) })
+                            }
                             Row(
                                 Modifier.fillMaxWidth().clickable { SettingsStore.setChimes(!chimes) }
                                     .padding(horizontal = 16.dp, vertical = 8.dp),

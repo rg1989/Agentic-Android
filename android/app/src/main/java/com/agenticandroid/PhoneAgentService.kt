@@ -10,6 +10,7 @@ import android.os.IBinder
 import com.agenticandroid.capabilities.registerTier1
 import com.agenticandroid.pairing.Confirmer
 import com.agenticandroid.pairing.Pairing
+import com.agenticandroid.voice.TextToSpeech
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,17 +41,20 @@ class PhoneAgentService : Service() {
     @Volatile var micMuted = false // hard mic mute for the always-on wake word (Q12 trust)
 
     private var bus: BusEndpoint? = null
+    private var tts: TextToSpeech? = null // spoken replies (on-device); init lazily in onCreate
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         SettingsStore.init(this)
+        tts = TextToSpeech(this).also { it.init { } }
         startForeground(1, buildNotification())
     }
 
     override fun onDestroy() {
         if (instance === this) instance = null
         connected.value = false
+        tts?.shutdown(); tts = null
         super.onDestroy()
     }
 
@@ -83,7 +87,10 @@ class PhoneAgentService : Service() {
                 "assistant_message" -> {
                     status.value = null // the reply landed — clear the "thinking…" indicator
                     val txt = (ev.data["text"] as? JsonPrimitive)?.content ?: ""
-                    if (txt.isNotEmpty()) chat.value = chat.value + ChatMsg("assistant", txt)
+                    if (txt.isNotEmpty()) {
+                        chat.value = chat.value + ChatMsg("assistant", txt)
+                        speak(txt) // reads it aloud (cleaned for listening) if the setting is on
+                    }
                 }
                 "agent_status" -> {
                     status.value = (ev.data["label"] as? JsonPrimitive)?.content
@@ -105,9 +112,26 @@ class PhoneAgentService : Service() {
 
     /** Phone-initiated message to the agent (the user typed/spoke it). */
     fun sendUserMessage(text: String) {
+        tts?.stop() // barge-in: stop speaking the previous reply when the user talks again
         chat.value = chat.value + ChatMsg("user", text)
         status.value = "Sending…"
         bus?.event("user_message", JsonObject(mapOf("text" to JsonPrimitive(text))))
+    }
+
+    /** Stop any in-progress spoken reply (used for tap-to-stop / barge-in). */
+    fun stopSpeaking() {
+        tts?.stop()
+        if (status.value == "🔊 Speaking…") status.value = null
+    }
+
+    /** Speak [raw] aloud, cleaned for listening, if the user enabled spoken replies. */
+    private fun speak(raw: String) {
+        if (!SettingsStore.voiceReplies.value) return
+        val say = SpeechText.forSpeech(raw)
+        if (say.isBlank()) return
+        android.util.Log.i("AgentTTS", "speaking: ${say.take(80)}")
+        status.value = "🔊 Speaking…"
+        tts?.speak(say) { if (status.value == "🔊 Speaking…") status.value = null }
     }
 
     /** Phone-local transient status (e.g. "Transcribing…") shown in the chat. */
@@ -143,7 +167,7 @@ class PhoneAgentService : Service() {
         return Notification.Builder(this, ch)
             .setContentTitle("Agentic Android")
             .setContentText("Connected to your agent")
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(R.drawable.ic_agent_notification)
             .setOngoing(true)
             .build()
     }

@@ -15,10 +15,12 @@ object SettingsStore {
     private const val KEY_THEME = "theme"
     private const val KEY_DISABLED = "disabled_caps"
     private const val KEY_CHIMES = "chimes"
+    private const val KEY_VOICE = "voice_replies"
 
     val theme = MutableStateFlow("system")
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
     val chimes = MutableStateFlow(true)
+    val voiceReplies = MutableStateFlow(true) // default on — the user asked for spoken replies
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -29,6 +31,12 @@ object SettingsStore {
         theme.value = p.getString(KEY_THEME, "system") ?: "system"
         disabledCaps.value = p.getStringSet(KEY_DISABLED, emptySet())?.toSet() ?: emptySet()
         chimes.value = p.getBoolean(KEY_CHIMES, true)
+        voiceReplies.value = p.getBoolean(KEY_VOICE, true)
+    }
+
+    fun setVoiceReplies(on: Boolean) {
+        voiceReplies.value = on
+        prefs?.edit()?.putBoolean(KEY_VOICE, on)?.apply()
     }
 
     fun setTheme(v: String) {
