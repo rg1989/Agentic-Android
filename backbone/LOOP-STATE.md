@@ -29,6 +29,29 @@ settings cover it all.
 - [x] 4. Hub owns conversation history — persist + replay on connect. Verified (replayed 4 turns).
 - [x] 5. Wake word (Phase 3) — **Vosk** (offline), user-chosen. Always-on WakeWordService + model.
 
+## Session 3 — key-free agents (A), UI glow-up, wake word selection
+- [x] UI: mic button restyled (purple circle + ic_mic, matches Send); ListeningGlow edge animation
+      while recording/wake-listening; wake-phrase presets in Settings; partial wakelock for
+      screen-off wake. Device-verified (mic screenshot, settings screenshot). commit 71677e8.
+- [x] **A — key-free agent path.** `phone-mcp.ts` (stdio MCP server: phone caps → hub /call) +
+      `agent-cli.ts` (`pnpm agent:claude`: runs YOUR `claude -p` with phone-mcp as tools; auth lives
+      in your CLI, never here). The built-in brain demoted to an optional keyword fallback; no more
+      "set ANTHROPIC_API_KEY" nag. Verified: phone-mcp listed 23 tools + device_info returned real
+      OnePlus data; agent-cli loop verified with a mock CLI. commit 87279e5.
+      - NOTE: real `claude -p` 401s in this sandbox (no creds) — the model leg is **user-verified**
+        on a machine where `claude` is logged in. See [[agent-auth-sandbox]].
+- [ ] **B — appoint a connected agent as "main" (concierge).** STAGED, not started. Plan:
+      1. Hub (`panel.ts`): `agentSock`→`agents: Map<id,{ws,name}>` + `mainId`. Keep single-agent
+         behavior identical (first/only agent = main). Route phone user_message → main agent.
+      2. Two hub-handled tools for the main agent: `list_agents()` (roster) and
+         `ask_agent(name, prompt)` (forward to another agent's ws, correlate its assistant_message,
+         return it). Expose them to WS agents via `{t:tool}` and to the CLI agent via phone-mcp.
+      3. Phone: a "main" marker/toggle in the Agents picker (Agents.mainId).
+      Why staged: needs ≥2 real brains to verify orchestration (sandbox can't run one), and it
+      refactors the core glue — not worth doing untested while the app must stay working.
+
+## To run on YOUR Claude (no key): `claude login` once, then `pnpm agent:claude` (instead of `pnpm agent`).
+
 ## Log
 - init: Bluetooth icon = PhoneAgentService.kt:146 `stat_sys_data_bluetooth`. No launcher icon / no
   mipmap assets. voice/ pkg: TextToSpeech wrapper good+reusable, VoiceController over-coupled+unused.
