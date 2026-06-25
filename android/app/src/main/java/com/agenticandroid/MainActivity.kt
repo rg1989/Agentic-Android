@@ -3,17 +3,20 @@ package com.agenticandroid
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,7 +52,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
@@ -158,11 +163,28 @@ class MainActivity : ComponentActivity() {
                                     color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                     shape = RoundedCornerShape(16.dp),
                                 ) {
-                                    Text(
-                                        m.text,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                        color = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                    if (m.imagePath != null) {
+                                        val bmp = remember(m.imagePath) {
+                                            val o = BitmapFactory.Options().apply { inSampleSize = 4 }
+                                            BitmapFactory.decodeFile(m.imagePath, o)?.asImageBitmap()
+                                        }
+                                        if (bmp != null) {
+                                            Image(
+                                                bitmap = bmp,
+                                                contentDescription = "Photo the agent took",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.width(240.dp).aspectRatio(bmp.width.toFloat() / bmp.height),
+                                            )
+                                        } else {
+                                            Text("📷 photo unavailable", modifier = Modifier.padding(12.dp))
+                                        }
+                                    } else {
+                                        Text(
+                                            m.text,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            color = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
                             }
                         }

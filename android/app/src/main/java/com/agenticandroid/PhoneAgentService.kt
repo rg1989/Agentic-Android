@@ -18,8 +18,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** A line in the on-phone chat with the agent. */
-data class ChatMsg(val role: String, val text: String)
+/** A line in the on-phone chat with the agent. `imagePath` (a local JPEG) renders as an inline preview. */
+data class ChatMsg(val role: String, val text: String, val imagePath: String? = null)
 
 /** One registered capability, surfaced to the settings screen (method + human summary). */
 data class CapInfo(val method: String, val summary: String)
@@ -112,6 +112,11 @@ class PhoneAgentService : Service() {
 
     /** Phone-local transient status (e.g. "Transcribing…") shown in the chat. */
     fun setStatus(label: String?) { status.value = label }
+
+    /** A photo the agent just took — show it inline in the chat (also saved to the gallery). */
+    fun addPhoto(localPath: String) {
+        chat.value = chat.value + ChatMsg("assistant", "", imagePath = localPath)
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 

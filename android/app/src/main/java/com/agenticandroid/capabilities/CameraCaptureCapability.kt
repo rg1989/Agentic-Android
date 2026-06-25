@@ -6,14 +6,19 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import android.view.Surface
 import androidx.core.content.ContextCompat
 import com.agenticandroid.BusEndpoint
 import com.agenticandroid.CapResult
@@ -79,6 +84,10 @@ class CameraCaptureCapability(
             try {
                 cameraHeld = true
                 val jpegBytes = captureFrame(width, height)
+                // Save to the user's gallery + show an inline preview in the chat.
+                val name = "AgenticAndroid_" + System.currentTimeMillis()
+                com.agenticandroid.Photos.save(context, jpegBytes, name)
+                    ?.let { com.agenticandroid.PhoneAgentService.instance?.addPhoto(it) }
                 val blobId = bus.putBlob(jpegBytes)
                 CapResult(result = buildJsonObject {
                     put("blob_id",      blobId)
@@ -123,6 +132,10 @@ class CameraCaptureCapability(
         val orientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
 
         val reader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 2)
+        // Detached preview surface: the camera streams to it so auto-exposure/focus converge BEFORE the
+        // still capture. Without this warm-up the first JPEG comes back black/unexposed.
+        val previewTexture = SurfaceTexture(false).apply { setDefaultBufferSize(1280, 720) }
+        val previewSurface = Surface(previewTexture)
         val thread = HandlerThread("cam-capture").apply { start() }
         val handler = Handler(thread.looper)
         var device: CameraDevice? = null
@@ -140,15 +153,45 @@ class CameraCaptureCapability(
                 cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
                     override fun onOpened(d: CameraDevice) {
                         device = d
-                        d.createCaptureSession(listOf(reader.surface), object : CameraCaptureSession.StateCallback() {
+                        d.createCaptureSession(listOf(previewSurface, reader.surface), object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(session: CameraCaptureSession) {
-                                val req = d.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
-                                    addTarget(reader.surface)
+                                var stillFired = false
+                                val fireStill = fire@{
+                                    if (stillFired) return@fire
+                                    stillFired = true
+                                    runCatching { session.stopRepeating() }
+                                    val still = d.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                        addTarget(reader.surface)
+                                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                        set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                        set(CaptureRequest.JPEG_ORIENTATION, orientation)
+                                    }.build()
+                                    runCatching { session.capture(still, null, handler) }
+                                        .onFailure { if (cont.isActive) cont.resumeWithException(it) }
+                                }
+
+                                // Stream a preview; capture once auto-exposure has settled (or a fallback).
+                                val preview = d.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                                    addTarget(previewSurface)
                                     set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                                     set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                                    set(CaptureRequest.JPEG_ORIENTATION, orientation)
                                 }.build()
-                                session.capture(req, null, handler)
+                                var frames = 0
+                                val previewCb = object : CameraCaptureSession.CaptureCallback() {
+                                    override fun onCaptureCompleted(s: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+                                        if (stillFired) return
+                                        frames++
+                                        val ae = result.get(CaptureResult.CONTROL_AE_STATE)
+                                        val ready = ae == null ||
+                                            ae == CameraMetadata.CONTROL_AE_STATE_CONVERGED ||
+                                            ae == CameraMetadata.CONTROL_AE_STATE_FLASH_REQUIRED ||
+                                            ae == CameraMetadata.CONTROL_AE_STATE_LOCKED
+                                        if ((ready && frames >= 4) || frames >= 30) fireStill()
+                                    }
+                                }
+                                runCatching { session.setRepeatingRequest(preview, previewCb, handler) }
+                                    .onFailure { fireStill() }
+                                handler.postDelayed({ fireStill() }, 2000) // hard fallback if 3A stalls
                             }
                             override fun onConfigureFailed(session: CameraCaptureSession) {
                                 if (cont.isActive) cont.resumeWithException(IllegalStateException("capture session config failed"))
@@ -167,6 +210,8 @@ class CameraCaptureCapability(
         } finally {
             runCatching { device?.close() }
             reader.close()
+            runCatching { previewSurface.release() }
+            runCatching { previewTexture.release() }
             thread.quitSafely()
         }
     }

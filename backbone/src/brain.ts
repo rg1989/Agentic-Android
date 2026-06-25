@@ -130,7 +130,7 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string> {
 
   if (has("photo", "picture", "camera", "selfie") && can("camera.capture")) {
     const r = await call("camera.capture", { width: 1280, height: 720 });
-    return r.status === "ok" ? `📷 Took a photo — you can view it in the control panel.` : `Couldn't take a photo: ${JSON.stringify(r.error)}`;
+    return r.status === "ok" ? `📷 Took a photo — it's here in the chat and saved to your gallery.` : `Couldn't take a photo: ${JSON.stringify(r.error)}`;
   }
   if (has("screenshot", "screen") && can("ui.screenshot")) {
     const r = await call("ui.screenshot");
