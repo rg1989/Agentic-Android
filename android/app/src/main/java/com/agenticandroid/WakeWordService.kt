@@ -33,12 +33,17 @@ class WakeWordService : Service(), RecognitionListener {
     private var awaitingCommand = false
     private var lastWakeAt = 0L
     private val chimes by lazy { Chimes() }
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         SettingsStore.init(this)
         startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        // Keep the CPU running so the mic keeps capturing + Vosk keeps processing with the screen off.
+        wakeLock = (getSystemService(POWER_SERVICE) as android.os.PowerManager)
+            .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "agentic:wakeword")
+            .apply { setReferenceCounted(false); runCatching { acquire() } }
         StorageService.unpack(
             this, MODEL_ASSET, "model",
             { m -> model = m; startRecognition() },
@@ -108,6 +113,8 @@ class WakeWordService : Service(), RecognitionListener {
         speech = null
         runCatching { model?.close() }
         model = null
+        runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
+        wakeLock = null
         chimes.release()
         super.onDestroy()
     }

@@ -9,6 +9,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -188,10 +192,31 @@ class SettingsActivity : ComponentActivity() {
                                 })
                             }
                             if (wakeWord) {
+                                Text(
+                                    "Wake phrase",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+                                )
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    listOf("hey agent", "okay agent", "computer", "jarvis", "hey phone").forEach { p ->
+                                        FilterChip(
+                                            selected = wakePhrase == p,
+                                            onClick = { SettingsStore.setWakePhrase(p) },
+                                            label = { Text(p) },
+                                        )
+                                    }
+                                }
                                 OutlinedTextField(
                                     value = wakePhrase,
                                     onValueChange = { SettingsStore.setWakePhrase(it) },
-                                    label = { Text("Wake phrase") },
+                                    label = { Text("Or type your own") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                                 )

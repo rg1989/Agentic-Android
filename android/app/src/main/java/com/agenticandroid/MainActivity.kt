@@ -64,6 +64,20 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.painterResource
 import com.agenticandroid.pairing.PairingActivity
 
 /**
@@ -126,6 +140,7 @@ class MainActivity : ComponentActivity() {
                 DisposableEffect(Unit) { onDispose { voice.destroy() } }
                 val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+                Box(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
                     // thin header: who you're connected to
                     Row(
@@ -260,10 +275,10 @@ class MainActivity : ComponentActivity() {
                             maxLines = 4,
                         )
                         if (voice.available && paired) {
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(8.dp))
                             Box(
                                 Modifier.size(48.dp).clip(CircleShape)
-                                    .background(if (recording) Color(0xFFD32F2F) else MaterialTheme.colorScheme.secondaryContainer)
+                                    .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                                     .pointerInput(Unit) {
                                         detectTapGestures(onPress = {
                                             val granted = ContextCompat.checkSelfPermission(
@@ -284,7 +299,14 @@ class MainActivity : ComponentActivity() {
                                         })
                                     },
                                 contentAlignment = Alignment.Center,
-                            ) { Text(if (recording) "●" else "🎤") }
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_mic),
+                                    contentDescription = "Hold to talk",
+                                    tint = if (recording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
                         }
                         Spacer(Modifier.width(8.dp))
                         Button(onClick = {
@@ -296,7 +318,41 @@ class MainActivity : ComponentActivity() {
                         }) { Text("Send") }
                     }
                 }
+                // Listening glow around the screen edges while recording or wake-listening.
+                ListeningGlow(
+                    active = recording || (status?.startsWith("🎙️") == true),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                }
             }
+        }
+    }
+}
+
+/** A soft animated glow hugging the screen edges, shown while the app is listening. */
+@Composable
+private fun ListeningGlow(active: Boolean, color: Color) {
+    val fade by animateFloatAsState(if (active) 1f else 0f, tween(350), label = "glowFade")
+    if (fade == 0f) return
+    val t = rememberInfiniteTransition(label = "glow")
+    val pulse by t.animateFloat(
+        0.5f, 1f,
+        infiniteRepeatable(tween(950, easing = LinearEasing), RepeatMode.Reverse),
+        label = "pulse",
+    )
+    Canvas(Modifier.fillMaxSize()) {
+        val layers = 6
+        val maxW = 26.dp.toPx()
+        for (i in 0 until layers) {
+            val frac = i / (layers - 1f)              // 0 at the very edge → 1 inward
+            val strokeW = 3.dp.toPx() + frac * maxW
+            val a = fade * pulse * (1f - frac) * 0.5f
+            drawRect(
+                color = color.copy(alpha = a),
+                topLeft = Offset(strokeW / 2f, strokeW / 2f),
+                size = Size(size.width - strokeW, size.height - strokeW),
+                style = Stroke(width = strokeW),
+            )
         }
     }
 }
