@@ -17,8 +17,8 @@ import QRCode from "qrcode";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { spawn, type ChildProcess } from "node:child_process";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { ready } from "./crypto.ts";
 import { BusEndpoint } from "./peer.ts";
@@ -295,14 +295,16 @@ const SETUP_PAGE = `<!doctype html>
 
   <div class="step" id="step1">
     <h2><span class="num">1</span> Connect your agent</h2>
-    <p>Your agent is your own brain (it brings its own login). Pick one, then run the command in the <code>backbone</code> folder.</p>
+    <p>Your agent is your own brain — it brings its own login. Pick one and press Connect.</p>
     <div class="opts">
-      <div class="opt sel" data-cmd="pnpm agent:claude" data-note="Runs your own Claude (subscription). Do <code>claude login</code> once first — no API key.">Your Claude</div>
-      <div class="opt" data-cmd="pnpm agent" data-note="A built-in keyword agent. No model, no key — handy for a quick test.">Built-in (basic)</div>
-      <div class="opt" data-cmd="AGENT_CLI=yourtool pnpm agent:claude" data-note="Any CLI agent that prints a reply. Set AGENT_CLI to your command.">Custom CLI</div>
+      <div class="opt sel" data-type="claude" data-note="Runs your own Claude (subscription) — do <code>claude login</code> once in a terminal first. No API key.">Your Claude</div>
+      <div class="opt" data-type="basic" data-note="A built-in keyword helper. No model, no login — handy for a quick test.">Built-in (basic)</div>
+      <div class="opt" data-type="custom" data-note="Any CLI agent that prints a reply. Type its command below.">Custom CLI</div>
     </div>
-    <div class="cmdrow"><span class="cmd" id="cmd">pnpm agent:claude</span><button class="ghost" id="copy">Copy</button></div>
-    <p class="hint" id="note">Runs your own Claude (subscription). Do <code>claude login</code> once first — no API key.</p>
+    <input id="ccmd" placeholder="your CLI command, e.g. claude" style="display:none;width:100%;margin:8px 0;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
+    <p class="hint" id="note">Runs your own Claude (subscription) — do <code>claude login</code> once in a terminal first. No API key.</p>
+    <div class="cmdrow"><button id="connect">Connect</button><button class="ghost" id="stopagent">Stop</button><span id="astate" class="hint" style="margin:0;"></span></div>
+    <div id="alog" class="hint" style="white-space:pre-wrap;color:#e3b341;margin-top:8px;"></div>
   </div>
 
   <div class="step" id="step2">
@@ -322,17 +324,30 @@ const SETUP_PAGE = `<!doctype html>
 </div>
 <script>
   const opts=[...document.querySelectorAll('.opt')];
-  function pick(o){ opts.forEach(x=>x.classList.toggle('sel',x===o)); document.getElementById('cmd').textContent=o.dataset.cmd; document.getElementById('note').innerHTML=o.dataset.note; }
+  let curType='claude';
+  function pick(o){ opts.forEach(x=>x.classList.toggle('sel',x===o)); curType=o.dataset.type; document.getElementById('note').innerHTML=o.dataset.note; document.getElementById('ccmd').style.display=curType==='custom'?'block':'none'; }
   opts.forEach(o=>o.onclick=()=>pick(o));
-  document.getElementById('copy').onclick=()=>{ navigator.clipboard.writeText(document.getElementById('cmd').textContent); const b=document.getElementById('copy'); b.textContent='Copied'; setTimeout(()=>b.textContent='Copy',1200); };
-  function set(dot,val,on,wait){ const d=document.getElementById(dot); d.className='dot'+(on?' on':wait?' wait':''); document.getElementById(val).textContent=arguments[4]; }
+  document.getElementById('connect').onclick=async()=>{
+    const st=document.getElementById('astate'), lg=document.getElementById('alog');
+    st.textContent='starting…'; lg.textContent='';
+    try {
+      const body={type:curType, command:document.getElementById('ccmd').value};
+      const r=await (await fetch('/agent/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})).json();
+      if(!r.ok){ st.textContent=''; lg.textContent=r.error||'Failed to start.'; }
+    } catch(e){ st.textContent=''; lg.textContent=String(e); }
+  };
+  document.getElementById('stopagent').onclick=async()=>{ await fetch('/agent/stop',{method:'POST'}); document.getElementById('astate').textContent='stopped'; document.getElementById('alog').textContent=''; };
+  function set(dot,val,on,wait,txt){ const d=document.getElementById(dot); d.className='dot'+(on?' on':wait?' wait':''); document.getElementById(val).textContent=txt; }
   async function poll(){ try{ const s=await (await fetch('/status')).json();
-    set('ad','av',s.agent.connected,false, s.agent.connected?('Connected — '+(s.agent.name||'agent')):'Not connected — run step 1');
+    set('ad','av',s.agent.connected,s.agent.running&&!s.agent.connected, s.agent.connected?('Connected — '+(s.agent.name||'agent')):(s.agent.running?'Starting…':'Not connected — connect one below'));
     set('pd','pv',s.phone.connected,s.paired&&!s.phone.connected, s.phone.connected?('Connected — '+s.phone.caps+' actions'):(s.paired?'Paired, waiting…':'Not paired — do step 2'));
     document.getElementById('step1').classList.toggle('done',s.agent.connected);
     document.getElementById('step2').classList.toggle('done',s.phone.connected);
+    const st=document.getElementById('astate');
+    if(s.agent.connected) st.textContent='✓ connected'; else if(s.agent.running) st.textContent='running…';
+    if(s.agent.log && /exited|cannot|error/i.test(s.agent.log)) document.getElementById('alog').textContent=s.agent.log.split('\\n').filter(Boolean).slice(-3).join('\\n');
   }catch(e){} }
-  setInterval(poll,2500); poll();
+  setInterval(poll,2000); poll();
 </script></body></html>`;
 
 async function main() {
@@ -353,6 +368,47 @@ async function main() {
   let agentSock: WebSocket | null = null;
   let agentName: string | null = null;
   let pendingSay: ((text: string) => void) | null = null; // resolves /say with the next agent reply
+
+  // ---- agent process control: start/stop the brain straight from the setup UI (no terminal) ----
+  let agentChild: ChildProcess | null = null;
+  let agentChildLog = "";
+  let agentKind = "";
+  const backboneDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  const tsxBin = () => { const b = path.join(backboneDir, "node_modules", ".bin", "tsx"); return fs.existsSync(b) ? b : "tsx"; };
+
+  function stopAgentProc() {
+    if (agentChild) { try { agentChild.kill("SIGTERM"); } catch { /* */ } agentChild = null; }
+    agentKind = "";
+  }
+  function spawnAgent(kind: string, command?: string) {
+    stopAgentProc();
+    const env = { ...process.env };
+    let script = "src/agent.ts";                                  // basic (keyword) agent
+    if (kind === "claude") script = "src/agent-cli.ts";           // your Claude (subscription)
+    else if (kind === "custom") { script = "src/agent-cli.ts"; env.AGENT_CLI = command || "claude"; }
+    agentChildLog = ""; agentKind = kind;
+    const child = spawn(tsxBin(), [script], { cwd: backboneDir, env });
+    const cap = (d: Buffer) => { agentChildLog = (agentChildLog + d.toString()).slice(-3000); };
+    child.stdout?.on("data", cap); child.stderr?.on("data", cap);
+    child.on("exit", (code) => { agentChildLog += `\n[agent process exited: ${code}]`; if (agentChild === child) agentChild = null; });
+    agentChild = child;
+  }
+  // Quick auth probe so the UI can say "run `claude login`" before the user even chats.
+  function probeClaude(cli: string): Promise<{ ok: boolean; message?: string }> {
+    return new Promise((resolve) => {
+      const env = { ...process.env }; delete env.ANTHROPIC_API_KEY;
+      const c = spawn(cli, ["-p", "--output-format", "json", "ping"], { env });
+      let out = "";
+      const timer = setTimeout(() => { try { c.kill(); } catch { /* */ } resolve({ ok: true }); }, 9000);
+      c.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, message: `Couldn't run "${cli}": ${e.message}. Is it installed and on PATH?` }); });
+      c.stdout?.on("data", (d) => (out += d.toString()));
+      c.on("close", () => {
+        clearTimeout(timer);
+        try { const j = JSON.parse(out); if (j.is_error && /401|auth|login|credential|unauthor/i.test(String(j.result))) return resolve({ ok: false, message: "Your Claude CLI isn't logged in. Run `claude login` once in a terminal, then Connect again — no API key needed." }); } catch { /* */ }
+        resolve({ ok: true });
+      });
+    });
+  }
 
   /** The hub owns media: when a tool result carries an image blob, save it to ~/.agentic-android/media. */
   async function saveMediaFromResult(result: unknown) {
@@ -464,11 +520,36 @@ async function main() {
     }
     if (req.method === "GET" && url.pathname === "/status") {
       return json({
-        agent: { connected: !!agentSock, name: agentName },
+        agent: { connected: !!agentSock, name: agentName, running: !!agentChild, kind: agentKind, log: agentChildLog.slice(-400) },
         phone: { connected: caps.length > 0, caps: caps.length },
         paired: !!cfg.peerEdPub,
         relayUrl: cfg.relayUrl,
       });
+    }
+    if (req.method === "POST" && url.pathname === "/agent/start") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", async () => {
+        try {
+          const { type, command } = JSON.parse(body || "{}");
+          const kind = String(type ?? "basic");
+          if (kind === "claude") {
+            const probe = await probeClaude("claude");
+            if (!probe.ok) return json({ ok: false, error: probe.message });
+          } else if (kind === "custom") {
+            const probe = await probeClaude(String(command || "claude"));
+            if (!probe.ok) return json({ ok: false, error: probe.message });
+          }
+          spawnAgent(kind, command);
+          logEvent("connection", `started agent process: ${kind}`);
+          json({ ok: true });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/agent/stop") {
+      stopAgentProc();
+      logEvent("connection", "stopped agent process (from UI)");
+      return json({ ok: true });
     }
     if (req.method === "GET" && url.pathname === "/pair-qr") {
       const token = "PAIR:" + Buffer.from(JSON.stringify({ edPub: cfg.self.edPub, fp: cfg.self.fp, relayUrl: cfg.relayUrl })).toString("base64url");
