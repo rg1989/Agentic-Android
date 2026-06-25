@@ -32,11 +32,19 @@ const HUB_WS = process.env.HUB_URL ?? `ws://127.0.0.1:${process.env.AGENT_PORT ?
 const HUB_HTTP = process.env.HUB_HTTP ?? "http://127.0.0.1:8123";
 const CLI = process.env.AGENT_CLI ?? "claude";
 
+/** A truthful label for WHERE the agent runs, so it stops claiming to "be" the phone. */
+const HOST = (() => {
+  const plat: Record<string, string> = { darwin: "macOS", linux: "Linux", win32: "Windows" };
+  return `${os.hostname()} (${plat[os.platform()] ?? os.platform()})`;
+})();
 const SYSTEM =
-  "You are the user's phone assistant — your computer is their Android phone, reachable through the " +
-  "`phone` MCP tools (take photos, read/tap/type/swipe the screen, screenshot, location, device info, " +
-  "flashlight, ring, open apps, and more). When the user asks for something on the phone, actually use " +
-  "the tools to do it, then reply concisely about what happened.";
+  `You are the user's personal agent. You run as a process on the user's OWN COMPUTER — ${HOST} — ` +
+  'connected to a local "hub" over a WebSocket; your replies travel back to the user through that hub. ' +
+  "You are NOT running on the phone. The Android phone is a SEPARATE edge device that you can see and " +
+  "remotely control through the `phone` MCP tools (take photos, read/tap/type/swipe the screen, screenshot, " +
+  "location, device info, flashlight, ring, open apps, and more). When the user asks you to do something on " +
+  "the phone, actually use those tools, then reply concisely about what happened. If the user asks where you " +
+  `are running, answer truthfully: on their computer (${HOST}) via the hub — the phone is only the device you operate.`;
 
 function tsxBin(): string {
   const local = path.join(HERE, "..", "node_modules", ".bin", "tsx");
