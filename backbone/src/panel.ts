@@ -383,7 +383,10 @@ const SETUP_PAGE = `<!doctype html>
         <div class="opt" data-relay="anywhere">Anywhere (Tailscale)</div>
         <div class="opt" data-relay="usb">USB cable</div>
       </div>
-      <input id="relayinput" placeholder="paste your Mac's Tailscale IP, e.g. http://100.x.x.x:8799" style="display:none;width:100%;margin:8px 0;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;" />
+      <div id="relayrow" style="display:none;gap:8px;margin:8px 0;">
+        <input id="relayinput" placeholder="your Mac's Tailscale IP, e.g. 100.x.x.x" style="flex:1;min-width:0;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;" />
+        <button id="relayapply" style="white-space:nowrap;">Apply</button>
+      </div>
       <span id="relaystate" class="hint"></span>
     </div>
     <details style="margin-top:14px;"><summary style="cursor:pointer;color:#6b8afd;font-size:13px;">Phone won't connect?</summary>
@@ -444,6 +447,12 @@ const SETUP_PAGE = `<!doctype html>
     document.getElementById('step1').classList.toggle('done',aOk);
     document.getElementById('step2').classList.toggle('done',s.phone.connected);
     if(s.phoneRelay){ const pr=document.getElementById('prelay'); if(pr) pr.textContent=s.phoneRelay; }
+    // Reflect the SAVED relay choice in the picker on first load (so Tailscale shows selected, not Wi-Fi).
+    if(!window._relaySynced && s.relayChoice){ window._relaySynced=true;
+      const opt=document.querySelector('[data-relay="'+s.relayChoice+'"]');
+      if(opt){ document.querySelectorAll('[data-relay]').forEach(x=>x.classList.toggle('sel',x===opt));
+        if(s.relayChoice==='anywhere'){ document.getElementById('relayrow').style.display='flex';
+          const ri=document.getElementById('relayinput'); if(!ri.value && /^https?:\/\//.test(s.phoneRelay||'')) ri.value=s.phoneRelay; } } }
     const st=document.getElementById('astate');
     if(aOk) st.textContent='now running: '+(s.agent.name||'agent');
     else if(s.agent.connected&&!aReady) st.textContent='connected, but Claude needs sign-in (see below)';
@@ -456,17 +465,24 @@ const SETUP_PAGE = `<!doctype html>
       if(key && key!==_calloutKey){ _calloutKey=key; showCallout(s.agent.status||'Claude needs sign-in on this computer.', s.agent.command); } }
   }catch(e){} }
   const relayOpts=[...document.querySelectorAll('[data-relay]')];
+  const relayInput=document.getElementById('relayinput');
   relayOpts.forEach(o=>o.onclick=()=>{
     relayOpts.forEach(x=>x.classList.toggle('sel',x===o));
     const kind=o.dataset.relay;
-    document.getElementById('relayinput').style.display = kind==='anywhere' ? 'block' : 'none';
-    if(kind!=='anywhere') setRelay(kind);
+    document.getElementById('relayrow').style.display = kind==='anywhere' ? 'flex' : 'none';
+    if(kind==='anywhere'){
+      // Prefill with the saved Tailscale address if there is one, and focus so it's obvious what to do.
+      const cur=document.getElementById('prelay').textContent||'';
+      if(!relayInput.value && /^https?:\/\//.test(cur)) relayInput.value=cur;
+      relayInput.focus();
+    } else setRelay(kind);
   });
-  document.getElementById('relayinput').addEventListener('keydown', e=>{ if(e.key==='Enter') setRelay(e.target.value); });
+  relayInput.addEventListener('keydown', e=>{ if(e.key==='Enter') setRelay(relayInput.value); });
+  document.getElementById('relayapply').onclick=()=>setRelay(relayInput.value);
   async function setRelay(value){
     const st=document.getElementById('relaystate'); st.textContent='saving…';
     try{ const r=await (await fetch('/relay-url',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({value})})).json();
-      if(r.ok){ st.textContent='saved — re-pair to apply'; document.getElementById('qrimg').src='/pair-qr?t='+Date.now(); } else { st.textContent=r.error||'failed'; } }
+      if(r.ok){ st.textContent='✓ saved as '+(r.phoneRelay||value)+' — re-scan the QR to apply'; document.getElementById('qrimg').src='/pair-qr?t='+Date.now(); } else { st.textContent=r.error||'failed'; } }
     catch(e){ st.textContent='failed'; }
   }
   setInterval(poll,2000); poll();
@@ -681,6 +697,7 @@ async function main() {
         paired: !!cfg.peerEdPub,
         relayUrl: cfg.relayUrl,
         phoneRelay: phoneRelayUrl(cfg.relayUrl),
+        relayChoice: (() => { try { const v = loadCfg().phoneRelayUrl; return typeof v === "string" && v.trim() ? (v === "usb" ? "usb" : "anywhere") : "auto"; } catch { return "auto"; } })(),
       });
     }
     if (req.method === "POST" && url.pathname === "/agent/start") {
@@ -713,9 +730,17 @@ async function main() {
       req.on("end", () => {
         try {
           const { value } = JSON.parse(body || "{}");
-          const v = String(value ?? "auto").trim();
-          // accept: "auto" (Wi-Fi LAN), "usb" (localhost), or a full ws/http URL (Tailscale/public)
-          if (v !== "auto" && v !== "usb" && !/^https?:\/\/|^wss?:\/\//i.test(v)) return json({ ok: false, error: "Enter a full address like http://100.x.x.x:8799" });
+          let v = String(value ?? "auto").trim();
+          // accept: "auto" (Wi-Fi LAN), "usb" (localhost), or a Tailscale/LAN address. Be forgiving:
+          // a bare IP/host ("100.64.1.5" or "100.64.1.5:8799") is normalized to http://host:8799.
+          if (v !== "auto" && v !== "usb") {
+            if (!/^https?:\/\/|^wss?:\/\//i.test(v)) v = "http://" + v;
+            try {
+              const u = new URL(v);
+              if (!u.port) u.port = "8799";        // default to the relay port
+              v = u.toString().replace(/\/+$/, ""); // strip trailing slash
+            } catch { return json({ ok: false, error: "Couldn't read that address — try your Tailscale IP, e.g. 100.x.x.x" }); }
+          }
           saveRelayChoice(v);
           logEvent("config", `phone relay set to ${v}`);
           json({ ok: true, phoneRelay: phoneRelayUrl(cfg.relayUrl) });
