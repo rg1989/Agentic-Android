@@ -50,6 +50,42 @@ function mcpConfig(): string {
   });
 }
 
+/** Env for spawning the CLI: drop stray API key + child-session vars so it uses the user's own
+ * (subscription / setup-token) auth instead of running credential-less. */
+function claudeEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  for (const k of Object.keys(env)) if (k === "CLAUDECODE" || (k.startsWith("CLAUDE_CODE_") && k !== "CLAUDE_CODE_OAUTH_TOKEN")) delete env[k];
+  const tk = savedToken(); if (tk) env.CLAUDE_CODE_OAUTH_TOKEN = tk;
+  return env;
+}
+
+const NEEDS_LOGIN = /401|authenticate|credential|unauthor|login/i;
+/** Friendly, ACCURATE remediation when the CLI can't authenticate (no such command as `claude login`). */
+const LOGIN_HELP =
+  "I'm connected to your phone, but Claude isn't signed in on the computer running the hub. On that " +
+  "computer, run `claude setup-token` and paste the token on the setup page (or just run `claude` once " +
+  "and sign in), then try again — it uses your subscription, no API key needed.";
+
+/** One-time startup check: can `claude -p` actually answer here? Returns remediation if not. */
+function probeAuth(): Promise<{ ok: boolean; command?: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(CLI, ["-p", "--output-format", "json", "ping"], { env: claudeEnv() });
+    let out = "";
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* */ } resolve({ ok: true }); }, 15000);
+    child.stdout.on("data", (d) => (out += d));
+    child.on("error", () => { clearTimeout(timer); resolve({ ok: false }); });
+    child.on("close", () => {
+      clearTimeout(timer);
+      try {
+        const j = JSON.parse(out);
+        if (j.is_error && NEEDS_LOGIN.test(String(j.result ?? ""))) return resolve({ ok: false, command: "claude setup-token" });
+      } catch { /* not JSON — assume the CLI ran */ }
+      resolve({ ok: true });
+    });
+  });
+}
+
 /** Run one turn through the user's CLI agent. Defaults assume `claude -p` JSON output. */
 function runTurn(text: string): Promise<string> {
   return new Promise((resolve) => {
@@ -60,13 +96,7 @@ function runTurn(text: string): Promise<string> {
       "--append-system-prompt", SYSTEM,
       text,
     ];
-    const env = { ...process.env };
-    delete env.ANTHROPIC_API_KEY; // use the CLI's own (e.g. subscription) auth, not a stray key
-    // If launched under a Claude Code session, drop the child-session vars so `claude` authenticates
-    // with its own (subscription/token) creds instead of running credential-less.
-    for (const k of Object.keys(env)) if (k === "CLAUDECODE" || (k.startsWith("CLAUDE_CODE_") && k !== "CLAUDE_CODE_OAUTH_TOKEN")) delete env[k];
-    const tk = savedToken(); if (tk) env.CLAUDE_CODE_OAUTH_TOKEN = tk;
-    const child = spawn(CLI, args, { env });
+    const child = spawn(CLI, args, { env: claudeEnv() });
     let out = "", err = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
@@ -76,8 +106,7 @@ function runTurn(text: string): Promise<string> {
         const j = JSON.parse(out);
         if (j.is_error) {
           const msg = String(j.result ?? "unknown");
-          if (/401|authenticate|credential|unauthor|login/i.test(msg))
-            resolve(`Your "${CLI}" isn't logged in on this machine. Run \`claude login\` once, then try again — no API key needed.`);
+          if (NEEDS_LOGIN.test(msg)) resolve(LOGIN_HELP);
           else resolve(`Agent error: ${msg}`);
         } else resolve(String(j.result ?? "(no reply)"));
       } catch {
@@ -92,14 +121,32 @@ async function main() {
   ws.on("open", () => {
     ws.send(JSON.stringify({ t: "hello", name: "Claude (your subscription)" }));
     console.error(`agent-cli connected to hub ${HUB_WS}; CLI = "${CLI}"`);
+    // Don't claim "ready" on the WS link alone — actually verify Claude can authenticate here, so the
+    // phone/web show the truth (and the exact fix) instead of "connected" followed by a 401 on first message.
+    void probeAuth().then((p) => {
+      if (p.ok) { ws.send(JSON.stringify({ t: "event", topic: "agent_status", data: { label: "Ready", ready: true } })); return; }
+      ws.send(JSON.stringify({ t: "event", topic: "agent_status", data: { label: "⚠ Sign in to Claude on your computer", ready: false, command: p.command } }));
+      console.error("\n" + "─".repeat(64) + "\n" +
+        "  Claude isn't signed in for headless use on THIS computer.\n" +
+        `  Fix:  ${p.command ?? "claude setup-token"}\n` +
+        "  then paste the token on the setup page (it reconnects automatically).\n" +
+        "  Uses your subscription — no API key needed.\n" +
+        "─".repeat(64) + "\n");
+    });
   });
   ws.on("message", (raw) => {
     let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
     if (m.t === "user") {
       const text = String(m.text ?? "");
       ws.send(JSON.stringify({ t: "event", topic: "agent_status", data: { label: "Thinking…" } }));
-      void runTurn(text).then((reply) =>
-        ws.send(JSON.stringify({ t: "event", topic: "assistant_message", data: { text: reply } })));
+      void runTurn(text).then((reply) => {
+        // Self-heal readiness from the REAL result: a fresh token starting to work (or breaking) flips
+        // the phone/web state on the next message — no restart needed after saving a token.
+        const authFailed = reply === LOGIN_HELP;
+        ws.send(JSON.stringify({ t: "event", topic: "agent_status",
+          data: authFailed ? { label: "⚠ Sign in to Claude on your computer", ready: false, command: "claude setup-token" } : { label: "Ready", ready: true } }));
+        ws.send(JSON.stringify({ t: "event", topic: "assistant_message", data: { text: reply } }));
+      });
     }
     // {t:ready|catalog}: phone-mcp fetches tools from /catalog itself, so nothing to wire here.
   });

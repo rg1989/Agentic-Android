@@ -28,11 +28,15 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,6 +104,8 @@ class PairingActivity : ComponentActivity() {
         setContent {
             var status by remember { mutableStateOf("Point camera at the bridge QR code") }
             var scanning by remember { mutableStateOf(true) }
+            val isSuccess = status.startsWith("Paired")
+            val isError = status.startsWith("Pairing failed") || status.startsWith("Couldn't")
 
             MaterialTheme {
                 Box(Modifier.fillMaxSize()) {
@@ -111,7 +117,12 @@ class PairingActivity : ComponentActivity() {
                                     // We stash the PreviewView reference via a side-effect; see
                                     // startCamera() below which calls this after permission is granted.
                                     previewViewHolder = pv
-                                    statusUpdater = { s -> status = s; if (s.startsWith("Paired") || s.startsWith("Error")) scanning = false }
+                                    statusUpdater = { s ->
+                                        status = s
+                                        // Stop the camera on any terminal state (success OR failure) so the
+                                        // result card — with buttons — replaces the live preview.
+                                        if (s.startsWith("Paired") || s.startsWith("Pairing failed") || s.startsWith("Couldn't")) scanning = false
+                                    }
                                     checkAndStartCamera()
                                 }
                             },
@@ -119,11 +130,37 @@ class PairingActivity : ComponentActivity() {
                         )
                     }
                     Column(
-                        Modifier.align(Alignment.BottomCenter).padding(24.dp),
+                        Modifier.align(if (scanning) Alignment.BottomCenter else Alignment.Center).padding(28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text(status, style = MaterialTheme.typography.bodyLarge)
-                        if (status == "Pairing…") CircularProgressIndicator()
+                        when {
+                            isSuccess -> {
+                                Text("Paired ✓", style = MaterialTheme.typography.headlineSmall)
+                                Spacer(Modifier.height(8.dp))
+                                Text("Your phone is linked to the agent.", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.height(20.dp))
+                                Button(onClick = { openChat() }) { Text("Open chat") }
+                            }
+                            isError -> {
+                                Text("Couldn't pair", style = MaterialTheme.typography.titleMedium)
+                                Spacer(Modifier.height(8.dp))
+                                Text(status, style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.height(20.dp))
+                                Button(onClick = {
+                                    scanned.set(false)
+                                    status = "Point camera at the bridge QR code"
+                                    scanning = true
+                                }) { Text("Try again") }
+                                Spacer(Modifier.height(4.dp))
+                                TextButton(onClick = { openChat() }) { Text("Back to chat") }
+                            }
+                            status == "Pairing…" -> {
+                                CircularProgressIndicator()
+                                Spacer(Modifier.height(12.dp))
+                                Text(status, style = MaterialTheme.typography.bodyLarge)
+                            }
+                            else -> Text(status, style = MaterialTheme.typography.bodyLarge)
+                        }
                     }
                 }
             }
@@ -235,6 +272,15 @@ class PairingActivity : ComponentActivity() {
                     "Pairing failed: ${e.message}. Scan again to retry.",
             )
         }
+    }
+
+    /** Leave the pairing screen and land on the chat (don't strand the user on a static page). */
+    private fun openChat() {
+        startActivity(
+            Intent(this, com.agenticandroid.MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
+        finish()
     }
 
     override fun onDestroy() {

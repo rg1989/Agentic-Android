@@ -429,18 +429,28 @@ const SETUP_PAGE = `<!doctype html>
   };
   document.getElementById('stopagent').onclick=async()=>{ await fetch('/agent/stop',{method:'POST'}); document.getElementById('astate').textContent='stopped'; document.getElementById('alog').style.display='none'; };
   function set(dot,val,on,wait,txt){ const d=document.getElementById(dot); d.className='dot'+(on?' on':wait?' wait':''); document.getElementById(val).textContent=txt; }
+  let _calloutKey='';
   async function poll(){ try{ const s=await (await fetch('/status')).json();
-    set('ad','av',s.agent.connected,s.agent.running&&!s.agent.connected, s.agent.connected?('Connected — '+(s.agent.name||'agent')):(s.agent.running?'Starting…':'Not connected yet'));
+    const aReady = s.agent.ready !== false;          // null/true => assume ok until the agent reports otherwise
+    const aOk = s.agent.connected && aReady;          // connected AND actually able to authenticate
+    set('ad','av', aOk, (s.agent.running&&!s.agent.connected)||(s.agent.connected&&!aReady),
+      !s.agent.connected ? (s.agent.running?'Starting…':'Not connected yet')
+      : aReady ? ('Connected — '+(s.agent.name||'agent'))
+               : 'Connected, but Claude needs sign-in');
     set('pd','pv',s.phone.connected,s.paired&&!s.phone.connected, s.phone.connected?('Connected — '+s.phone.caps+' actions'):(s.paired?'Paired, waiting…':'Not paired — do step 2'));
-    document.getElementById('step1').classList.toggle('done',s.agent.connected);
+    document.getElementById('step1').classList.toggle('done',aOk);
     document.getElementById('step2').classList.toggle('done',s.phone.connected);
     if(s.phoneRelay){ const pr=document.getElementById('prelay'); if(pr) pr.textContent=s.phoneRelay; }
     const st=document.getElementById('astate');
-    // Show WHICH agent is actually running (don't claim a generic success), and never auto-hide
-    // the "needs login" message — only a new Connect/Stop click clears it.
-    if(s.agent.connected) st.textContent='now running: '+(s.agent.name||'agent');
+    if(aOk) st.textContent='now running: '+(s.agent.name||'agent');
+    else if(s.agent.connected&&!aReady) st.textContent='connected, but Claude needs sign-in (see below)';
     else if(s.agent.running) st.textContent='starting…';
     else st.textContent='';
+    // Honest callout: when the agent is connected but can't authenticate, show the exact fix.
+    // Keyed so we don't rebuild it every 2s (which would wipe a token being typed); cleared once ready.
+    if(aOk){ if(_calloutKey){ _calloutKey=''; document.getElementById('alog').style.display='none'; } }
+    else { const key=(s.agent.connected&&!aReady)?('a:'+(s.agent.status||'')+'|'+(s.agent.command||'')):'';
+      if(key && key!==_calloutKey){ _calloutKey=key; showCallout(s.agent.status||'Claude needs sign-in on this computer.', s.agent.command); } }
   }catch(e){} }
   const relayOpts=[...document.querySelectorAll('[data-relay]')];
   relayOpts.forEach(o=>o.onclick=()=>{
@@ -476,6 +486,8 @@ async function main() {
   const AGENT_PORT = Number(process.env.AGENT_PORT ?? 8124);
   let agentSock: WebSocket | null = null;
   let agentName: string | null = null;
+  let agentReady: boolean | null = null; // null = unknown (probing); false = connected but can't auth
+  let agentStatus: { label?: string; command?: string } = {};
   let pendingSay: ((text: string) => void) | null = null; // resolves /say with the next agent reply
 
   // ---- agent process control: start/stop the brain straight from the setup UI (no terminal) ----
@@ -570,6 +582,7 @@ async function main() {
       let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
       if (m.t === "hello") {
         agentSock = ws; agentName = String(m.name ?? "agent");
+        agentReady = null; agentStatus = {}; // readiness unknown until the agent reports it
         logEvent("connection", `agent connected: "${agentName}"`);
         bus.event("agent_identity", { name: agentName }); // tell the phone who's here now
         ws.send(JSON.stringify({ t: "ready", catalog: caps }));
@@ -578,7 +591,11 @@ async function main() {
           ws.send(JSON.stringify({ t: "result", id: m.id, status: resp.status, result: resp.result, error: resp.error })));
       } else if (m.t === "event") {
         const topic = String(m.topic); const data = (m.data ?? {}) as Record<string, unknown>;
-        if (topic === "agent_status") bus.event("agent_status", data);
+        if (topic === "agent_status") {
+          if (typeof (data as any).ready === "boolean") agentReady = (data as any).ready;
+          agentStatus = { label: data.label as string | undefined, command: (data as any).command as string | undefined };
+          bus.event("agent_status", data);
+        }
         else if (topic === "assistant_message") {
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
@@ -587,7 +604,7 @@ async function main() {
         }
       }
     });
-    ws.on("close", () => { if (agentSock === ws) { agentSock = null; agentName = null; logEvent("connection", "agent disconnected"); } });
+    ws.on("close", () => { if (agentSock === ws) { agentSock = null; agentName = null; agentReady = null; agentStatus = {}; logEvent("connection", "agent disconnected"); } });
   });
   logEvent("connection", `agent WebSocket on ws://127.0.0.1:${AGENT_PORT}`);
 
@@ -597,6 +614,9 @@ async function main() {
       bus.event("agent_identity", { name: agentName ?? "No agent connected", relay: cfg.relayUrl });
       // Replay the conversation the hub holds so the phone shows history on (re)connect.
       bus.event("history", { messages: conversation.slice(-100).map((t) => ({ role: t.role, text: t.text })) });
+      // If the agent connected but can't authenticate, a freshly-opened phone would otherwise miss the
+      // one-time status event — replay it so the phone shows the warning, not a silent "connected".
+      if (agentReady === false && agentStatus.label) bus.event("agent_status", { label: agentStatus.label });
       logEvent("connection", `identified to phone as "${agentName ?? "No agent"}" (replayed ${Math.min(conversation.length, 100)} turns)`);
       return;
     }
@@ -645,7 +665,7 @@ async function main() {
     }
     if (req.method === "GET" && url.pathname === "/status") {
       return json({
-        agent: { connected: !!agentSock, name: agentName, running: !!agentChild, kind: agentKind, log: agentChildLog.slice(-400) },
+        agent: { connected: !!agentSock, name: agentName, running: !!agentChild, kind: agentKind, ready: agentReady, status: agentStatus.label ?? null, command: agentStatus.command ?? null, log: agentChildLog.slice(-400) },
         phone: { connected: caps.length > 0, caps: caps.length },
         paired: !!cfg.peerEdPub,
         relayUrl: cfg.relayUrl,
