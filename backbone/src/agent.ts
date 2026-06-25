@@ -34,9 +34,11 @@ function readBrainCfg(): BrainCfg {
 /** Human-readable name this agent announces to the hub (and thus the phone). */
 function displayName(): string {
   const c = readBrainCfg();
-  if (c.name) return c.name;
   const hasKey = !!process.env[c.apiKeyEnv || "ANTHROPIC_API_KEY"];
-  return c.provider === "anthropic" && hasKey ? "Claude" : "Basic agent";
+  // Be honest: only call it by the configured name when a real model is actually in play.
+  // Otherwise it's the keyword stub — don't announce "Claude" for it.
+  const realBrain = c.provider === "anthropic" && hasKey;
+  return realBrain ? (c.name ?? "Claude") : "Basic agent";
 }
 
 async function main() {

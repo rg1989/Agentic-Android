@@ -59,8 +59,12 @@ function runTurn(text: string): Promise<string> {
     child.on("close", () => {
       try {
         const j = JSON.parse(out);
-        if (j.is_error) resolve(`Agent error: ${String(j.result ?? "unknown")}`);
-        else resolve(String(j.result ?? "(no reply)"));
+        if (j.is_error) {
+          const msg = String(j.result ?? "unknown");
+          if (/401|authenticate|credential|unauthor|login/i.test(msg))
+            resolve(`Your "${CLI}" isn't logged in on this machine. Run \`claude login\` once, then try again — no API key needed.`);
+          else resolve(`Agent error: ${msg}`);
+        } else resolve(String(j.result ?? "(no reply)"));
       } catch {
         resolve(out.trim() || err.trim() || "(no reply)");
       }
