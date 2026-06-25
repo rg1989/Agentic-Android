@@ -8,9 +8,13 @@
     "test": "tsx --test test/*.test.ts",
     "relay": "tsx src/relay.ts",
     "bridge": "tsx src/bridge.ts",
+    "hub": "tsx src/panel.ts",
+    "panel": "tsx src/panel.ts",
+    "agent": "tsx src/agent.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "libsodium-wrappers": "^0.7.15",
     "ws": "^8.18.0",

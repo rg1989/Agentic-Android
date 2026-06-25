@@ -10,3 +10,6 @@ android/app/build/
 android/local.properties
 android/app/google-services.json
 .agentic-android/
+
+# IDE
+.idea/
