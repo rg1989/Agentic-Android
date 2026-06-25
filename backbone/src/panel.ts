@@ -96,6 +96,26 @@ function writeAgentCfg(next: AgentCfg) {
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
 }
 
+/** Headless Claude auth token (from `claude setup-token`), if the user saved one. */
+function claudeOauthToken(): string | undefined {
+  try { const t = loadCfg().brain?.oauthToken; if (typeof t === "string" && t.trim()) return t.trim(); } catch { /* */ }
+  return process.env.CLAUDE_CODE_OAUTH_TOKEN || undefined;
+}
+function saveClaudeOauthToken(token: string) {
+  const cfg = loadCfg();
+  cfg.brain = { ...(cfg.brain ?? {}), oauthToken: token };
+  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
+}
+/** A clean env for spawning `claude` headlessly: drop a stray API key + the *parent* Claude-Code
+ *  session vars (which make a nested `claude -p` run credential-less), and inject the saved token. */
+function claudeSpawnEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  for (const k of Object.keys(env)) if (k === "CLAUDECODE" || (k.startsWith("CLAUDE_CODE_") && k !== "CLAUDE_CODE_OAUTH_TOKEN")) delete env[k];
+  const tk = claudeOauthToken(); if (tk) env.CLAUDE_CODE_OAUTH_TOKEN = tk;
+  return env;
+}
+
 /** Spawn the configured shell-agent for non-message phone events (optional, legacy). */
 function runAgent(template: string, prompt: string) {
   const cmd = template.replace(/\{prompt\}/g, prompt.replace(/(["\\$`])/g, "\\$1"));
@@ -337,7 +357,20 @@ const SETUP_PAGE = `<!doctype html>
     i.style.display=show?'block':'none';
     if(show){ curType='custom'; cards.forEach(x=>x.classList.remove('sel')); } else { curType='claude'; cards[0].classList.add('sel'); }
   };
-  function showCallout(error,command){ const lg=document.getElementById('alog'); lg.innerHTML=''; const p=document.createElement('div'); p.textContent=error; lg.appendChild(p); if(command){ const code=document.createElement('code'); code.textContent=command; lg.appendChild(code); } lg.style.display='block'; }
+  function showCallout(error,command){
+    const lg=document.getElementById('alog'); lg.innerHTML='';
+    const p=document.createElement('div'); p.textContent=error; lg.appendChild(p);
+    if(command){ const code=document.createElement('code'); code.textContent=command; lg.appendChild(code); }
+    if(command==='claude setup-token'){
+      const row=document.createElement('div'); row.style.cssText='margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;';
+      const inp=document.createElement('input'); inp.placeholder='paste the token it prints (sk-ant-oat...)'; inp.style.cssText='flex:1;min-width:200px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;';
+      const btn=document.createElement('button'); btn.textContent='Save token';
+      btn.onclick=async()=>{ try{ const r=await (await fetch('/agent/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:inp.value})})).json(); btn.textContent=r.ok?'Saved — now press Connect':'Save failed'; }catch(e){ btn.textContent='Save failed'; } };
+      row.appendChild(inp); row.appendChild(btn); lg.appendChild(row);
+      const hint=document.createElement('div'); hint.style.cssText='margin-top:8px;font-size:12.5px;color:#9a9aa3;'; hint.textContent='The token is printed in the terminal where you ran the command (not the browser). Paste it here, Save, then press Connect.'; lg.appendChild(hint);
+    }
+    lg.style.display='block';
+  }
   document.getElementById('connect').onclick=async()=>{
     const st=document.getElementById('astate');
     st.textContent='starting…'; document.getElementById('alog').style.display='none';
@@ -396,10 +429,10 @@ async function main() {
   }
   function spawnAgent(kind: string, command?: string) {
     stopAgentProc();
-    const env = { ...process.env };
+    let env: NodeJS.ProcessEnv = { ...process.env };
     let script = "src/agent.ts";                                  // basic (keyword) agent
-    if (kind === "claude") script = "src/agent-cli.ts";           // your Claude (subscription)
-    else if (kind === "custom") { script = "src/agent-cli.ts"; env.AGENT_CLI = command || "claude"; }
+    if (kind === "claude") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); }            // your Claude
+    else if (kind === "custom") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); env.AGENT_CLI = command || "claude"; }
     agentChildLog = ""; agentKind = kind;
     const child = spawn(tsxBin(), [script], { cwd: backboneDir, env });
     const cap = (d: Buffer) => { agentChildLog = (agentChildLog + d.toString()).slice(-3000); };
@@ -419,7 +452,7 @@ async function main() {
   }
   function probeClaude(cli: string): Promise<{ ok: boolean; message?: string; command?: string }> {
     return new Promise((resolve) => {
-      const env = { ...process.env }; delete env.ANTHROPIC_API_KEY;
+      const env = claudeSpawnEnv();
       const c = spawn(cli, ["-p", "--output-format", "json", "ping"], { env });
       let out = "";
       const timer = setTimeout(() => { try { c.kill(); } catch { /* */ } resolve({ ok: true }); }, 12000);
@@ -580,6 +613,20 @@ async function main() {
       stopAgentProc();
       logEvent("connection", "stopped agent process (from UI)");
       return json({ ok: true });
+    }
+    if (req.method === "POST" && url.pathname === "/agent/token") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { token } = JSON.parse(body || "{}");
+          const t = String(token ?? "").trim();
+          if (!t) return json({ ok: false, error: "Empty token." });
+          saveClaudeOauthToken(t);
+          logEvent("config", "saved Claude headless token");
+          json({ ok: true });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
     }
     if (req.method === "GET" && url.pathname === "/pair-qr") {
       const token = "PAIR:" + Buffer.from(JSON.stringify({ edPub: cfg.self.edPub, fp: cfg.self.fp, relayUrl: cfg.relayUrl })).toString("base64url");

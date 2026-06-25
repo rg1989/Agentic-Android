@@ -51,6 +51,9 @@ function runTurn(text: string): Promise<string> {
     ];
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY; // use the CLI's own (e.g. subscription) auth, not a stray key
+    // If launched under a Claude Code session, drop the child-session vars so `claude` authenticates
+    // with its own (subscription/token) creds instead of running credential-less.
+    for (const k of Object.keys(env)) if (k === "CLAUDECODE" || (k.startsWith("CLAUDE_CODE_") && k !== "CLAUDE_CODE_OAUTH_TOKEN")) delete env[k];
     const child = spawn(CLI, args, { env });
     let out = "", err = "";
     child.stdout.on("data", (d) => (out += d));
