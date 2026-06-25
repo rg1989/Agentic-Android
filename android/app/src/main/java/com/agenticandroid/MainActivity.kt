@@ -88,6 +88,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -137,6 +140,7 @@ class MainActivity : ComponentActivity() {
 
                 // hold-to-talk voice → transcript fills the field live, sends on release; chimes per state
                 val chimes = remember { Chimes() }
+                val haptics = remember { Haptics(context) }
                 DisposableEffect(Unit) { onDispose { chimes.release() } }
                 var recording by remember { mutableStateOf(false) }   // capturing voice (held or locked)
                 var locked by remember { mutableStateOf(false) }      // hands-free: keeps recording after release
@@ -172,7 +176,7 @@ class MainActivity : ComponentActivity() {
                     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                     if (!granted) { micPermission.launch(Manifest.permission.RECORD_AUDIO); return false }
                     WakeWordService.instance?.pause() // free the mic for hold-to-talk
-                    chimes.listening()
+                    chimes.listening(); haptics.start()
                     recording = true; locked = false; aboutToCancel = false; dragY = 0f; input = ""
                     voice.start()
                     return true
@@ -180,13 +184,14 @@ class MainActivity : ComponentActivity() {
                 fun finishRecording() {
                     if (!recording) return
                     recording = false; locked = false
+                    haptics.confirm()
                     PhoneAgentService.instance?.setStatus("Transcribing…")
                     voice.finish() // onFinal sends the full accumulated transcript
                     WakeWordService.instance?.resume()
                 }
                 fun cancelRecording() {
                     recording = false; locked = false; input = ""
-                    voice.cancel(); chimes.error()
+                    voice.cancel(); chimes.error(); haptics.cancel()
                     PhoneAgentService.instance?.setStatus(null)
                     WakeWordService.instance?.resume()
                 }
@@ -337,10 +342,8 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Box(Modifier.weight(1f)) {
                             if (recording) {
-                                val lockPxDp = 72.dp
                                 RecordingBar(
                                     locked = locked,
-                                    lockProgress = (-dragY / with(LocalDensity.current) { lockPxDp.toPx() }).coerceIn(0f, 1f),
                                     aboutToCancel = aboutToCancel,
                                     live = input,
                                     onCancel = { cancelRecording() },
@@ -397,8 +400,10 @@ class MainActivity : ComponentActivity() {
                                                 val ch = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.firstOrNull() ?: break
                                                 if (!locked) {
                                                     dragY = ch.position.y - startY
-                                                    aboutToCancel = (ch.position.x - startX) <= -cancelPx
-                                                    if (dragY <= -lockPx) { locked = true; chimes.listening() }
+                                                    val nowCancel = (ch.position.x - startX) <= -cancelPx
+                                                    if (nowCancel && !aboutToCancel) haptics.tick() // feel the cancel threshold
+                                                    aboutToCancel = nowCancel
+                                                    if (dragY <= -lockPx) { locked = true; chimes.listening(); haptics.lock() }
                                                 }
                                                 if (!ch.pressed) {
                                                     pressed = false
@@ -431,6 +436,17 @@ class MainActivity : ComponentActivity() {
                     active = recording || (status?.startsWith("🎙️") == true),
                     color = MaterialTheme.colorScheme.primary,
                 )
+                // Floating "slide up to lock" cue, hovering just above the record button while held.
+                AnimatedVisibility(
+                    visible = recording && !locked,
+                    enter = fadeIn(tween(150)) + slideInVertically(tween(200)) { it / 2 },
+                    exit = fadeOut(tween(120)),
+                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().imePadding()
+                        .padding(end = 18.dp, bottom = 84.dp),
+                ) {
+                    val lockProgress = (-dragY / with(LocalDensity.current) { 72.dp.toPx() }).coerceIn(0f, 1f)
+                    LockHintOverlay(lockProgress)
+                }
                 }
             }
         }
@@ -530,7 +546,7 @@ private fun PulsingDot(color: Color) {
 
 /** Live recording UI that replaces the text field while capturing voice (held or locked). */
 @Composable
-private fun RecordingBar(locked: Boolean, lockProgress: Float, aboutToCancel: Boolean, live: String, onCancel: () -> Unit) {
+private fun RecordingBar(locked: Boolean, aboutToCancel: Boolean, live: String, onCancel: () -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
         PulsingDot(MaterialTheme.colorScheme.error)
         Spacer(Modifier.width(10.dp))
@@ -540,21 +556,62 @@ private fun RecordingBar(locked: Boolean, lockProgress: Float, aboutToCancel: Bo
                 color = if (aboutToCancel) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleSmall,
             )
-            Text(
-                when { live.isNotBlank() -> live; locked -> "Tap ➤ to send"; else -> "Slide ↑ to lock · ← to cancel" },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (live.isNotBlank()) {
+                // Full transcript, wrapping over several lines and auto-scrolling so the newest words stay visible.
+                val scroll = rememberScrollState()
+                LaunchedEffect(live) { scroll.animateScrollTo(scroll.maxValue) }
+                Text(
+                    live,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.heightIn(max = 108.dp).verticalScroll(scroll),
+                )
+            } else {
+                Text(
+                    if (locked) "Tap ➤ to send" else "Slide ↑ to lock · ← to cancel",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        if (locked) {
-            TextButton(onClick = onCancel) { Text("Cancel") }
-        } else {
-            val hue = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f + 0.65f * lockProgress)
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(end = 6.dp).scale(1f + 0.15f * lockProgress)) {
-                Text("🔒", style = MaterialTheme.typography.bodyMedium, color = hue)
-                Text("↑", style = MaterialTheme.typography.labelSmall, color = hue)
+        if (locked) TextButton(onClick = onCancel) { Text("Cancel") }
+    }
+}
+
+/** Unintrusive floating cue (above the button) showing "slide up to lock", filling as you approach. */
+@Composable
+private fun LockHintOverlay(progress: Float) {
+    val near = progress > 0.7f
+    val t = rememberInfiniteTransition(label = "lockhint")
+    val shimmer by t.animateFloat(0f, 1f, infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Restart), label = "shimmer")
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+        tonalElevation = 4.dp,
+        shadowElevation = 3.dp,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.width(46.dp).padding(vertical = 11.dp),
+        ) {
+            // The lock visibly "closes" and grows as you near the threshold.
+            Text(
+                if (near) "🔒" else "🔓",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.scale(1f + 0.3f * progress),
+            )
+            Spacer(Modifier.height(7.dp))
+            // Three up-chevrons rippling upward — reads as "swipe up". They dim as you get close.
+            for (i in 0 until 3) {
+                val phase = ((shimmer + i / 3f) % 1f)
+                val ripple = (1f - kotlin.math.abs(phase - 0.5f) * 2f).coerceIn(0f, 1f)
+                Text(
+                    "⌃",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = (0.2f + 0.8f * ripple) * (1f - 0.6f * progress)),
+                )
             }
         }
     }
