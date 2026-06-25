@@ -283,6 +283,13 @@ const SETUP_PAGE = `<!doctype html>
   .qr { background:#fff; border-radius:12px; padding:10px; width:200px; height:200px; flex:none; }
   ol { margin:6px 0 0; padding-left:20px; } ol li { margin:3px 0; font-size:13.5px; color:#b5b5bd; }
   a { color:#6b8afd; } .foot { margin-top:24px; font-size:13px; }
+  .cards { display:flex; gap:12px; flex-wrap:wrap; margin:14px 0 6px; }
+  .card2 { flex:1; min-width:210px; background:#272a33; border:2px solid #2a2c34; border-radius:11px; padding:13px 15px; cursor:pointer; }
+  .card2.sel { border-color:#3b5bdb; background:#1b2740; }
+  .card2 .ct { font-size:15px; } .card2 .cd { font-size:12.5px; color:#9a9aa3; margin-top:3px; }
+  .adv { color:#6b8afd; font-size:13px; cursor:pointer; display:inline-block; margin:8px 0 2px; user-select:none; }
+  .callout { background:#3a2f12; border:1px solid #6b551f; border-radius:9px; padding:13px 15px; margin-top:12px; font-size:13.5px; color:#e7d9ad; }
+  .callout code { background:#0f1014; color:#fff; padding:5px 10px; border-radius:6px; display:inline-block; margin-top:8px; font-size:13px; }
 </style></head>
 <body><div class="wrap">
   <h1>Agentic Android</h1>
@@ -295,16 +302,15 @@ const SETUP_PAGE = `<!doctype html>
 
   <div class="step" id="step1">
     <h2><span class="num">1</span> Connect your agent</h2>
-    <p>Your agent is your own brain — it brings its own login. Pick one and press Connect.</p>
-    <div class="opts">
-      <div class="opt sel" data-type="claude" data-note="Runs your own Claude (subscription) — do <code>claude login</code> once in a terminal first. No API key.">Your Claude</div>
-      <div class="opt" data-type="basic" data-note="A built-in keyword helper. No model, no login — handy for a quick test.">Built-in (basic)</div>
-      <div class="opt" data-type="custom" data-note="Any CLI agent that prints a reply. Type its command below.">Custom CLI</div>
+    <p>An agent is the brain that talks to you and runs things on your phone. Pick one and press Connect.</p>
+    <div class="cards">
+      <div class="card2 sel" data-type="claude"><div class="ct">Your Claude</div><div class="cd">Uses your Claude subscription. No API key.</div></div>
+      <div class="card2" data-type="basic"><div class="ct">Built-in helper</div><div class="cd">No setup, no login. Basic replies — good for a first test.</div></div>
     </div>
-    <input id="ccmd" placeholder="your CLI command, e.g. claude" style="display:none;width:100%;margin:8px 0;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
-    <p class="hint" id="note">Runs your own Claude (subscription) — do <code>claude login</code> once in a terminal first. No API key.</p>
-    <div class="cmdrow"><button id="connect">Connect</button><button class="ghost" id="stopagent">Stop</button><span id="astate" class="hint" style="margin:0;"></span></div>
-    <div id="alog" class="hint" style="white-space:pre-wrap;color:#e3b341;margin-top:8px;"></div>
+    <span class="adv" id="advtoggle">Advanced: use a custom command ▸</span>
+    <input id="ccmd" placeholder="a CLI that prints a reply, e.g. codex" style="display:none;width:100%;margin:6px 0 2px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
+    <div class="cmdrow" style="margin-top:14px;"><button id="connect">Connect</button><button class="ghost" id="stopagent">Stop</button><span id="astate" class="hint" style="margin:0;"></span></div>
+    <div id="alog" class="callout" style="display:none;"></div>
   </div>
 
   <div class="step" id="step2">
@@ -323,29 +329,37 @@ const SETUP_PAGE = `<!doctype html>
   <p class="foot">Need the raw controls + event log? <a href="/panel">Open the control panel →</a></p>
 </div>
 <script>
-  const opts=[...document.querySelectorAll('.opt')];
   let curType='claude';
-  function pick(o){ opts.forEach(x=>x.classList.toggle('sel',x===o)); curType=o.dataset.type; document.getElementById('note').innerHTML=o.dataset.note; document.getElementById('ccmd').style.display=curType==='custom'?'block':'none'; }
-  opts.forEach(o=>o.onclick=()=>pick(o));
+  const cards=[...document.querySelectorAll('.card2')];
+  cards.forEach(c=>c.onclick=()=>{ cards.forEach(x=>x.classList.toggle('sel',x===c)); curType=c.dataset.type; document.getElementById('ccmd').style.display='none'; });
+  document.getElementById('advtoggle').onclick=()=>{
+    const i=document.getElementById('ccmd'); const show=i.style.display==='none';
+    i.style.display=show?'block':'none';
+    if(show){ curType='custom'; cards.forEach(x=>x.classList.remove('sel')); } else { curType='claude'; cards[0].classList.add('sel'); }
+  };
+  function showCallout(error,command){ const lg=document.getElementById('alog'); lg.innerHTML=''; const p=document.createElement('div'); p.textContent=error; lg.appendChild(p); if(command){ const code=document.createElement('code'); code.textContent=command; lg.appendChild(code); } lg.style.display='block'; }
   document.getElementById('connect').onclick=async()=>{
-    const st=document.getElementById('astate'), lg=document.getElementById('alog');
-    st.textContent='starting…'; lg.textContent='';
-    try {
+    const st=document.getElementById('astate');
+    st.textContent='starting…'; document.getElementById('alog').style.display='none';
+    try{
       const body={type:curType, command:document.getElementById('ccmd').value};
       const r=await (await fetch('/agent/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})).json();
-      if(!r.ok){ st.textContent=''; lg.textContent=r.error||'Failed to start.'; }
-    } catch(e){ st.textContent=''; lg.textContent=String(e); }
+      if(!r.ok){ st.textContent=''; showCallout(r.error||'Could not start the agent.', r.command); }
+    }catch(e){ st.textContent=''; showCallout(String(e)); }
   };
-  document.getElementById('stopagent').onclick=async()=>{ await fetch('/agent/stop',{method:'POST'}); document.getElementById('astate').textContent='stopped'; document.getElementById('alog').textContent=''; };
+  document.getElementById('stopagent').onclick=async()=>{ await fetch('/agent/stop',{method:'POST'}); document.getElementById('astate').textContent='stopped'; document.getElementById('alog').style.display='none'; };
   function set(dot,val,on,wait,txt){ const d=document.getElementById(dot); d.className='dot'+(on?' on':wait?' wait':''); document.getElementById(val).textContent=txt; }
   async function poll(){ try{ const s=await (await fetch('/status')).json();
-    set('ad','av',s.agent.connected,s.agent.running&&!s.agent.connected, s.agent.connected?('Connected — '+(s.agent.name||'agent')):(s.agent.running?'Starting…':'Not connected — connect one below'));
+    set('ad','av',s.agent.connected,s.agent.running&&!s.agent.connected, s.agent.connected?('Connected — '+(s.agent.name||'agent')):(s.agent.running?'Starting…':'Not connected yet'));
     set('pd','pv',s.phone.connected,s.paired&&!s.phone.connected, s.phone.connected?('Connected — '+s.phone.caps+' actions'):(s.paired?'Paired, waiting…':'Not paired — do step 2'));
     document.getElementById('step1').classList.toggle('done',s.agent.connected);
     document.getElementById('step2').classList.toggle('done',s.phone.connected);
     const st=document.getElementById('astate');
-    if(s.agent.connected) st.textContent='✓ connected'; else if(s.agent.running) st.textContent='running…';
-    if(s.agent.log && /exited|cannot|error/i.test(s.agent.log)) document.getElementById('alog').textContent=s.agent.log.split('\\n').filter(Boolean).slice(-3).join('\\n');
+    // Show WHICH agent is actually running (don't claim a generic success), and never auto-hide
+    // the "needs login" message — only a new Connect/Stop click clears it.
+    if(s.agent.connected) st.textContent='now running: '+(s.agent.name||'agent');
+    else if(s.agent.running) st.textContent='starting…';
+    else st.textContent='';
   }catch(e){} }
   setInterval(poll,2000); poll();
 </script></body></html>`;
@@ -394,17 +408,21 @@ async function main() {
     agentChild = child;
   }
   // Quick auth probe so the UI can say "run `claude login`" before the user even chats.
-  function probeClaude(cli: string): Promise<{ ok: boolean; message?: string }> {
+  function probeClaude(cli: string): Promise<{ ok: boolean; message?: string; command?: string }> {
     return new Promise((resolve) => {
       const env = { ...process.env }; delete env.ANTHROPIC_API_KEY;
       const c = spawn(cli, ["-p", "--output-format", "json", "ping"], { env });
       let out = "";
       const timer = setTimeout(() => { try { c.kill(); } catch { /* */ } resolve({ ok: true }); }, 9000);
-      c.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, message: `Couldn't run "${cli}": ${e.message}. Is it installed and on PATH?` }); });
+      c.on("error", () => { clearTimeout(timer); resolve({ ok: false, message: `Couldn't find "${cli}" on this computer. Install it first, then press Connect again.` }); });
       c.stdout?.on("data", (d) => (out += d.toString()));
       c.on("close", () => {
         clearTimeout(timer);
-        try { const j = JSON.parse(out); if (j.is_error && /401|auth|login|credential|unauthor/i.test(String(j.result))) return resolve({ ok: false, message: "Your Claude CLI isn't logged in. Run `claude login` once in a terminal, then Connect again — no API key needed." }); } catch { /* */ }
+        try {
+          const j = JSON.parse(out);
+          if (j.is_error && /401|auth|login|credential|unauthor/i.test(String(j.result)))
+            return resolve({ ok: false, message: "Your Claude isn't signed in on this computer yet. Open a terminal, run the command below, then press Connect again. (No API key needed.)", command: cli === "claude" ? "claude login" : undefined });
+        } catch { /* */ }
         resolve({ ok: true });
       });
     });
@@ -513,7 +531,7 @@ async function main() {
     const json = (o: unknown, code = 200) => { res.statusCode = code; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(o)); };
 
     if (req.method === "GET" && url.pathname === "/") {
-      res.setHeader("content-type", "text/html"); res.end(SETUP_PAGE); return;
+      res.setHeader("content-type", "text/html"); res.setHeader("cache-control", "no-store"); res.end(SETUP_PAGE); return;
     }
     if (req.method === "GET" && url.pathname === "/panel") {
       res.setHeader("content-type", "text/html"); res.end(PAGE(caps, cfg.relayUrl)); return;
@@ -534,10 +552,10 @@ async function main() {
           const kind = String(type ?? "basic");
           if (kind === "claude") {
             const probe = await probeClaude("claude");
-            if (!probe.ok) return json({ ok: false, error: probe.message });
+            if (!probe.ok) return json({ ok: false, error: probe.message, command: probe.command });
           } else if (kind === "custom") {
             const probe = await probeClaude(String(command || "claude"));
-            if (!probe.ok) return json({ ok: false, error: probe.message });
+            if (!probe.ok) return json({ ok: false, error: probe.message, command: probe.command });
           }
           spawnAgent(kind, command);
           logEvent("connection", `started agent process: ${kind}`);
