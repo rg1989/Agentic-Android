@@ -13,6 +13,7 @@
  * Note: shares the phone identity with the MCP bridge — run ONE of them at a time.
  */
 import http from "node:http";
+import QRCode from "qrcode";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -248,6 +249,92 @@ document.getElementById('savecfg').onclick=async()=>{
 loadCfg();
 </script></body></html>`;
 
+/** Guided, self-service setup page — connect an agent, then pair the phone (QR). Lives at "/". */
+const SETUP_PAGE = `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agentic Android — Setup</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { font: 15px/1.6 -apple-system,system-ui,sans-serif; margin:0; background:#14151a; color:#e7e7ea; }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; } .sub { color:#9a9aa3; margin:0 0 22px; font-size:13px; }
+  .status { display:flex; gap:12px; margin-bottom:26px; flex-wrap:wrap; }
+  .pill { display:flex; align-items:center; gap:9px; background:#1c1e26; border:1px solid #2a2c34; border-radius:11px; padding:11px 15px; flex:1; min-width:200px; }
+  .dot { width:11px; height:11px; border-radius:99px; background:#555; flex:none; }
+  .dot.on { background:#3fb950; } .dot.wait { background:#d29922; }
+  .pill .t { font-size:12px; color:#8a8a93; } .pill .v { font-size:14px; }
+  .step { background:#1c1e26; border:1px solid #2a2c34; border-radius:14px; padding:18px 20px; margin-bottom:16px; }
+  .step.done { border-color:#264d33; }
+  .step h2 { font-size:16px; margin:0 0 4px; display:flex; align-items:center; gap:9px; }
+  .num { width:24px; height:24px; border-radius:99px; background:#2a2c34; color:#cdd; font-size:13px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+  .step.done .num { background:#2ea043; color:#fff; }
+  .step p { color:#b5b5bd; font-size:13.5px; margin:6px 0; }
+  .opts { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 8px; }
+  .opt { background:#272a33; border:1px solid #2a2c34; border-radius:9px; padding:8px 13px; cursor:pointer; font-size:13px; }
+  .opt.sel { background:#1f3a5f; border-color:#3b5bdb; }
+  code, .cmd { font-family: ui-monospace,Menlo,monospace; font-size:13px; }
+  .cmdrow { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .cmd { background:#0f1014; border:1px solid #2a2c34; border-radius:8px; padding:10px 12px; flex:1; overflow:auto; white-space:nowrap; }
+  button { background:#3b5bdb; color:#fff; border:0; border-radius:8px; padding:9px 14px; font-size:13px; cursor:pointer; }
+  button:hover { background:#4c6ef5; } button.ghost { background:#272a33; }
+  .hint { color:#8a8a93; font-size:12.5px; margin-top:8px; }
+  .qrbox { display:flex; gap:18px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  .qr { background:#fff; border-radius:12px; padding:10px; width:200px; height:200px; flex:none; }
+  ol { margin:6px 0 0; padding-left:20px; } ol li { margin:3px 0; font-size:13.5px; color:#b5b5bd; }
+  a { color:#6b8afd; } .foot { margin-top:24px; font-size:13px; }
+</style></head>
+<body><div class="wrap">
+  <h1>Agentic Android</h1>
+  <p class="sub">This is the hub on your computer — the glue between your phone and your agent. No API key needed here.</p>
+
+  <div class="status">
+    <div class="pill"><span id="ad" class="dot"></span><div><div class="t">Agent</div><div id="av" class="v">checking…</div></div></div>
+    <div class="pill"><span id="pd" class="dot"></span><div><div class="t">Phone</div><div id="pv" class="v">checking…</div></div></div>
+  </div>
+
+  <div class="step" id="step1">
+    <h2><span class="num">1</span> Connect your agent</h2>
+    <p>Your agent is your own brain (it brings its own login). Pick one, then run the command in the <code>backbone</code> folder.</p>
+    <div class="opts">
+      <div class="opt sel" data-cmd="pnpm agent:claude" data-note="Runs your own Claude (subscription). Do <code>claude login</code> once first — no API key.">Your Claude</div>
+      <div class="opt" data-cmd="pnpm agent" data-note="A built-in keyword agent. No model, no key — handy for a quick test.">Built-in (basic)</div>
+      <div class="opt" data-cmd="AGENT_CLI=yourtool pnpm agent:claude" data-note="Any CLI agent that prints a reply. Set AGENT_CLI to your command.">Custom CLI</div>
+    </div>
+    <div class="cmdrow"><span class="cmd" id="cmd">pnpm agent:claude</span><button class="ghost" id="copy">Copy</button></div>
+    <p class="hint" id="note">Runs your own Claude (subscription). Do <code>claude login</code> once first — no API key.</p>
+  </div>
+
+  <div class="step" id="step2">
+    <h2><span class="num">2</span> Pair your phone</h2>
+    <p>Open the Agentic Android app → tap <b>Pair</b> (or the agent name → <b>Pair another agent</b>) → scan this:</p>
+    <div class="qrbox">
+      <img class="qr" src="/pair-qr" alt="Pairing QR code" />
+      <ol>
+        <li>Make sure the phone can reach this hub (same network, or USB with the relay reachable).</li>
+        <li>Scan the code in the app's pairing screen.</li>
+        <li>This panel turns green when the phone connects.</li>
+      </ol>
+    </div>
+  </div>
+
+  <p class="foot">Need the raw controls + event log? <a href="/panel">Open the control panel →</a></p>
+</div>
+<script>
+  const opts=[...document.querySelectorAll('.opt')];
+  function pick(o){ opts.forEach(x=>x.classList.toggle('sel',x===o)); document.getElementById('cmd').textContent=o.dataset.cmd; document.getElementById('note').innerHTML=o.dataset.note; }
+  opts.forEach(o=>o.onclick=()=>pick(o));
+  document.getElementById('copy').onclick=()=>{ navigator.clipboard.writeText(document.getElementById('cmd').textContent); const b=document.getElementById('copy'); b.textContent='Copied'; setTimeout(()=>b.textContent='Copy',1200); };
+  function set(dot,val,on,wait){ const d=document.getElementById(dot); d.className='dot'+(on?' on':wait?' wait':''); document.getElementById(val).textContent=arguments[4]; }
+  async function poll(){ try{ const s=await (await fetch('/status')).json();
+    set('ad','av',s.agent.connected,false, s.agent.connected?('Connected — '+(s.agent.name||'agent')):'Not connected — run step 1');
+    set('pd','pv',s.phone.connected,s.paired&&!s.phone.connected, s.phone.connected?('Connected — '+s.phone.caps+' actions'):(s.paired?'Paired, waiting…':'Not paired — do step 2'));
+    document.getElementById('step1').classList.toggle('done',s.agent.connected);
+    document.getElementById('step2').classList.toggle('done',s.phone.connected);
+  }catch(e){} }
+  setInterval(poll,2500); poll();
+</script></body></html>`;
+
 async function main() {
   await ready();
   const cp = configPath();
@@ -370,7 +457,25 @@ async function main() {
     const json = (o: unknown, code = 200) => { res.statusCode = code; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(o)); };
 
     if (req.method === "GET" && url.pathname === "/") {
+      res.setHeader("content-type", "text/html"); res.end(SETUP_PAGE); return;
+    }
+    if (req.method === "GET" && url.pathname === "/panel") {
       res.setHeader("content-type", "text/html"); res.end(PAGE(caps, cfg.relayUrl)); return;
+    }
+    if (req.method === "GET" && url.pathname === "/status") {
+      return json({
+        agent: { connected: !!agentSock, name: agentName },
+        phone: { connected: caps.length > 0, caps: caps.length },
+        paired: !!cfg.peerEdPub,
+        relayUrl: cfg.relayUrl,
+      });
+    }
+    if (req.method === "GET" && url.pathname === "/pair-qr") {
+      const token = "PAIR:" + Buffer.from(JSON.stringify({ edPub: cfg.self.edPub, fp: cfg.self.fp, relayUrl: cfg.relayUrl })).toString("base64url");
+      QRCode.toString(token, { type: "svg", margin: 1, width: 220 })
+        .then((svg) => { res.setHeader("content-type", "image/svg+xml"); res.end(svg); })
+        .catch((e) => { res.statusCode = 500; res.end(String(e)); });
+      return;
     }
     if (req.method === "GET" && url.pathname === "/events") {
       const since = Number(url.searchParams.get("since") ?? 0);
