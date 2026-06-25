@@ -13,8 +13,10 @@ import com.agenticandroid.voice.TextToSpeech
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -40,6 +42,7 @@ class PhoneAgentService : Service() {
     @Volatile var micMuted = false // hard mic mute for the always-on wake word (Q12 trust)
 
     private var bus: BusEndpoint? = null
+    private var reconnectJob: kotlinx.coroutines.Job? = null // backoff reconnect when the link drops
     private var tts: TextToSpeech? = null // spoken replies (on-device); init lazily in onCreate
 
     override fun onCreate() {
@@ -77,6 +80,7 @@ class PhoneAgentService : Service() {
 
     /** Tear down the current connection and reconnect to whichever agent is active now. */
     fun reconnect() {
+        reconnectJob?.cancel()
         bus?.close()
         bus = null
         connected.value = false
@@ -125,14 +129,47 @@ class PhoneAgentService : Service() {
                     // Remember the agent's real name on its profile so the picker shows it.
                     if (!name.isNullOrBlank()) Agents.active()?.let { Agents.setName(this, it.id, name) }
                 }
+                "history" -> {
+                    // The hub owns the conversation; replay it so reopening the app shows history.
+                    (ev.data["messages"] as? JsonArray)?.let { arr ->
+                        val msgs = arr.mapNotNull { el ->
+                            val o = el as? JsonObject ?: return@mapNotNull null
+                            val role = (o["role"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                            ChatMsg(role, (o["text"] as? JsonPrimitive)?.content ?: "")
+                        }
+                        if (msgs.isNotEmpty()) chat.value = msgs
+                        android.util.Log.i("AgentHistory", "replayed ${msgs.size} turns from hub")
+                    }
+                }
             }
+        }
+        b.onDisconnect = {
+            if (bus === b) { connected.value = false; bus = null }
+            scheduleReconnect() // an established connection dropped — retry with backoff
         }
         bus = b
         scope.launch {
-            runCatching {
+            try {
                 b.connect()
                 connected.value = true
-                b.event("whoami", JsonObject(emptyMap())) // ask the agent who it is
+                b.event("whoami", JsonObject(emptyMap())) // ask the agent who it is (replays history)
+            } catch (e: Exception) {
+                connected.value = false
+                if (bus === b) bus = null // connect failed — drop so reconnect can rebuild
+            }
+        }
+    }
+
+    /** Keep trying to (re)connect to the active agent with exponential backoff until we're up. */
+    private fun scheduleReconnect() {
+        if (reconnectJob?.isActive == true) return
+        reconnectJob = scope.launch {
+            var delayMs = 2000L
+            while (isActive && Agents.active() != null && !connected.value) {
+                connectActive() // builds the bus + launches connect (no-op if one is already in flight)
+                kotlinx.coroutines.delay(delayMs)
+                if (connected.value) break
+                delayMs = (delayMs * 2).coerceAtMost(30_000)
             }
         }
     }

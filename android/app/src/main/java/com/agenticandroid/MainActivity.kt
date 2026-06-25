@@ -58,7 +58,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -93,6 +95,7 @@ class MainActivity : ComponentActivity() {
                 var input by remember { mutableStateOf("") }
                 val listState = rememberLazyListState()
                 val context = LocalContext.current
+                val clipboard = LocalClipboardManager.current
                 LaunchedEffect(messages.size, status) {
                     val target = if (status != null) messages.size else messages.size - 1
                     if (target >= 0) listState.animateScrollToItem(target)
@@ -208,7 +211,14 @@ class MainActivity : ComponentActivity() {
                                     } else {
                                         Text(
                                             m.text,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            modifier = Modifier
+                                                .pointerInput(m.text) {
+                                                    detectTapGestures(onLongPress = {
+                                                        clipboard.setText(AnnotatedString(m.text))
+                                                        android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+                                                    })
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
                                             color = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
@@ -217,11 +227,16 @@ class MainActivity : ComponentActivity() {
                         }
                         // live status: Transcribing… / Sending… / Thinking… / running an action
                         status?.let { label ->
+                            val speaking = label.startsWith("🔊")
                             item {
                                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.Start) {
-                                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp)) {
+                                    Surface(
+                                        modifier = if (speaking) Modifier.clickable { PhoneAgentService.instance?.stopSpeaking() } else Modifier,
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(16.dp),
+                                    ) {
                                         Text(
-                                            label,
+                                            if (speaking) "$label · tap to stop" else label,
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontStyle = FontStyle.Italic,

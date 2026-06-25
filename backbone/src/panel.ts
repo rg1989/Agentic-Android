@@ -62,6 +62,27 @@ function logEvent(type: EventType, summary: string, detail?: unknown): LogEvent 
   return e;
 }
 
+// ---------- persistent conversation (the hub owns chat history) ----------
+// The phone holds chat only in memory; the hub persists it so reopening the app (or swapping the
+// app/agent) replays the conversation. Scoped per AGENTIC_HOME, i.e. per agent.
+interface ChatTurn { role: "user" | "assistant"; text: string; ts: number }
+const conversation: ChatTurn[] = [];
+const MAX_CONVO = 500;
+function convoPath(): string { return path.join(configDir(), "conversation.jsonl"); }
+function loadConversation() {
+  try {
+    const lines = fs.readFileSync(convoPath(), "utf8").trim().split("\n").filter(Boolean);
+    for (const l of lines.slice(-MAX_CONVO)) { try { conversation.push(JSON.parse(l) as ChatTurn); } catch { /* skip */ } }
+  } catch { /* no file yet */ }
+}
+function addTurn(role: ChatTurn["role"], text: string) {
+  if (!text) return;
+  const turn: ChatTurn = { role, text, ts: Date.now() };
+  conversation.push(turn);
+  if (conversation.length > MAX_CONVO) conversation.shift();
+  try { fs.appendFileSync(convoPath(), JSON.stringify(turn) + "\n"); } catch { /* best-effort */ }
+}
+
 // ---------- agent config (persisted in agent.json) ----------
 function loadCfg(): any { return JSON.parse(fs.readFileSync(configPath(), "utf8")); }
 function readAgentCfg(): AgentCfg {
@@ -234,6 +255,7 @@ async function main() {
   const cfg = loadCfg();
   if (!cfg.peerEdPub) { console.error("Not paired (no peerEdPub)."); process.exit(1); }
   loadEvents();
+  loadConversation();
 
   const bus = new BusEndpoint({ self: cfg.self, peerEdPub: cfg.peerEdPub, relayUrl: cfg.relayUrl });
   await bus.connect();
@@ -292,6 +314,7 @@ async function main() {
         else if (topic === "assistant_message") {
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
+          addTurn("assistant", String(data.text ?? ""));
           pendingSay?.(String(data.text ?? "")); pendingSay = null;
         }
       }
@@ -304,12 +327,15 @@ async function main() {
   bus.onEvent((ev) => {
     if (ev.topic === "whoami") {
       bus.event("agent_identity", { name: agentName ?? "No agent connected", relay: cfg.relayUrl });
-      logEvent("connection", `identified to phone as "${agentName ?? "No agent"}"`);
+      // Replay the conversation the hub holds so the phone shows history on (re)connect.
+      bus.event("history", { messages: conversation.slice(-100).map((t) => ({ role: t.role, text: t.text })) });
+      logEvent("connection", `identified to phone as "${agentName ?? "No agent"}" (replayed ${Math.min(conversation.length, 100)} turns)`);
       return;
     }
     if (ev.topic === "user_message") {
       const text = String((ev.data as { text?: unknown }).text ?? "");
       logEvent("user_message", text, { text });
+      addTurn("user", text);
       if (agentSock) agentSock.send(JSON.stringify({ t: "user", text }));
       else {
         bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." });
@@ -369,6 +395,7 @@ async function main() {
           const { text } = JSON.parse(body || "{}");
           if (!agentSock) return json({ error: "no agent connected (run `pnpm agent`)" }, 503);
           logEvent("user_message", String(text ?? ""), { text, via: "/say" });
+          addTurn("user", String(text ?? ""));
           const reply = await new Promise<string>((resolve) => {
             const timer = setTimeout(() => { pendingSay = null; resolve("(no reply within timeout)"); }, 60_000);
             pendingSay = (t) => { clearTimeout(timer); resolve(t); };
