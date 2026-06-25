@@ -18,6 +18,7 @@ object SettingsStore {
     private const val KEY_VOICE = "voice_replies"
     private const val KEY_WAKE = "wake_word"
     private const val KEY_WAKE_PHRASE = "wake_phrase"
+    private const val KEY_CONNECTION = "connection_enabled"
 
     val theme = MutableStateFlow("system")
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
@@ -25,6 +26,7 @@ object SettingsStore {
     val voiceReplies = MutableStateFlow(true) // default on — the user asked for spoken replies
     val wakeWord = MutableStateFlow(false)    // default off — an always-on mic is opt-in
     val wakePhrase = MutableStateFlow("hey agent")
+    val connectionEnabled = MutableStateFlow(true) // master on/off for the hub connection (pairing is kept either way)
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -38,6 +40,12 @@ object SettingsStore {
         voiceReplies.value = p.getBoolean(KEY_VOICE, true)
         wakeWord.value = p.getBoolean(KEY_WAKE, false)
         wakePhrase.value = p.getString(KEY_WAKE_PHRASE, "hey agent") ?: "hey agent"
+        connectionEnabled.value = p.getBoolean(KEY_CONNECTION, true)
+    }
+
+    fun setConnectionEnabled(on: Boolean) {
+        connectionEnabled.value = on
+        prefs?.edit()?.putBoolean(KEY_CONNECTION, on)?.apply()
     }
 
     fun setVoiceReplies(on: Boolean) {

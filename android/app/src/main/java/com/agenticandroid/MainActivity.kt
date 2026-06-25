@@ -82,6 +82,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
@@ -143,6 +144,7 @@ class MainActivity : ComponentActivity() {
                 val agentName by PhoneAgentService.agentName.collectAsState()
                 val status by PhoneAgentService.status.collectAsState()
                 val commands by PhoneAgentService.commands.collectAsState()
+                val connectionEnabled by SettingsStore.connectionEnabled.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
                 val paired = profiles.isNotEmpty()
@@ -257,6 +259,16 @@ class MainActivity : ComponentActivity() {
                         } else {
                             if (connected) {
                                 Text("connected", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            } else if (!connectionEnabled) {
+                                Row(
+                                    Modifier.clickable { PhoneAgentService.instance?.setConnectionEnabled(true) }.padding(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Rounded.CloudOff, contentDescription = "Reconnect",
+                                        tint = Color.Gray, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(3.dp))
+                                    Text("offline", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                }
                             } else {
                                 Row(
                                     Modifier.clickable { PhoneAgentService.instance?.reconnect() }.padding(4.dp),
@@ -278,11 +290,11 @@ class MainActivity : ComponentActivity() {
                     // guided "can't reach hub" banner — only after staying disconnected a few seconds
                     // (so it doesn't flash during the normal 1–2s reconnect on launch)
                     var showHelp by remember { mutableStateOf(false) }
-                    LaunchedEffect(connected) {
-                        if (connected) showHelp = false
-                        else { kotlinx.coroutines.delay(4000); if (!PhoneAgentService.connected.value) showHelp = true }
+                    LaunchedEffect(connected, connectionEnabled) {
+                        if (connected || !connectionEnabled) showHelp = false
+                        else { kotlinx.coroutines.delay(4000); if (!PhoneAgentService.connected.value && SettingsStore.connectionEnabled.value) showHelp = true }
                     }
-                    if (paired && !connected && showHelp) {
+                    if (paired && !connected && showHelp && connectionEnabled) {
                         Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 Modifier.padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),

@@ -23,8 +23,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -70,6 +75,48 @@ class SettingsActivity : ComponentActivity() {
                     ) {
                         TextButton(onClick = { finish() }) { Text("‹ Back") }
                         Text("Settings", style = MaterialTheme.typography.titleMedium)
+                    }
+                    HorizontalDivider()
+
+                    // Quick connect / disconnect, pinned at the very top. Keeps your pairings — just drops
+                    // or restores the live link so you can go offline fast and reconnect instantly.
+                    val connectionEnabled by SettingsStore.connectionEnabled.collectAsState()
+                    val connected by PhoneAgentService.connected.collectAsState()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                val on = !connectionEnabled
+                                PhoneAgentService.instance?.setConnectionEnabled(on) ?: SettingsStore.setConnectionEnabled(on)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val (icon, tint) = when {
+                            !connectionEnabled -> Icons.Rounded.CloudOff to MaterialTheme.colorScheme.onSurfaceVariant
+                            connected -> Icons.Rounded.CloudDone to MaterialTheme.colorScheme.primary
+                            else -> Icons.Rounded.CloudQueue to MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        Icon(icon, contentDescription = null, tint = tint)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                when { !connectionEnabled -> "Disconnected"; connected -> "Connected"; else -> "Connecting…" },
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                when {
+                                    !connectionEnabled -> "Off for now — your agents are kept. Tap to reconnect."
+                                    connected -> "Linked to your agent. Tap to disconnect quickly."
+                                    else -> "Reaching your hub…"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = connectionEnabled,
+                            onCheckedChange = { on -> PhoneAgentService.instance?.setConnectionEnabled(on) ?: SettingsStore.setConnectionEnabled(on) },
+                        )
                     }
                     HorizontalDivider()
 

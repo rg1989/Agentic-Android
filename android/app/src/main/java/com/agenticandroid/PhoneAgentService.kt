@@ -81,8 +81,23 @@ class PhoneAgentService : Service() {
     }
 
     private fun ensureConnected() {
+        if (!SettingsStore.connectionEnabled.value) return // user has the connection switched off
         if (bus != null) return
         connectActive()
+    }
+
+    /** Master connect/disconnect switch. Keeps the pairing — just drops or re-establishes the link, so
+     *  the user can disconnect fast and reconnect instantly without re-pairing. */
+    fun setConnectionEnabled(enabled: Boolean) {
+        SettingsStore.setConnectionEnabled(enabled)
+        if (enabled) {
+            ensureConnected()
+        } else {
+            reconnectJob?.cancel(); reconnectJob = null
+            bus?.close(); bus = null
+            connected.value = false
+            status.value = null
+        }
     }
 
     /** Switch the active agent and reconnect the bus to it. */
@@ -105,6 +120,7 @@ class PhoneAgentService : Service() {
     }
 
     private fun connectActive() {
+        if (!SettingsStore.connectionEnabled.value) return // disconnected by the user
         val active = Agents.active() ?: return // not paired yet — PairingActivity handles this
         agentName.value = active.name
         registry = CapabilityRegistry() // fresh registry bound to this agent's bus
@@ -191,10 +207,11 @@ class PhoneAgentService : Service() {
 
     /** Keep trying to (re)connect to the active agent with exponential backoff until we're up. */
     private fun scheduleReconnect() {
+        if (!SettingsStore.connectionEnabled.value) return // user is disconnected — don't fight it
         if (reconnectJob?.isActive == true) return
         reconnectJob = scope.launch {
             var delayMs = 2000L
-            while (isActive && Agents.active() != null && !connected.value) {
+            while (isActive && Agents.active() != null && !connected.value && SettingsStore.connectionEnabled.value) {
                 connectActive() // builds the bus + launches connect (no-op if one is already in flight)
                 kotlinx.coroutines.delay(delayMs)
                 if (connected.value) break
