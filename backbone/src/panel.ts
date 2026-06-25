@@ -408,20 +408,32 @@ async function main() {
     agentChild = child;
   }
   // Quick auth probe so the UI can say "run `claude login`" before the user even chats.
+  function authLoggedIn(cli: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const c = spawn(cli, ["auth", "status"], { env: process.env });
+      let out = ""; const t = setTimeout(() => { try { c.kill(); } catch { /* */ } resolve(false); }, 6000);
+      c.on("error", () => { clearTimeout(t); resolve(false); });
+      c.stdout?.on("data", (d) => (out += d.toString()));
+      c.on("close", () => { clearTimeout(t); try { resolve(JSON.parse(out).loggedIn === true); } catch { resolve(false); } });
+    });
+  }
   function probeClaude(cli: string): Promise<{ ok: boolean; message?: string; command?: string }> {
     return new Promise((resolve) => {
       const env = { ...process.env }; delete env.ANTHROPIC_API_KEY;
       const c = spawn(cli, ["-p", "--output-format", "json", "ping"], { env });
       let out = "";
-      const timer = setTimeout(() => { try { c.kill(); } catch { /* */ } resolve({ ok: true }); }, 9000);
+      const timer = setTimeout(() => { try { c.kill(); } catch { /* */ } resolve({ ok: true }); }, 12000);
       c.on("error", () => { clearTimeout(timer); resolve({ ok: false, message: `Couldn't find "${cli}" on this computer. Install it first, then press Connect again.` }); });
       c.stdout?.on("data", (d) => (out += d.toString()));
-      c.on("close", () => {
+      c.on("close", async () => {
         clearTimeout(timer);
         try {
           const j = JSON.parse(out);
-          if (j.is_error && /401|auth|login|credential|unauthor/i.test(String(j.result)))
-            return resolve({ ok: false, message: "Your Claude isn't signed in on this computer yet. Open a terminal, run the command below, then press Connect again. (No API key needed.)", command: cli === "claude" ? "claude login" : undefined });
+          if (j.is_error && /401|auth|login|credential|unauthor/i.test(String(j.result))) {
+            const signedIn = cli === "claude" ? await authLoggedIn(cli) : false;
+            if (signedIn) return resolve({ ok: false, message: "You're signed in, but the agent runs Claude headlessly, which needs a one-time token here. In a terminal run the command below (uses your subscription — no API key), then press Connect again.", command: "claude setup-token" });
+            return resolve({ ok: false, message: "Your Claude isn't signed in on this computer. In a terminal run the command below, then press Connect again. (No API key needed.)", command: cli === "claude" ? "claude auth login" : undefined });
+          }
         } catch { /* */ }
         resolve({ ok: true });
       });
