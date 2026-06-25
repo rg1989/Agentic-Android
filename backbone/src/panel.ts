@@ -114,13 +114,25 @@ function lanIp(): string | undefined {
   }
   return undefined;
 }
-/** Relay address to put in the phone's pairing QR. Defaults to the LAN IP (works off the cable, same
- *  Wi-Fi); override with PHONE_RELAY_URL (e.g. a Tailscale IP for any network). */
+/** Relay address to put in the phone's pairing QR. Order: saved choice (set in the web UI) →
+ *  PHONE_RELAY_URL env → auto LAN IP (same Wi-Fi) → localhost. A Tailscale/public URL works as the
+ *  saved choice for "any network". */
 function phoneRelayUrl(cfgRelayUrl: string): string {
-  if (process.env.PHONE_RELAY_URL) return process.env.PHONE_RELAY_URL;
+  let saved: string | undefined;
+  try { const v = loadCfg().phoneRelayUrl; if (typeof v === "string" && v.trim()) saved = v.trim(); } catch { /* */ }
+  const chosen = saved ?? process.env.PHONE_RELAY_URL;
+  if (chosen && chosen !== "auto") {
+    if (chosen === "usb") return cfgRelayUrl; // 127.0.0.1
+    return chosen; // a LAN/Tailscale/public URL
+  }
   const ip = lanIp();
   if (!ip) return cfgRelayUrl;
   try { const u = new URL(cfgRelayUrl); return `http://${ip}:${u.port || "8799"}`; } catch { return `http://${ip}:8799`; }
+}
+function saveRelayChoice(value: string) {
+  const cfg = loadCfg();
+  if (value === "auto") delete cfg.phoneRelayUrl; else cfg.phoneRelayUrl = value;
+  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
 }
 
 /** A clean env for spawning `claude` headlessly: drop a stray API key + the *parent* Claude-Code
@@ -354,14 +366,31 @@ const SETUP_PAGE = `<!doctype html>
     <h2><span class="num">2</span> Pair your phone</h2>
     <p>Open the Agentic Android app → tap <b>Pair</b> (or the agent name → <b>Pair another agent</b>) → scan this:</p>
     <div class="qrbox">
-      <img class="qr" src="/pair-qr" alt="Pairing QR code" />
+      <img class="qr" id="qrimg" src="/pair-qr" alt="Pairing QR code" />
       <ol>
-        <li>Phone + this Mac on the <b>same Wi-Fi</b> (the QR points the phone at <span id="prelay">this Mac</span>).</li>
         <li>Scan the code in the app's pairing screen.</li>
-        <li>This panel turns green when the phone connects.</li>
+        <li>The phone will connect to <b id="prelay">this Mac</b>.</li>
+        <li>This panel turns green when it connects.</li>
       </ol>
     </div>
-    <p class="hint">Prefer the USB cable? Run <code>adb reverse tcp:8799 tcp:8799</code>, then set PHONE_RELAY_URL=http://127.0.0.1:8799 and re-pair.</p>
+    <div style="margin-top:12px;">
+      <div class="hint" style="margin-bottom:6px;">How should the phone reach this hub?</div>
+      <div class="opts">
+        <div class="opt sel" data-relay="auto">Same Wi-Fi</div>
+        <div class="opt" data-relay="anywhere">Anywhere (Tailscale)</div>
+        <div class="opt" data-relay="usb">USB cable</div>
+      </div>
+      <input id="relayinput" placeholder="paste your Mac's Tailscale IP, e.g. http://100.x.x.x:8799" style="display:none;width:100%;margin:8px 0;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;" />
+      <span id="relaystate" class="hint"></span>
+    </div>
+    <details style="margin-top:14px;"><summary style="cursor:pointer;color:#6b8afd;font-size:13px;">Phone won't connect?</summary>
+      <ul style="font-size:13px;color:#b5b5bd;margin:8px 0 0;padding-left:18px;">
+        <li><b>Same Wi-Fi:</b> the phone and this Mac must be on the same network — or use Tailscale to skip that.</li>
+        <li><b>Firewall:</b> if macOS asks to allow <code>node</code> to accept incoming connections, click Allow (System Settings, Network, Firewall).</li>
+        <li><b>Any network:</b> install Tailscale on both, pick "Anywhere" above, paste your Mac's Tailscale IP, then re-pair.</li>
+        <li><b>Still stuck:</b> in the phone app tap "Retry", or re-pair by scanning the QR again.</li>
+      </ul>
+    </details>
   </div>
 
   <p class="foot">Need the raw controls + event log? <a href="/panel">Open the control panel →</a></p>
@@ -413,6 +442,20 @@ const SETUP_PAGE = `<!doctype html>
     else if(s.agent.running) st.textContent='starting…';
     else st.textContent='';
   }catch(e){} }
+  const relayOpts=[...document.querySelectorAll('[data-relay]')];
+  relayOpts.forEach(o=>o.onclick=()=>{
+    relayOpts.forEach(x=>x.classList.toggle('sel',x===o));
+    const kind=o.dataset.relay;
+    document.getElementById('relayinput').style.display = kind==='anywhere' ? 'block' : 'none';
+    if(kind!=='anywhere') setRelay(kind);
+  });
+  document.getElementById('relayinput').addEventListener('keydown', e=>{ if(e.key==='Enter') setRelay(e.target.value); });
+  async function setRelay(value){
+    const st=document.getElementById('relaystate'); st.textContent='saving…';
+    try{ const r=await (await fetch('/relay-url',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({value})})).json();
+      if(r.ok){ st.textContent='saved — re-pair to apply'; document.getElementById('qrimg').src='/pair-qr?t='+Date.now(); } else { st.textContent=r.error||'failed'; } }
+    catch(e){ st.textContent='failed'; }
+  }
   setInterval(poll,2000); poll();
 </script></body></html>`;
 
@@ -633,6 +676,21 @@ async function main() {
       stopAgentProc();
       logEvent("connection", "stopped agent process (from UI)");
       return json({ ok: true });
+    }
+    if (req.method === "POST" && url.pathname === "/relay-url") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { value } = JSON.parse(body || "{}");
+          const v = String(value ?? "auto").trim();
+          // accept: "auto" (Wi-Fi LAN), "usb" (localhost), or a full ws/http URL (Tailscale/public)
+          if (v !== "auto" && v !== "usb" && !/^https?:\/\/|^wss?:\/\//i.test(v)) return json({ ok: false, error: "Enter a full address like http://100.x.x.x:8799" });
+          saveRelayChoice(v);
+          logEvent("config", `phone relay set to ${v}`);
+          json({ ok: true, phoneRelay: phoneRelayUrl(cfg.relayUrl) });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
     }
     if (req.method === "POST" && url.pathname === "/agent/token") {
       let body = ""; req.on("data", (c) => (body += c));

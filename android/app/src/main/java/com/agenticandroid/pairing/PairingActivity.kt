@@ -227,7 +227,13 @@ class PairingActivity : ComponentActivity() {
 
         }.onFailure { e ->
             scanned.set(false) // allow retry on parse/network failure
-            update("Error: ${e.message}")
+            val reach = e.message?.contains("connect", ignoreCase = true) == true || e.message?.contains("reach", ignoreCase = true) == true
+            update(
+                if (reach)
+                    "Couldn't reach the hub. Check it's running on your computer and your phone is on the same Wi-Fi (or USB). Then scan again."
+                else
+                    "Pairing failed: ${e.message}. Scan again to retry.",
+            )
         }
     }
 

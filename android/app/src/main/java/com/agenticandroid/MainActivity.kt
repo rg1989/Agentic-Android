@@ -175,13 +175,46 @@ class MainActivity : ComponentActivity() {
                         if (!paired) {
                             TextButton(onClick = { startActivity(Intent(this@MainActivity, PairingActivity::class.java)) }) { Text("Pair") }
                         } else {
-                            Text(if (connected) "connected" else "connecting…", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            if (connected) {
+                                Text("connected", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            } else {
+                                Text(
+                                    "connecting… ⟳",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.clickable { PhoneAgentService.instance?.reconnect() }.padding(4.dp),
+                                )
+                            }
                             IconButton(onClick = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }) {
                                 Text("⚙", style = MaterialTheme.typography.titleMedium)
                             }
                         }
                     }
                     HorizontalDivider(thickness = 0.5.dp)
+
+                    // guided "can't reach hub" banner — only after staying disconnected a few seconds
+                    // (so it doesn't flash during the normal 1–2s reconnect on launch)
+                    var showHelp by remember { mutableStateOf(false) }
+                    LaunchedEffect(connected) {
+                        if (connected) showHelp = false
+                        else { kotlinx.coroutines.delay(4000); if (!PhoneAgentService.connected.value) showHelp = true }
+                    }
+                    if (paired && !connected && showHelp) {
+                        Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Can't reach your hub. Check it's running on your computer, and your phone is on the same Wi-Fi (or USB).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { PhoneAgentService.instance?.reconnect() }) { Text("Retry") }
+                            }
+                        }
+                    }
 
                     // transcript
                     LazyColumn(
