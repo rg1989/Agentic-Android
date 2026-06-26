@@ -208,7 +208,8 @@ class MainActivity : ComponentActivity() {
                 val clipboard = LocalClipboardManager.current
                 val scope = rememberCoroutineScope()
                 LaunchedEffect(messages.size) {
-                    if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+                    // big scrollOffset overshoots → clamps to the true bottom (past the last bubble + bottom padding)
+                    if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex, scrollOffset = 100_000)
                 }
                 val active = profiles.firstOrNull { it.id == activeId }
                 val who = agentName ?: active?.name ?: if (paired) "your agent" else "no agent"
@@ -520,7 +521,10 @@ class MainActivity : ComponentActivity() {
                                 .size(40.dp)
                                 .graphicsLayer { alpha = sdAlpha; scaleX = 0.7f + 0.3f * sdAlpha; scaleY = 0.7f + 0.3f * sdAlpha }
                                 .clickable(enabled = showScrollDown) {
-                                    scope.launch { listState.animateScrollToItem(messages.lastIndex.coerceAtLeast(0)) }
+                                    scope.launch {
+                                        val last = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                                        listState.animateScrollToItem(last, scrollOffset = 100_000)
+                                    }
                                 },
                         ) {
                             Box(contentAlignment = Alignment.Center) {
