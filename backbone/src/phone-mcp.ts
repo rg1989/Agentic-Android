@@ -45,8 +45,29 @@ async function main() {
     );
   }
 
+  // Hub-owned scheduler (Phase 9), exposed to the key-free agent too via the hub's HTTP endpoints.
+  const jtext = (r: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(r) }] });
+  server.registerTool(
+    "schedule",
+    {
+      description: "Schedule a phone action to run later (the hub owns the timer and survives restarts). Give the phone `method`, optional `args`, and either `delayMs` or `atMs` (epoch ms); `everyMs` repeats.",
+      inputSchema: { method: z.string(), args: z.record(z.any()).optional(), delayMs: z.number().optional(), atMs: z.number().optional(), everyMs: z.number().optional() },
+    },
+    async (p: Record<string, unknown>) => jtext(await fetch(`${HUB}/schedule`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(p) }).then((x) => x.json()).catch((e) => ({ error: String(e) }))),
+  );
+  server.registerTool(
+    "list_scheduled",
+    { description: "List pending scheduled tasks.", inputSchema: {} },
+    async () => jtext(await fetch(`${HUB}/scheduled`).then((x) => x.json()).catch((e) => ({ error: String(e) }))),
+  );
+  server.registerTool(
+    "cancel_scheduled",
+    { description: "Cancel a scheduled task by id.", inputSchema: { id: z.string() } },
+    async (p: { id: string }) => jtext(await fetch(`${HUB}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(p) }).then((x) => x.json()).catch((e) => ({ error: String(e) }))),
+  );
+
   await server.connect(new StdioServerTransport());
-  process.stderr.write(`phone-mcp: ${caps.length} tools, hub ${HUB}\n`);
+  process.stderr.write(`phone-mcp: ${caps.length + 3} tools, hub ${HUB}\n`);
 }
 
 void main();

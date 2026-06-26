@@ -204,7 +204,7 @@ connected", Phase H "multiple agents connectable", and LOOP-STATE "Feature B —
 - Open Qs: 1:1-selected vs concierge-routed (or both, staged); how the phone shows multi-agent
       activity (badge unread per agent?); auth/identity when several agents share one hub.
 
-## Phase 9 — Hub-owned scheduler (deferred & timed actions)  ← **not started**
+## Phase 9 — Hub-owned scheduler (deferred & timed actions)  ← **DONE (device-verified)**
 **Found via a live test:** "wait 30s, then take a photo, then another" silently did nothing. Root
 cause is architectural, not a one-off: a delayed action was held as a `setTimeout` inside an
 **ephemeral** process; when that process was torn down during the wait, the timer died and nothing
@@ -213,20 +213,24 @@ one in `bridge.ts` (old single-process design); the live hub (`panel.ts`) and th
 path (`agent-cli.ts`/`phone-mcp.ts`) have **no scheduler at all**.
 **Principle:** a delayed/recurring action must be owned by the **always-on component (the hub)**,
 never by the ephemeral agent turn or a per-process timer.
-- [ ] **Move scheduling into the hub** (`panel.ts`), the always-on glue. Retire/replace the
-      `bridge.ts` in-memory scheduler. The agent *requests* a schedule; the hub *holds* it.
-- [ ] **Persist to disk** (`~/.agentic-android/schedule.jsonl`): each task `{id, fire_at, kind,
-      method, args, agentId, recurrence?}`. On hub startup, load + re-arm everything still pending —
-      otherwise a hub restart loses timers (the same bug one level up).
-- [ ] **On fire, the hub acts + wakes the agent**: run the phone action itself, then deliver a
-      `task.result` to the owning agent (spawn `claude -p --resume` in the key-free path, or push to
-      the connected WS agent). Works even if the agent that scheduled it has since disconnected.
-- [ ] **Tool surface**: `schedule(when, method, args)` accepting a delay *or* an absolute time, plus
-      `list_scheduled()` and `cancel(id)`. Expose to WS agents and via phone-mcp.
-- [ ] **Recurrence (cron)**: optional repeating tasks ("every morning…"). Ties into the
-      assistant/concierge feel; one-shot first, recurring behind the same store.
-- Open Qs: timezone/DST for absolute times; max in-flight tasks; per-agent vs hub-global ownership
-      when an agent is forgotten (Phase 8); does a fired task also surface in the phone chat log.
+- [x] **Scheduling lives in the hub** ([scheduler.ts](backbone/src/scheduler.ts), instantiated in
+      `panel.ts`) — the agent *requests*, the hub *holds*. (`bridge.ts`'s old in-memory scheduler is
+      superseded; the live path no longer uses it.) Core logic is injectable + 5 unit tests.
+- [x] **Persists to disk** (`~/.agentic-android/schedule.jsonl`): `{id, fireAt, method, args, everyMs?,
+      agentId, createdAt}`. On startup `loadAndArm()` re-arms pending tasks. Device-verified: a task
+      survived a hub restart (same id/fireAt reloaded) — fixing the original ephemeral-timer bug.
+- [x] **On fire, the hub acts + surfaces it**: runs the phone action via the bus, posts a "⏰ Ran
+      scheduled <method> — <result>" turn to the phone chat (spoken too), and pushes a `task_result` to
+      the connected WS agent. Device-verified: scheduled `device.info` fired + showed in chat.
+      (Key-free `claude -p --resume` wake on fire is a later refinement; WS-agent delivery + chat
+      surfacing work today.)
+- [x] **Tool surface**: `schedule({method, args, delayMs|atMs, everyMs?})`, `list_scheduled()`,
+      `cancel_scheduled({id})` — exposed to WS agents (appended to the catalog, hub-intercepted),
+      over HTTP (`/schedule`, `/scheduled`, `/cancel`), and via **phone-mcp** (key-free path).
+- [x] **Recurrence**: `everyMs` repeating tasks (re-arms after each fire; unit-tested). Full cron-
+      expression parsing ("every morning at 8") is a later add on the same store.
+- Open Qs (still open): timezone/DST for absolute times; max in-flight tasks; per-agent ownership when
+      an agent is forgotten (Phase 8). Resolved: a fired task DOES surface in the phone chat log.
 - Note: mirrors the harness lesson — for *my own* multi-step waits use a scheduled wake-up, not a
       background `sleep`, for the same reason.
 

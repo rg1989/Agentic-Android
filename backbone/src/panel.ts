@@ -23,6 +23,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import { ready } from "./crypto.ts";
 import { BusEndpoint } from "./peer.ts";
 import type { MsgPart } from "./parts.ts";
+import { Scheduler, type Task } from "./scheduler.ts";
+import { randomUUID } from "node:crypto";
 
 interface Cap { method: string; sensitivity: string; summary: string }
 let caps: Cap[] = []; // populated in the background once the phone answers
@@ -599,6 +601,61 @@ async function main() {
     }
   }
 
+  // ---------- hub-owned scheduler (Phase 9): deferred/recurring phone actions ----------
+  const schedulePath = path.join(configDir(), "schedule.jsonl");
+  const loadSchedule = (): Task[] => {
+    try { return fs.readFileSync(schedulePath, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Task); }
+    catch { return []; }
+  };
+  const persistSchedule = (tasks: Task[]) => {
+    try { fs.writeFileSync(schedulePath, tasks.map((t) => JSON.stringify(t)).join("\n") + (tasks.length ? "\n" : "")); }
+    catch (e) { logEvent("error", `persist schedule failed: ${String(e)}`); }
+  };
+  const scheduler = new Scheduler({
+    now: () => Date.now(),
+    setTimer: (ms, fn) => setTimeout(fn, ms),
+    clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    persist: persistSchedule,
+    load: loadSchedule,
+    genId: () => randomUUID(),
+    fire: async (task) => {
+      // The always-on hub runs the action itself, surfaces it to the phone chat, and (if connected)
+      // hands the result to the agent — so it fires even if the scheduling agent's turn ended long ago.
+      logEvent("agent_run", `scheduled fire: ${task.method}`, task);
+      const resp = await execForAgent(task.method, task.args);
+      const summary = resp.status === "ok" ? "done" : `error: ${JSON.stringify(resp.error)}`;
+      const note = `⏰ Ran scheduled ${task.method} — ${summary}.`;
+      bus.event("assistant_message", { text: note });
+      addTurn("assistant", note);
+      if (agentSock) agentSock.send(JSON.stringify({ t: "task_result", id: task.id, method: task.method, status: resp.status, result: resp.result, error: resp.error }));
+    },
+  });
+  scheduler.loadAndArm();
+  logEvent("config", `scheduler: re-armed ${scheduler.list().length} task(s) from disk`);
+
+  // Hub-handled "tools" the agent can call (intercepted before reaching the phone). Appended to the
+  // catalog the agent sees so the brain knows it can schedule.
+  const SCHEDULER_TOOLS: Cap[] = [
+    { method: "schedule", sensitivity: "ALLOW", summary: "Schedule a phone action for later. Args: {method, args?, delayMs OR atMs, everyMs? to repeat}." },
+    { method: "list_scheduled", sensitivity: "ALLOW", summary: "List pending scheduled tasks." },
+    { method: "cancel_scheduled", sensitivity: "ALLOW", summary: "Cancel a scheduled task. Args: {id}." },
+  ];
+  const agentCatalog = () => [...caps, ...SCHEDULER_TOOLS];
+  const handleSchedulerTool = (method: string, params: Record<string, unknown>): unknown => {
+    if (method === "schedule") {
+      const t = scheduler.add({
+        method: String(params.method), args: (params.args as Record<string, unknown>) ?? {},
+        delayMs: params.delayMs as number | undefined, atMs: params.atMs as number | undefined,
+        everyMs: params.everyMs as number | undefined, agentId: agentName ?? undefined,
+      });
+      return { scheduled: true, id: t.id, fireAt: t.fireAt };
+    }
+    if (method === "list_scheduled") return { tasks: scheduler.list() };
+    if (method === "cancel_scheduled") return { cancelled: scheduler.cancel(String(params.id)) };
+    return { error: "unknown scheduler tool" };
+  };
+  const isSchedulerTool = (m: string) => m === "schedule" || m === "list_scheduled" || m === "cancel_scheduled";
+
   const agentWss = new WebSocketServer({ port: AGENT_PORT });
   agentWss.on("connection", (ws) => {
     ws.on("message", (raw) => {
@@ -608,10 +665,17 @@ async function main() {
         agentReady = null; agentStatus = {}; agentCommands = []; // readiness/catalog unknown until the agent reports
         logEvent("connection", `agent connected: "${agentName}"`);
         bus.event("agent_identity", { name: agentName }); // tell the phone who's here now
-        ws.send(JSON.stringify({ t: "ready", catalog: caps }));
+        ws.send(JSON.stringify({ t: "ready", catalog: agentCatalog() }));
       } else if (m.t === "tool") {
-        void execForAgent(String(m.method), m.params ?? {}).then((resp) =>
-          ws.send(JSON.stringify({ t: "result", id: m.id, status: resp.status, result: resp.result, error: resp.error })));
+        const method = String(m.method);
+        if (isSchedulerTool(method)) {
+          const result = handleSchedulerTool(method, (m.params ?? {}) as Record<string, unknown>);
+          logEvent("response", `${method} ok`, result);
+          ws.send(JSON.stringify({ t: "result", id: m.id, status: "ok", result }));
+        } else {
+          void execForAgent(method, m.params ?? {}).then((resp) =>
+            ws.send(JSON.stringify({ t: "result", id: m.id, status: resp.status, result: resp.result, error: resp.error })));
+        }
       } else if (m.t === "event") {
         const topic = String(m.topic); const data = (m.data ?? {}) as Record<string, unknown>;
         if (topic === "agent_status") {
@@ -690,7 +754,7 @@ async function main() {
   });
 
   /** Push the catalog to the connected agent (called whenever caps refresh). */
-  function pushCatalog() { if (agentSock?.readyState === WebSocket.OPEN) agentSock.send(JSON.stringify({ t: "catalog", catalog: caps })); }
+  function pushCatalog() { if (agentSock?.readyState === WebSocket.OPEN) agentSock.send(JSON.stringify({ t: "catalog", catalog: agentCatalog() })); }
 
   // Fetch the phone's catalog in the BACKGROUND so the panel serves even if the phone is offline.
   const refreshCatalog = async () => {
@@ -857,6 +921,24 @@ async function main() {
           json({ ok: true, blob_id });
         } catch (e) { json({ error: String(e) }, 500); }
       })();
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/scheduled") return json({ tasks: scheduler.list() });
+    if (req.method === "POST" && url.pathname === "/schedule") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const b = JSON.parse(body || "{}");
+          const t = scheduler.add({ method: String(b.method), args: b.args ?? {}, delayMs: b.delayMs, atMs: b.atMs, everyMs: b.everyMs });
+          logEvent("config", `scheduled ${t.method} for ${new Date(t.fireAt).toISOString()}`, t);
+          json({ ok: true, id: t.id, fireAt: t.fireAt });
+        } catch (e) { json({ error: String(e) }, 400); }
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/cancel") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => { try { json({ cancelled: scheduler.cancel(String(JSON.parse(body || "{}").id)) }); } catch (e) { json({ error: String(e) }, 400); } });
       return;
     }
     if (req.method === "GET" && url.pathname === "/config") return json(readAgentCfg());

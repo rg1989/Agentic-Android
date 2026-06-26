@@ -80,7 +80,7 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W12 Receive files: file-ref chip + SAF save (E2E blob -> write). Device-verified notes.txt 50B to /Download. Hub /demo-file. commit pending.
 - [x] W13 Table part renders as a grid (header+divider+rows); spoken one-line summary. Device-verified live + replay. Charts deferred (YAGNI). commit pending.
 - [x] W14 Send files phone->agent: attach->SAF->blob->user_message file part; hub persists to media/files; agent gets path+mime. Device-verified log_list.json round-trip. commit pending.
-- [ ] W15 Phase 9 hub-owned scheduler: move into panel.ts, persist schedule.jsonl, re-arm on boot, fire+wake agent, schedule/list/cancel + cron.
+- [x] W15 Hub scheduler (scheduler.ts + 5 tests): persist/rearm/fire/recurrence; WS tools + HTTP + phone-mcp. Device-verified schedule->fire->chat + rearm across restart. commit pending.
 - [ ] W16 Phase 8 (SAFE) hub holds N agents + live roster + route-at-hub, single-agent behavior identical. Multi-brain verify flagged for user.
 - [ ] W17 Phase H write+test launchd plist (load/unload), do NOT auto-install — leave for user.
 
