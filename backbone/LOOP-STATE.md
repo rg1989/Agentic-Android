@@ -1,5 +1,21 @@
 # LOOP-STATE — Agentic Android
 
+## Run 5 — UI/UX overhaul "finish everything" (in progress)
+Build+install+device-verify+commit per item. Done so far (committed): Material-icon passes (1-3),
+status-strip emoji decouple, chat/voice fixes (file readout natural name+type, in-chat mute w/ wake
+override), 4-theme system (light+dark each).
+Worklist remaining:
+- [ ] U1 Settings → tabs (Actions on its own tab; common settings up front; group rare ones).
+- [x] U2 Slash palette = floating inset card (border, ~4 rows + scroll, gaps). Device-verified.
+- [ ] U3 File preview popup (text/code inline; Close/Download/Share); tap a file = preview.
+- [ ] U4 Per-message ⋮ menu on attachments (Preview/Download/Share) + easy copy on text messages.
+- [ ] U5 Multi-session backend (hub): sessions per agent, auto-title from 1st user msg, storage + wire (list/new/switch/delete).
+- [ ] U6 Header redesign: agent name centered (2 rows: name + status dot/text); remove dropdown; hamburger left.
+- [ ] U7 Hamburger LEFT drawer: agents -> their sessions; new chat; open chat; delete chat; change agent.
+- [ ] U8 Chat actions wired: new chat / delete (clear) session; copy.
+Decisions: session title = first user message trimmed (~40 chars); reply emoji = keep (conversational, stripped from speech). Test agent = Claude (running) for round-trips; use /demo-file,/demo-image,/say for deterministic checks.
+
+
 > Prior waves (done, in git history): 24 phone capabilities incl. Tier-2 computer-use; the
 > pluggable brain; the hub/agent split; the chat UI, settings, photos, hold-to-talk voice.
 > This file now tracks the **full-app finishing loop** (PLAN.md, all phases).

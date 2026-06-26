@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -676,10 +677,15 @@ private fun ListeningGlow(active: Boolean, color: Color) {
 private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp).heightIn(max = 300.dp),
+        shadowElevation = 10.dp,
+        // Floating card: inset from both sides + a gap above the input bar, capped to ~4 rows (scrolls).
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 8.dp)
+            .heightIn(max = 232.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(16.dp)),
     ) {
         LazyColumn {
             items(matches) { c ->
