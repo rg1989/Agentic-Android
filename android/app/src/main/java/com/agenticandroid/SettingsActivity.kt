@@ -75,6 +75,7 @@ class SettingsActivity : ComponentActivity() {
                 val wakeDndStart by SettingsStore.wakeDndStart.collectAsState()
                 val wakeDndEnd by SettingsStore.wakeDndEnd.collectAsState()
                 val caps by PhoneAgentService.capabilities.collectAsState()
+                val roster by PhoneAgentService.roster.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
 
@@ -175,6 +176,27 @@ class SettingsActivity : ComponentActivity() {
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text("＋  Pair another agent", color = MaterialTheme.colorScheme.primary)
+                            }
+                            if (roster.size > 1) {
+                                HorizontalDivider()
+                                SectionLabel("Connected to this hub")
+                                roster.forEach { a ->
+                                    Row(
+                                        Modifier.fillMaxWidth()
+                                            .clickable { PhoneAgentService.instance?.selectAgent(a.id) }
+                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        RadioButton(selected = a.active, onClick = { PhoneAgentService.instance?.selectAgent(a.id) })
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(a.name, Modifier.weight(1f))
+                                        Text(
+                                            if (a.active) "active" else "online",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                             }
                             HorizontalDivider()
                             SectionLabel("Theme")

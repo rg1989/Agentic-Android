@@ -508,12 +508,18 @@ async function main() {
 
   // ---------- the agent connects IN over a local WebSocket; the brain runs as its OWN process ----------
   const AGENT_PORT = Number(process.env.AGENT_PORT ?? 8124);
-  let agentSock: WebSocket | null = null;
+  let agentSock: WebSocket | null = null; // the ACTIVE agent's socket — all existing routing uses this
   let agentName: string | null = null;
   let agentReady: boolean | null = null; // null = unknown (probing); false = connected but can't auth
   let agentStatus: { label?: string; command?: string } = {};
   let agentCommands: unknown[] = []; // slash command/skill catalog the agent published, for the phone's `/` menu
   let pendingSay: ((text: string) => void) | null = null; // resolves /say with the next agent reply
+  // Phase 8: the hub can hold several agents at once. `agentSock` stays the active one (single-agent
+  // behavior is unchanged); this roster tracks everyone connected so the phone can see + switch them.
+  const agents = new Map<string, { ws: WebSocket; name: string }>();
+  let activeAgentId: string | null = null;
+  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, active: id === activeAgentId }));
+  const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
 
   // ---- agent process control: start/stop the brain straight from the setup UI (no terminal) ----
   let agentChild: ChildProcess | null = null;
@@ -661,10 +667,18 @@ async function main() {
     ws.on("message", (raw) => {
       let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
       if (m.t === "hello") {
-        agentSock = ws; agentName = String(m.name ?? "agent");
-        agentReady = null; agentStatus = {}; agentCommands = []; // readiness/catalog unknown until the agent reports
-        logEvent("connection", `agent connected: "${agentName}"`);
-        bus.event("agent_identity", { name: agentName }); // tell the phone who's here now
+        const name = String(m.name ?? "agent");
+        const id = randomUUID();
+        (ws as any)._agentId = id;
+        agents.set(id, { ws, name });
+        // Become the active agent only if there isn't a live one already (preserves single-agent flow).
+        if (!agentSock || !activeAgentId || !agents.has(activeAgentId)) {
+          activeAgentId = id; agentSock = ws; agentName = name;
+          agentReady = null; agentStatus = {}; agentCommands = [];
+          bus.event("agent_identity", { name: agentName });
+        }
+        logEvent("connection", `agent connected: "${name}" (${agents.size} online)`);
+        announceRoster();
         ws.send(JSON.stringify({ t: "ready", catalog: agentCatalog() }));
       } else if (m.t === "tool") {
         const method = String(m.method);
@@ -697,7 +711,24 @@ async function main() {
         }
       }
     });
-    ws.on("close", () => { if (agentSock === ws) { agentSock = null; agentName = null; agentReady = null; agentStatus = {}; agentCommands = []; logEvent("connection", "agent disconnected"); } });
+    ws.on("close", () => {
+      const id = (ws as any)._agentId as string | undefined;
+      if (id) agents.delete(id);
+      if (agentSock === ws) {
+        // The active agent left — promote another connected one, or go empty.
+        const next = [...agents.entries()][0];
+        if (next) {
+          activeAgentId = next[0]; agentSock = next[1].ws; agentName = next[1].name;
+          agentReady = null; agentStatus = {}; agentCommands = [];
+          bus.event("agent_identity", { name: agentName });
+          logEvent("connection", `active agent left; switched to "${agentName}"`);
+        } else {
+          agentSock = null; agentName = null; agentReady = null; agentStatus = {}; agentCommands = []; activeAgentId = null;
+          logEvent("connection", "agent disconnected");
+        }
+      }
+      announceRoster();
+    });
   });
   logEvent("connection", `agent WebSocket on ws://127.0.0.1:${AGENT_PORT}`);
 
@@ -712,7 +743,21 @@ async function main() {
       if (agentReady === false && agentStatus.label) bus.event("agent_status", { label: agentStatus.label });
       // Replay the slash catalog so a phone that connects after the agent still gets the `/` menu.
       if (agentCommands.length) bus.event("agent_commands", { commands: agentCommands });
+      announceRoster(); // Phase 8: tell the phone which agents are connected right now
       logEvent("connection", `identified to phone as "${agentName ?? "No agent"}" (replayed ${Math.min(conversation.length, 100)} turns)`);
+      return;
+    }
+    if (ev.topic === "select_agent") {
+      // Phase 8: the phone picked which connected agent should be active; route to its socket.
+      const id = String((ev.data as { id?: unknown }).id ?? "");
+      const a = agents.get(id);
+      if (a) {
+        activeAgentId = id; agentSock = a.ws; agentName = a.name;
+        agentReady = null; agentStatus = {}; agentCommands = [];
+        bus.event("agent_identity", { name: agentName });
+        announceRoster();
+        logEvent("connection", `phone selected agent "${a.name}"`);
+      }
       return;
     }
     if (ev.topic === "user_message") {

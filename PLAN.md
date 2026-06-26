@@ -180,29 +180,27 @@ for the agent. Reuses the same hub blob/media path + the `file-ref` part (phone�
       "📎 Got your file — log_list.json (application/json) saved at …".
 - Notes: large-file streaming/progress + an image thumbnail (vs the type-icon chip) are minor later adds.
 
-## Phase 8 — Multiple agents at the hub (the core-glue redesign)  ← **not started**
-**This is the consolidated home for "many agents at once."** Today the whole stack is single-agent:
-the hub holds one agent connection (`agentSock`), and config/history/routing are all keyed to that
-one. It must be **redesigned to hold N agents** so one hub (one machine) can run several brains and
-the phone picks among them live. Supersedes the scattered notes: Phase 4 "(later) keep several
-connected", Phase H "multiple agents connectable", and LOOP-STATE "Feature B — concierge".
-- [ ] **Hub holds many**: `agentSock` → `agents: Map<id, {ws, name, …}>`. Per-agent conversation
-      history + media (already per-agent on disk; make the in-memory routing per-agent too). One agent
-      = identical behavior to today (no regression).
-- [ ] **Phone sees the roster**: hub announces the connected-agents list (and changes) to the phone;
-      the picker shows who's actually online *now*, not just paired profiles. Reuses the Phase 4
-      Agents UI (list / switch); add a live online/offline marker per agent.
-- [ ] **Switch routes at the hub**: phone selects an agent → hub routes that phone's `user_message`
-      to the chosen agent and streams only that agent's replies/status back. Switching is instant,
-      no re-pair, no reconnect.
-- [ ] **Redesign smartly, not per-feature**: pick the routing model once — phone↔agent is a
-      selected 1:1 at a time (simplest) vs. concierge "main" agent that can `ask_agent(name,…)` the
-      others (LOOP-STATE Feature B). Decide before coding; the data model should not preclude
-      concierge later.
-- [ ] **State stays hub-owned**: swapping/forgetting an agent loses nothing; each agent's history
-      replays correctly on (re)connect. Verify with ≥2 real brains (sandbox can run only one).
-- Open Qs: 1:1-selected vs concierge-routed (or both, staged); how the phone shows multi-agent
-      activity (badge unread per agent?); auth/identity when several agents share one hub.
+## Phase 8 — Multiple agents at the hub  ← **DONE (SAFE, device-verified w/ 2 stub agents)**
+Implemented the **1:1-selected** routing model (the simplest the plan flagged) in a **SAFE, additive**
+way: `agentSock` stays the *active* agent (so single-agent behavior is byte-identical and there's no
+regression), with a parallel roster tracking everyone connected. Concierge `ask_agent` (LOOP-STATE
+Feature B) stays a clean future layer on top — the data model doesn't preclude it.
+- [x] **Hub holds many**: added `agents: Map<id,{ws,name}>` + `activeAgentId` alongside `agentSock`.
+      A 2nd agent connecting joins the roster but does NOT steal active (preserves single-agent flow);
+      when the active agent leaves, the hub promotes another. (Per-agent history/media already on disk.)
+- [x] **Phone sees the roster**: hub emits `agents_roster {agents:[{id,name,active}]}` on connect/
+      change/whoami; Settings shows a "Connected to this hub" switcher (active/online) when >1 agent.
+- [x] **Switch routes at the hub**: phone sends `select_agent {id}` → hub repoints `agentSock` +
+      re-announces identity/roster. Instant, no re-pair, no reconnect.
+- [x] **Routing model decided**: 1:1-selected (active agent gets the phone's messages). Concierge
+      left as a future layer.
+- [x] **State stays hub-owned**: switching just repoints the active socket; nothing is lost.
+      **Verified with 2 stub agents (Ada + Bob)** — `AGENT_NAME` env makes them distinguishable +
+      a "who are you" stub reply proves routing: roster showed Ada*+Bob, selecting Bob made replies
+      switch from "I'm Ada" → "I'm Bob", header updated to Bob. (Real-brain concierge still needs ≥2
+      real brains; the routing core is proven.)
+- Open Qs (still open): concierge `ask_agent` orchestration; per-agent unread badges; auth when
+      several agents share one hub. Resolved: 1:1-selected routing, active-agent-only to the phone.
 
 ## Phase 9 — Hub-owned scheduler (deferred & timed actions)  ← **DONE (device-verified)**
 **Found via a live test:** "wait 30s, then take a photo, then another" silently did nothing. Root

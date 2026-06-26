@@ -28,11 +28,12 @@ function readBrainCfg(): BrainCfg {
     apiKeyEnv: b.apiKeyEnv ?? "ANTHROPIC_API_KEY",
     maxSteps: b.maxSteps ?? 8,
     system: b.system,
-    name: b.name,
+    name: process.env.AGENT_NAME ?? b.name, // AGENT_NAME lets you run several distinguishable agents
   };
 }
 /** Human-readable name this agent announces to the hub (and thus the phone). */
 function displayName(): string {
+  if (process.env.AGENT_NAME) return process.env.AGENT_NAME; // explicit override wins
   const c = readBrainCfg();
   const hasKey = !!process.env[c.apiKeyEnv || "ANTHROPIC_API_KEY"];
   // Be honest: only call it by the configured name when a real model is actually in play.

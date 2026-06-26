@@ -134,6 +134,9 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string | Ass
   const fileNote = userText.match(/\[Attached file: ([^\]]+)\]/);
   if (fileNote) return `📎 Got your file — ${fileNote[1]}.`;
 
+  // Identify which agent answered (Phase 8 multi-agent routing is verifiable by name).
+  if (has("who are you", "your name", "which agent")) return `I'm ${deps.getCfg().name ?? "your agent"}.`;
+
   // Demo trigger for the Phase 6 rich-reply pipeline (markdown + table parts). No device needed.
   if (has("demo rich", "demo parts", "rich demo")) {
     return {

@@ -23,6 +23,9 @@ import kotlinx.serialization.json.JsonPrimitive
 /** A line in the on-phone chat with the agent. `imagePath` (a local JPEG) renders as an inline preview. */
 data class ChatMsg(val role: String, val text: String, val imagePath: String? = null, val ts: Long = System.currentTimeMillis(), val parts: List<MsgPart> = emptyList())
 
+/** An agent currently connected to the hub (Phase 8 roster). `active` = the one this phone talks to. */
+data class RosterAgent(val id: String, val name: String, val active: Boolean)
+
 /** A slash command/skill the connected agent exposes, shown in the phone's `/` menu. */
 data class SlashCommand(val invoke: String, val description: String, val hint: String?, val kind: String, val group: String)
 
@@ -170,6 +173,20 @@ class PhoneAgentService : Service() {
                     commands.value = list
                     android.util.Log.i("AgentCommands", "received ${list.size} slash commands")
                 }
+                "agents_roster" -> {
+                    // Phase 8: the agents currently connected to this hub (may be several brains).
+                    val list = (ev.data["agents"] as? JsonArray)?.mapNotNull { el ->
+                        val o = el as? JsonObject ?: return@mapNotNull null
+                        val id = (o["id"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                        RosterAgent(
+                            id = id,
+                            name = (o["name"] as? JsonPrimitive)?.content ?: "agent",
+                            active = (o["active"] as? JsonPrimitive)?.content == "true",
+                        )
+                    }.orEmpty()
+                    roster.value = list
+                    android.util.Log.i("AgentRoster", "connected agents: ${list.joinToString { it.name + if (it.active) "*" else "" }}")
+                }
                 "agent_identity" -> {
                     val name = (ev.data["name"] as? JsonPrimitive)?.content
                     agentName.value = name
@@ -239,6 +256,11 @@ class PhoneAgentService : Service() {
     /** Upload bytes as an E2E blob sealed for the agent; returns its id. Blocking — call off-main. */
     fun putBlob(bytes: ByteArray): String? = runCatching { bus?.putBlob(bytes) }.getOrNull()
 
+    /** Phase 8: tell the hub which connected agent should be active (route this phone's messages to it). */
+    fun selectAgent(id: String) {
+        bus?.event("select_agent", JsonObject(mapOf("id" to JsonPrimitive(id))))
+    }
+
     /** Stop any in-progress spoken reply (used for tap-to-stop / barge-in). */
     fun stopSpeaking() {
         tts?.stop()
@@ -299,6 +321,8 @@ class PhoneAgentService : Service() {
         val status = MutableStateFlow<String?>(null)
         /** Slash commands/skills the connected agent exposes, for the `/` menu. */
         val commands = MutableStateFlow<List<SlashCommand>>(emptyList())
+        /** Agents currently connected to the hub (Phase 8) — for the live roster / switcher. */
+        val roster = MutableStateFlow<List<RosterAgent>>(emptyList())
         /** True while a spoken reply is playing — the wake-word service ignores input meanwhile. */
         val speaking = MutableStateFlow(false)
         /** True while the user is recording voice (hold-to-talk or wake-word capture). The agent
