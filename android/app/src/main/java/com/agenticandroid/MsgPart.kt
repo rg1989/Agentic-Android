@@ -38,6 +38,26 @@ sealed class MsgPart {
             }
         }
 
+        /**
+         * Speakable phrasing for a file: read the human name + a spoken file *type*, never the literal
+         * "name dot ext". e.g. notes.txt -> "Here's the notes text file."; log_list.json -> "…log list file."
+         */
+        private fun spokenFile(p: FileRef): String {
+            val mime = p.mime
+            val ext = p.name.substringAfterLast('.', "").lowercase()
+            val type = when {
+                mime == "application/pdf" || ext == "pdf" -> "PDF"
+                mime?.startsWith("text/") == true || ext in setOf("txt", "md", "csv", "log", "json", "xml", "yml", "yaml") -> "text file"
+                mime?.startsWith("audio/") == true -> "audio file"
+                mime?.startsWith("video/") == true -> "video file"
+                mime?.startsWith("image/") == true -> "image"
+                mime?.contains("zip") == true || mime?.contains("compress") == true || ext in setOf("zip", "gz", "tar") -> "zip file"
+                else -> "file"
+            }
+            val base = p.name.substringBeforeLast('.', p.name).replace('_', ' ').replace('-', ' ').trim()
+            return if (base.isBlank()) "Here's a $type." else "Here's the $base $type."
+        }
+
         /** What TTS should speak: text/markdown read out; non-text parts get a short spoken stand-in. */
         fun spoken(parts: List<MsgPart>, fallback: String): String {
             if (parts.isEmpty()) return fallback
@@ -45,7 +65,7 @@ sealed class MsgPart {
                 when (p) {
                     is Text -> p.text
                     is ImageRef -> "Here's an image."
-                    is FileRef -> "Here's a file."
+                    is FileRef -> spokenFile(p)
                     is Table -> "Here's a table."
                 }
             }.trim()
