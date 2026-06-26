@@ -32,16 +32,6 @@ class WakeWordService : Service(), RecognitionListener {
     private var speech: SpeechService? = null
     private var awaitingCommand = false
     private var lastWakeAt = 0L
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
-    // If the user says the wake phrase but never follows up, clear the capture state so the
-    // recording flag doesn't stay stuck (which would mute the agent forever).
-    private val captureTimeout = Runnable {
-        if (awaitingCommand) {
-            awaitingCommand = false
-            PhoneAgentService.instance?.setRecording(false)
-            PhoneAgentService.instance?.setStatus(null)
-        }
-    }
     private val chimes by lazy { Chimes() }
     private var wakeLock: android.os.PowerManager.WakeLock? = null
 
@@ -96,9 +86,6 @@ class WakeWordService : Service(), RecognitionListener {
             // Heard the wake phrase alone — chime and capture the next utterance as the command.
             awaitingCommand = true
             lastWakeAt = now
-            PhoneAgentService.instance?.setRecording(true) // stop any reply while we capture the command
-            handler.removeCallbacks(captureTimeout)
-            handler.postDelayed(captureTimeout, CAPTURE_WINDOW_MS) // don't get stuck if no command follows
             chimes.listening()
             PhoneAgentService.instance?.setStatus("🎙️ Listening…")
         }
@@ -106,10 +93,8 @@ class WakeWordService : Service(), RecognitionListener {
 
     private fun dispatch(command: String) {
         val c = command.trim()
-        handler.removeCallbacks(captureTimeout)
-        if (c.isEmpty()) { PhoneAgentService.instance?.setRecording(false); return }
+        if (c.isEmpty()) return
         android.util.Log.i(TAG, "wake → command: $c")
-        PhoneAgentService.instance?.setRecording(false) // capture done; the agent may speak its reply
         chimes.sent()
         PhoneAgentService.instance?.sendUserMessage(c)
     }

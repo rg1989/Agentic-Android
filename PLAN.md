@@ -57,6 +57,11 @@ Make a single exchange feel alive. No new dependencies.
 - [x] **Speech cleaning**: a separate `SpeechText.forSpeech()` pass strips JSON/braces/URLs/emoji and
       shortens long numbers for the *ear only* (chat keeps full text). Unit-tested.
 - [x] "🔊 Speaking…" status + tap-to-stop; barge-in stops TTS when a new turn starts.
+- [~] **Button mic wins over the speaker**: a service-owned `recording` flag (set by the hold-to-talk
+      button only) stops any in-progress reply the moment you press to talk, and blocks `speak()` from
+      starting one while you're holding. **Button-only by design** — the wake word does *not* barge in
+      on a playing reply; it instead pauses during TTS (see the coexistence item in Phase 3). Code done;
+      **needs device verification**.
 - [ ] Settings: pick TTS voice/locale, speech rate. (later)
 - [ ] **Smart speech for machine-junk** (extends `SpeechText.forSpeech()`): a human shouldn't hear
       UUIDs, hashes, long hex/IDs, file paths, or long digit runs read out character-by-character —
@@ -74,8 +79,19 @@ command capture in one continuous stream (no mic handoff).
       Half-duplex: ignores the agent's own TTS (`speaking` flag), paused while hold-to-talk owns the mic.
 - [x] Settings → Voice & sounds: Wake word on/off (opt-in, off by default) + editable wake phrase.
 - [ ] Per-state chimes / sensitivity / listen-timeout knobs; boot restart. (later)
-- Note: "speak the phrase → triggers" is voice/hardware-dependent (user-verified). Parsing unit-tested;
-  model-load + listen path verified via logcat.
+- [ ] **Distinct wake-flow chimes** (extends [Chimes.kt](android/app/src/main/java/com/agenticandroid/Chimes.kt)):
+      a **wake-ack** chime the instant the wake phrase is recognized ("I heard you, go"), and a
+      **different** chime at **end of capture** (utterance done / command sent). Today only the generic
+      `listening`/`sent`/`error` tones exist — add two recognizably distinct tones so hands-free use is
+      audible without looking. Gated by the existing chimes setting.
+- [ ] **Wake word must coexist with hold-to-talk + TTS (bug).** Today enabling wake word effectively
+      blocks button recording: the FGS holds the mic continuously (Vosk `AudioRecord`), and `pause()`
+      only calls `setPause(true)` — which stops *processing* but **keeps the mic open**, so hold-to-talk's
+      `SpeechRecognizer` can't acquire it. Fix: `pause()` must **fully release the mic** (stop/teardown
+      the Vosk `SpeechService`), and `resume()` restart it. Wake word should pause-and-release whenever
+      (a) the user is recording via the button, and (b) a reply is being read aloud (so the agent's own
+      voice can't trigger it — stronger than today's "ignore results while `speaking`" flag). Resume
+      after. Net: the two input paths and TTS take turns on the one mic instead of fighting over it.
 
 ## Phase 4 — Multiple agents  ← **DONE (one-active; migration device-verified)**
 - [x] **Data model**: `Agents` store — list of `AgentProfile {id, name, peerEdPub, relayUrl}` +
