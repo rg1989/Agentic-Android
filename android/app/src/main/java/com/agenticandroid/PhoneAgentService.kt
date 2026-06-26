@@ -153,6 +153,14 @@ class PhoneAgentService : Service() {
                     val txt = (ev.data["text"] as? JsonPrimitive)?.content ?: ""
                     val parts = MsgPart.parse(ev.data["parts"] as? JsonArray)
                     if (parts.isNotEmpty()) android.util.Log.i("AgentParts", "assistant_message: ${parts.size} parts")
+                    // Cache attachment blobs now, while the relay copy is still alive (beats the TTL).
+                    parts.forEach { p ->
+                        when (p) {
+                            is MsgPart.ImageRef -> prefetchBlob(p.blobId)
+                            is MsgPart.FileRef -> prefetchBlob(p.blobId)
+                            else -> {}
+                        }
+                    }
                     if (txt.isNotEmpty() || parts.isNotEmpty()) {
                         chat.value = chat.value + ChatMsg("assistant", txt, parts = parts)
                         speak(MsgPart.spoken(parts, txt)) // reads it aloud (cleaned for listening) if on
@@ -331,7 +339,21 @@ class PhoneAgentService : Service() {
     }
 
     /** Fetch + E2E-decrypt an out-of-band blob (e.g. an image/file the agent sent). Blocking — call off-main. */
-    fun fetchBlob(blobId: String): ByteArray? = runCatching { bus?.getBlob(blobId) }.getOrNull()
+    /**
+     * Fetch + E2E-decrypt a blob, caching it locally so it survives the relay's short TTL — the agent's
+     * files/images stay openable/shareable/downloadable long after the relay would have dropped them.
+     * Blocking — call off-main.
+     */
+    fun fetchBlob(blobId: String): ByteArray? {
+        val f = java.io.File(java.io.File(cacheDir, "blobs").apply { mkdirs() }, blobId)
+        if (f.exists()) return runCatching { f.readBytes() }.getOrNull()
+        val bytes = runCatching { bus?.getBlob(blobId) }.getOrNull() ?: return null
+        runCatching { f.writeBytes(bytes) }
+        return bytes
+    }
+
+    /** Grab a blob into the local cache now (while the relay copy is still alive), off the main thread. */
+    fun prefetchBlob(blobId: String) { scope.launch(Dispatchers.IO) { fetchBlob(blobId) } }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -355,6 +377,8 @@ class PhoneAgentService : Service() {
         /** Chat sessions for the active agent + which one is open. */
         val sessions = MutableStateFlow<List<SessionInfo>>(emptyList())
         val activeSessionId = MutableStateFlow<String?>(null)
+        /** Blob ids currently being saved to the phone (drives the per-file download spinner). */
+        val downloading = MutableStateFlow<Set<String>>(emptySet())
         /** True while a spoken reply is playing — the wake-word service ignores input meanwhile. */
         val speaking = MutableStateFlow(false)
         /** True while the user is recording voice (hold-to-talk or wake-word capture). The agent

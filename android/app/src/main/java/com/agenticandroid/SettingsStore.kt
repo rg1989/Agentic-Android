@@ -14,6 +14,7 @@ object SettingsStore {
     private const val PREFS = "agent_settings"
     private const val KEY_THEME = "theme"
     private const val KEY_PALETTE = "theme_palette"
+    private const val KEY_DOWNLOADS = "downloaded_blobs" // StringSet of "blobId\turi"
     private const val KEY_DISABLED = "disabled_caps"
     private const val KEY_CHIMES = "chimes"
     private const val KEY_VOICE = "voice_replies"
@@ -31,6 +32,7 @@ object SettingsStore {
 
     val theme = MutableStateFlow("system")     // appearance: system | light | dark
     val palette = MutableStateFlow("violet")   // color theme id (see Themes.kt)
+    val downloadedBlobs = MutableStateFlow<Map<String, String>>(emptyMap()) // blobId -> saved content uri
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
     val chimes = MutableStateFlow(true)
     val voiceReplies = MutableStateFlow(true) // default on — the user asked for spoken replies
@@ -54,6 +56,8 @@ object SettingsStore {
         prefs = p
         theme.value = p.getString(KEY_THEME, "system") ?: "system"
         palette.value = p.getString(KEY_PALETTE, "violet") ?: "violet"
+        downloadedBlobs.value = (p.getStringSet(KEY_DOWNLOADS, emptySet()) ?: emptySet())
+            .mapNotNull { it.split("\t", limit = 2).let { kv -> if (kv.size == 2) kv[0] to kv[1] else null } }.toMap()
         disabledCaps.value = p.getStringSet(KEY_DISABLED, emptySet())?.toSet() ?: emptySet()
         chimes.value = p.getBoolean(KEY_CHIMES, true)
         voiceReplies.value = p.getBoolean(KEY_VOICE, true)
@@ -139,6 +143,12 @@ object SettingsStore {
     fun setPalette(v: String) {
         palette.value = v
         prefs?.edit()?.putString(KEY_PALETTE, v)?.apply()
+    }
+
+    /** Record that a blob has been saved to the phone (so the UI marks it + offers Open, not Download). */
+    fun setDownloaded(blobId: String, uri: String) {
+        downloadedBlobs.value = downloadedBlobs.value + (blobId to uri)
+        prefs?.edit()?.putStringSet(KEY_DOWNLOADS, downloadedBlobs.value.map { "${it.key}\t${it.value}" }.toSet())?.apply()
     }
 
     fun setChimes(on: Boolean) {
