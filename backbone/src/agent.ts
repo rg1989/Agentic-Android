@@ -74,7 +74,7 @@ async function main() {
   });
 
   ws.on("open", () => {
-    ws.send(JSON.stringify({ t: "hello", name: displayName() }));
+    ws.send(JSON.stringify({ t: "hello", name: displayName(), id: process.env.AGENT_INSTANCE_ID }));
     console.error(`agent "${displayName()}" connected to hub ${HUB}`);
   });
   ws.on("message", (raw) => {
