@@ -108,7 +108,7 @@ class WakeWordService : Service(), RecognitionListener {
             // Heard the wake phrase alone — chime and capture the next utterance as the command.
             awaitingCommand = true
             lastWakeAt = now
-            chimes.listening()
+            chimes.wakeHeard() // distinct wake-ack: "I heard you, go"
             PhoneAgentService.instance?.setStatus("🎙️ Listening…")
         }
     }
@@ -117,7 +117,7 @@ class WakeWordService : Service(), RecognitionListener {
         val c = command.trim()
         if (c.isEmpty()) return
         android.util.Log.i(TAG, "wake → command: $c")
-        chimes.sent()
+        chimes.wakeDone() // distinct end-of-capture tone (utterance done / command sent)
         PhoneAgentService.instance?.sendUserMessage(c)
     }
 

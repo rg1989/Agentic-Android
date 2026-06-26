@@ -79,11 +79,11 @@ command capture in one continuous stream (no mic handoff).
       Half-duplex: ignores the agent's own TTS (`speaking` flag), paused while hold-to-talk owns the mic.
 - [x] Settings → Voice & sounds: Wake word on/off (opt-in, off by default) + editable wake phrase.
 - [ ] Per-state chimes / sensitivity / listen-timeout knobs; boot restart. (later)
-- [ ] **Distinct wake-flow chimes** (extends [Chimes.kt](android/app/src/main/java/com/agenticandroid/Chimes.kt)):
-      a **wake-ack** chime the instant the wake phrase is recognized ("I heard you, go"), and a
-      **different** chime at **end of capture** (utterance done / command sent). Today only the generic
-      `listening`/`sent`/`error` tones exist — add two recognizably distinct tones so hands-free use is
-      audible without looking. Gated by the existing chimes setting.
+- [x] **Distinct wake-flow chimes**: added `wakeHeard()` (TONE_PROP_BEEP2 double-beep — fires the
+      instant the wake phrase is recognized) and `wakeDone()` (TONE_PROP_PROMPT — at end of capture /
+      command sent), both distinct from the generic `listening`/`sent`/`error` tones and gated by the
+      chimes setting. Wired in `WakeWordService` (wakeHeard on bare wake phrase, wakeDone in dispatch).
+      Compile + wiring verified; audible distinctness is the user's ear-check (needs a spoken wake phrase).
 - [x] **Wake word must coexist with hold-to-talk + TTS (bug).** Fixed: `pause(reason)` now **fully
       releases the mic** (stop+shutdown the Vosk `SpeechService`), `resume(reason)` recreates it, and a
       reason-set ("rec"=button, "tts"=playback) means the mic only restarts once *every* holder is done.
