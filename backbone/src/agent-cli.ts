@@ -161,6 +161,7 @@ const LOGIN_HELP =
 function probeAuth(): Promise<{ ok: boolean; command?: string }> {
   return new Promise((resolve) => {
     const child = spawn(CLI, ["-p", "--output-format", "json", "ping"], { env: claudeEnv() });
+    try { child.stdin?.end(); } catch { /* */ }
     let out = "";
     const timer = setTimeout(() => { try { child.kill(); } catch { /* */ } resolve({ ok: true }); }, 15000);
     child.stdout.on("data", (d) => (out += d));
@@ -183,6 +184,19 @@ let sessionId: string | undefined;
 /** Start a fresh conversation (e.g. on /clear or /reset). */
 function resetSession() { sessionId = undefined; }
 
+/** Attached files (saved on this machine by the hub) → a note the agent can act on by reading the path. */
+type AttachedFile = { path: string; name: string; mime?: string; size?: number };
+function fileNote(files: AttachedFile[]): string {
+  return files.map((f) => `[Attached file: ${f.name}${f.mime ? ` (${f.mime})` : ""} saved at ${f.path}]`).join("\n");
+}
+/** Fold the user's text and any attached files into one non-empty prompt for `claude -p`. */
+export function buildPrompt(text: string, files: AttachedFile[]): string {
+  const note = files.length ? fileNote(files) : "";
+  if (text.trim() && note) return `${text}\n\n${note}`;
+  if (note) return `The user sent you ${files.length === 1 ? "a file" : `${files.length} files`} with no message.\n${note}\nOpen it and respond.`;
+  return text;
+}
+
 /** Run one turn through the user's CLI agent. Defaults assume `claude -p` JSON output. */
 function runTurn(text: string): Promise<string> {
   return new Promise((resolve) => {
@@ -191,6 +205,8 @@ function runTurn(text: string): Promise<string> {
     else args.push("--append-system-prompt", SYSTEM);     // seed identity/instructions on the first turn
     args.push(text);
     const child = spawn(CLI, args, { env: claudeEnv() });
+    // The prompt rides as an arg — close stdin so the CLI doesn't block 3s waiting for piped input.
+    try { child.stdin?.end(); } catch { /* */ }
     let out = "", err = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
@@ -243,14 +259,17 @@ async function main() {
     let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
     if (m.t === "user") {
       const text = String(m.text ?? "");
+      const files: AttachedFile[] = Array.isArray(m.files) ? m.files : [];
       // Let the user start a fresh conversation (these TUI commands are no-ops through `claude -p`).
-      if (/^\/(clear|reset|new)\s*$/i.test(text.trim())) {
+      if (!files.length && /^\/(clear|reset|new)\s*$/i.test(text.trim())) {
         resetSession();
         ws.send(JSON.stringify({ t: "event", topic: "assistant_message", data: { text: "Started a fresh conversation — earlier messages are forgotten." } }));
         return;
       }
+      const prompt = buildPrompt(text, files);
+      if (!prompt.trim()) return; // nothing to act on (e.g. empty event) — don't poke the CLI with an empty prompt
       ws.send(JSON.stringify({ t: "event", topic: "agent_status", data: { label: "Thinking…" } }));
-      void runTurn(text).then((reply) => {
+      void runTurn(prompt).then((reply) => {
         // Self-heal readiness from the REAL result: a fresh token starting to work (or breaking) flips
         // the phone/web state on the next message — no restart needed after saving a token.
         const authFailed = reply === LOGIN_HELP;
