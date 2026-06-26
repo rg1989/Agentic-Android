@@ -272,6 +272,9 @@ class PhoneAgentService : Service() {
         chat.value = chat.value + ChatMsg("assistant", "", imagePath = localPath)
     }
 
+    /** Fetch + E2E-decrypt an out-of-band blob (e.g. an image/file the agent sent). Blocking — call off-main. */
+    fun fetchBlob(blobId: String): ByteArray? = runCatching { bus?.getBlob(blobId) }.getOrNull()
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {

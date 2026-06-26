@@ -145,8 +145,11 @@ speech), the **eye** gets the full rich render in chat. Agent replies are more t
       fenced code blocks — a minimal subset rendered by hand to `AnnotatedString` ([Markdown.kt](android/app/src/main/java/com/agenticandroid/Markdown.kt)),
       no new dependency. Assistant text bubbles + markdown parts render it; user text stays literal; TTS
       still strips it. 6 unit tests on the plain output. Device-verified (heading/bold/italic/code/bullets).
-- [ ] **Images**: the agent can attach/return an image (already have the media/blob path via the
-      hub) → render inline in the bubble, tap to fullscreen. Spoken: just "(an image)".
+- [x] **Images**: an `image` part `{blobId, mime, alt}` → the phone fetches + E2E-decrypts the blob
+      (`fetchBlob` → `BusEndpoint.getBlob`, off-main via `produceState`), decodes, renders inline, and
+      taps to a fullscreen `Dialog`. Decoded bitmaps cached per blobId. Spoken: "(an image)". Hub
+      `bus.putBlob` seals for the phone; `POST /demo-image` test affordance. Device-verified: a sealed
+      photo rendered inline + fullscreen. (Replay after the relay's 5-min blob TTL shows "unavailable".)
 - [ ] **Charts/tables**: structured data (a table or a simple chart spec) rendered visually; spoken
       as a one-line summary, not cell-by-cell. Define a small reply-content type the agent emits.
 - [ ] **Receive files from the agent**: agent sends an arbitrary file (PDF, doc, zip, audio…), the

@@ -49,6 +49,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -67,6 +68,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -116,7 +118,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import com.agenticandroid.pairing.PairingActivity
 
@@ -638,8 +642,48 @@ private fun PartView(part: MsgPart, isUser: Boolean) {
     when (part) {
         is MsgPart.Text -> if (part.markdown) MarkdownText(part.text, fg) else Text(part.text, color = fg, style = MaterialTheme.typography.bodyMedium)
         is MsgPart.Table -> Text("📊 table · ${part.rows.size}×${part.columns.size}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
-        is MsgPart.ImageRef -> Text("🖼️ ${part.alt ?: "image"}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+        is MsgPart.ImageRef -> AgentImage(part, fg)
         is MsgPart.FileRef -> Text("📎 ${part.name}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** Process-lived cache of decoded agent images, so scrolling a LazyColumn doesn't refetch blobs. */
+private object BlobImages { val cache = mutableMapOf<String, androidx.compose.ui.graphics.ImageBitmap>() }
+
+/** An image the agent sent (image-ref part): fetch + decrypt the blob, show inline, tap for fullscreen. */
+@Composable
+private fun AgentImage(part: MsgPart.ImageRef, fg: Color) {
+    val bmp by produceState(BlobImages.cache[part.blobId], part.blobId) {
+        if (value == null) {
+            val decoded = withContext(Dispatchers.IO) {
+                PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { b ->
+                    BitmapFactory.decodeByteArray(b, 0, b.size)?.asImageBitmap()
+                }
+            }
+            if (decoded != null) { BlobImages.cache[part.blobId] = decoded; value = decoded }
+        }
+    }
+    val b = bmp
+    if (b == null) {
+        Text("🖼️ image unavailable", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    var full by remember { mutableStateOf(false) }
+    Image(
+        bitmap = b,
+        contentDescription = part.alt ?: "image from the agent",
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.width(240.dp).aspectRatio(b.width.toFloat() / b.height).clickable { full = true },
+    )
+    if (full) {
+        Dialog(onDismissRequest = { full = false }) {
+            Image(
+                bitmap = b,
+                contentDescription = part.alt ?: "image from the agent",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().clickable { full = false },
+            )
+        }
     }
 }
 

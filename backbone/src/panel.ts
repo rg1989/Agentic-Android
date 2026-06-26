@@ -805,6 +805,25 @@ async function main() {
       });
       return;
     }
+    if (req.method === "POST" && url.pathname === "/demo-image") {
+      // Test affordance for the Phase 6 image part: upload a sample photo as an E2E blob sealed for
+      // the phone, then push an assistant_message with an image-ref part so the phone renders it inline.
+      void (async () => {
+        try {
+          const dir = mediaDir();
+          const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".jpg")).sort() : [];
+          if (!files.length) return json({ error: "no sample .jpg in media dir" }, 404);
+          const jpeg = fs.readFileSync(path.join(dir, files[files.length - 1]));
+          const { blob_id } = await bus.putBlob(new Uint8Array(jpeg), "image/jpeg");
+          const parts: MsgPart[] = [{ kind: "image", blobId: blob_id, mime: "image/jpeg", alt: "demo photo" }];
+          const text = "Here's an image.";
+          bus.event("assistant_message", { text, parts } as unknown as Record<string, unknown>);
+          addTurn("assistant", text, parts);
+          json({ ok: true, blob_id });
+        } catch (e) { json({ error: String(e) }, 500); }
+      })();
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/config") return json(readAgentCfg());
     if (req.method === "POST" && url.pathname === "/config") {
       let body = ""; req.on("data", (c) => (body += c));

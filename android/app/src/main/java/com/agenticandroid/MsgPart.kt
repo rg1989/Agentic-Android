@@ -38,10 +38,17 @@ sealed class MsgPart {
             }
         }
 
-        /** What TTS should speak: text/markdown parts joined, or the fallback if there are none. */
+        /** What TTS should speak: text/markdown read out; non-text parts get a short spoken stand-in. */
         fun spoken(parts: List<MsgPart>, fallback: String): String {
             if (parts.isEmpty()) return fallback
-            val s = parts.filterIsInstance<Text>().joinToString(" ") { it.text }.trim()
+            val s = parts.joinToString(" ") { p ->
+                when (p) {
+                    is Text -> p.text
+                    is ImageRef -> "(an image)"
+                    is FileRef -> "(a file: ${p.name})"
+                    is Table -> "(a table)"
+                }
+            }.trim()
             return s.ifBlank { fallback }
         }
     }
