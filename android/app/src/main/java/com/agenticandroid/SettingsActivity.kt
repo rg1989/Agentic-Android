@@ -65,11 +65,16 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -166,8 +171,17 @@ class SettingsActivity : ComponentActivity() {
                     }
                     HorizontalDivider()
 
+                    var tab by remember { mutableStateOf(0) }
+                    val tabTitles = listOf("General", "Theme", "Voice", "Actions")
+                    TabRow(selectedTabIndex = tab) {
+                        tabTitles.forEachIndexed { i, title ->
+                            Tab(selected = tab == i, onClick = { tab = i }, text = { Text(title) })
+                        }
+                    }
+
                     LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                         item {
+                            if (tab == 0) {
                             SectionLabel("Agents")
                             if (profiles.isEmpty()) {
                                 Text(
@@ -236,7 +250,8 @@ class SettingsActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                            HorizontalDivider()
+                            }
+                            if (tab == 1) {
                             SectionLabel("Theme")
                             Row(
                                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
@@ -257,7 +272,8 @@ class SettingsActivity : ComponentActivity() {
                                     Text(label)
                                 }
                             }
-                            HorizontalDivider()
+                            }
+                            if (tab == 2) {
                             SectionLabel("Voice & sounds")
                             Row(
                                 Modifier.fillMaxWidth().clickable { SettingsStore.setVoiceReplies(!voiceReplies) }
@@ -395,7 +411,8 @@ class SettingsActivity : ComponentActivity() {
                                         format = { "%02d:00".format(it.roundToInt()) }) { SettingsStore.setWakeDndEnd(it.roundToInt()) }
                                 }
                             }
-                            HorizontalDivider()
+                            }
+                            if (tab == 3) {
                             SectionLabel("Actions the agent can use")
                             if (caps.isEmpty()) {
                                 Text(
@@ -404,8 +421,9 @@ class SettingsActivity : ComponentActivity() {
                                     modifier = Modifier.padding(16.dp),
                                 )
                             }
+                            }
                         }
-                        items(caps) { c ->
+                        if (tab == 3) items(caps) { c ->
                             Row(
                                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,

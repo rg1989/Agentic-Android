@@ -5,7 +5,7 @@ Build+install+device-verify+commit per item. Done so far (committed): Material-i
 status-strip emoji decouple, chat/voice fixes (file readout natural name+type, in-chat mute w/ wake
 override), 4-theme system (light+dark each).
 Worklist remaining:
-- [ ] U1 Settings → tabs (Actions on its own tab; common settings up front; group rare ones).
+- [x] U1 Settings tabs (General/Theme/Voice/Actions); Actions on own tab; connect toggle pinned. Device-verified.
 - [x] U2 Slash palette = floating inset card (border, ~4 rows + scroll, gaps). Device-verified.
 - [x] U3 File preview popup (text/code inline, Close/Download/Share); tap file = preview. Device-verified (notes.txt content shown).
 - [x] U4 Per-message menu: file chip ⋮ -> Preview/Download/Share; image fullscreen -> Download/Share; FileProvider for share. Text copy = long-press (kept). Device-verified.
