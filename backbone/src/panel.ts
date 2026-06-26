@@ -1039,15 +1039,36 @@ async function main() {
     }
     if (req.method === "POST" && url.pathname === "/demo-file") {
       // Test affordance for the Phase 6 file part: send a small file as an E2E blob + a file-ref part.
+      // ?kind=json|xml|code|image exercises the different preview renderers (else: a plain text note).
       void (async () => {
         try {
-          const body = Buffer.from("Hello from your agent.\nThis is a demo attachment.\n");
-          const { blob_id } = await bus.putBlob(new Uint8Array(body), "text/plain");
-          const parts: MsgPart[] = [{ kind: "file", blobId: blob_id, name: "notes.txt", mime: "text/plain", size: body.length }];
-          const text = "Here's a file.";
+          const kind = url.searchParams.get("kind") ?? "text";
+          let name = "notes.txt", mime = "text/plain";
+          let bytes: Uint8Array;
+          if (kind === "image") {
+            const dir = mediaDir();
+            const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".jpg")).sort() : [];
+            if (!files.length) return json({ error: "no sample .jpg in media dir" }, 404);
+            bytes = new Uint8Array(fs.readFileSync(path.join(dir, files[files.length - 1])));
+            name = "photo.jpg"; mime = "image/jpeg";
+          } else if (kind === "json") {
+            name = "data.json"; mime = "application/json";
+            bytes = new Uint8Array(Buffer.from(JSON.stringify({ name: "Ada", count: 42, ok: true, tags: ["a", "b"], nested: { id: null } }, null, 2)));
+          } else if (kind === "xml") {
+            name = "config.xml"; mime = "application/xml";
+            bytes = new Uint8Array(Buffer.from("<!-- demo -->\n<config env=\"prod\">\n  <item id=\"1\">hello</item>\n</config>\n"));
+          } else if (kind === "code") {
+            name = "Main.kt"; mime = "text/x-kotlin";
+            bytes = new Uint8Array(Buffer.from("// greet the world\nfun main() {\n  val name = \"world\"\n  println(\"hello, \$name\") // 42\n}\n"));
+          } else {
+            bytes = new Uint8Array(Buffer.from("Hello from your agent.\nThis is a demo attachment.\n"));
+          }
+          const { blob_id } = await bus.putBlob(bytes, mime);
+          const parts: MsgPart[] = [{ kind: "file", blobId: blob_id, name, mime, size: bytes.length }];
+          const text = `Here's a file.`;
           bus.event("assistant_message", { text, parts } as unknown as Record<string, unknown>);
           addTurn("assistant", text, parts);
-          json({ ok: true, blob_id });
+          json({ ok: true, blob_id, name });
         } catch (e) { json({ error: String(e) }, 500); }
       })();
       return;

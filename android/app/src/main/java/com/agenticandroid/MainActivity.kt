@@ -1006,16 +1006,6 @@ private fun shareBlob(context: android.content.Context, scope: kotlinx.coroutine
     }
 }
 
-/** Can we show this file's contents as text? (text mimes + common code/data extensions) */
-private fun previewableText(mime: String?, name: String): Boolean {
-    if (mime?.startsWith("text/") == true) return true
-    return name.substringAfterLast('.', "").lowercase() in setOf(
-        "txt", "md", "markdown", "csv", "tsv", "log", "json", "xml", "yml", "yaml", "html", "htm",
-        "css", "js", "ts", "kt", "java", "py", "sh", "bash", "c", "h", "cpp", "go", "rs", "rb",
-        "toml", "ini", "gradle", "properties", "sql", "conf",
-    )
-}
-
 /** A file being uploaded to the agent: type icon + name + a determinate progress bar. Replaced by a
  *  normal sent bubble once the upload completes. */
 @Composable
@@ -1123,21 +1113,13 @@ private fun FilePart(part: MsgPart.FileRef, fg: Color) {
     }
 }
 
-/** A pop-up preview of a file: shows text/code inline (capped), or "no preview"; with Open/Download + Share. */
+/** A pop-up preview: images render inline; markdown is styled; JSON/XML/code are syntax-highlighted;
+ *  plain text is monospace; unknown types say so. Footer has Open/Download + Share. */
 @Composable
 private fun FilePreviewDialog(part: MsgPart.FileRef, downloaded: Boolean, onClose: () -> Unit, onDownload: () -> Unit, onOpen: () -> Unit, onShare: () -> Unit) {
-    val canPreview = remember(part.blobId) { previewableText(part.mime, part.name) }
-    val content by produceState<String?>(if (canPreview) null else "", part.blobId) {
-        if (canPreview) {
-            value = withContext(Dispatchers.IO) {
-                PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { b ->
-                    String(b.copyOf(minOf(b.size, 256 * 1024)), Charsets.UTF_8)
-                } ?: "(couldn't load this file)"
-            }
-        }
-    }
+    val kind = remember(part.blobId) { previewKind(part.mime, part.name) }
     Dialog(onDismissRequest = onClose) {
-        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth().heightIn(max = 540.dp)) {
+        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
             Column {
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(fileIcon(part.mime), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
@@ -1146,11 +1128,13 @@ private fun FilePreviewDialog(part: MsgPart.FileRef, downloaded: Boolean, onClos
                     IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = "Close") }
                 }
                 HorizontalDivider()
-                Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState())) {
-                    when {
-                        !canPreview -> Text("No preview available for this file type.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        content == null -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        else -> Text(content!!, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (kind) {
+                        PreviewKind.IMAGE -> ImagePreview(part)
+                        PreviewKind.NONE -> Box(Modifier.padding(16.dp)) {
+                            Text("No preview available for this file type.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        else -> TextPreview(part, kind)
                     }
                 }
                 HorizontalDivider()
@@ -1162,6 +1146,52 @@ private fun FilePreviewDialog(part: MsgPart.FileRef, downloaded: Boolean, onClos
                         TextButton(onClick = onDownload) { Text("Download") }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Decode + show an image blob, fitted to width and scrollable if tall. */
+@Composable
+private fun ImagePreview(part: MsgPart.FileRef) {
+    var done by remember(part.blobId) { mutableStateOf(BlobImages.cache[part.blobId] != null) }
+    val bmp by produceState(BlobImages.cache[part.blobId], part.blobId) {
+        if (value == null) {
+            value = withContext(Dispatchers.IO) {
+                PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
+            }?.also { BlobImages.cache[part.blobId] = it }
+            done = true
+        }
+    }
+    val b = bmp
+    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp), contentAlignment = Alignment.TopCenter) {
+        when {
+            b != null -> Image(bitmap = b, contentDescription = part.name, contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().aspectRatio(b.width.toFloat() / b.height))
+            !done -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(8.dp))
+            else -> UnavailableMedia("Image unavailable", MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Load + render a text-ish blob: markdown styled, JSON/XML/code highlighted, plain text monospace. */
+@Composable
+private fun TextPreview(part: MsgPart.FileRef, kind: PreviewKind) {
+    val content by produceState<String?>(null, part.blobId) {
+        value = withContext(Dispatchers.IO) {
+            PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { String(it.copyOf(minOf(it.size, 256 * 1024)), Charsets.UTF_8) }
+                ?: "(couldn't load this file)"
+        }
+    }
+    val c = content
+    Box(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+        when {
+            c == null -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            kind == PreviewKind.MARKDOWN -> MarkdownText(c, MaterialTheme.colorScheme.onSurface)
+            kind == PreviewKind.TEXT -> Text(c, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface)
+            else -> {
+                val colors = rememberTokenColors()
+                Text(highlighted(c, kind, colors), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = colors.base)
             }
         }
     }
