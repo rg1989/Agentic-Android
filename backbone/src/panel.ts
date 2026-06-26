@@ -411,6 +411,17 @@ const SETUP_PAGE = `<!doctype html>
   .adv { color:#6b8afd; font-size:13px; cursor:pointer; display:inline-block; margin:8px 0 2px; user-select:none; }
   .callout { background:#3a2f12; border:1px solid #6b551f; border-radius:9px; padding:13px 15px; margin-top:12px; font-size:13.5px; color:#e7d9ad; }
   .callout code { background:#0f1014; color:#fff; padding:5px 10px; border-radius:6px; display:inline-block; margin-top:8px; font-size:13px; }
+  .agentlist { display:flex; flex-direction:column; gap:8px; margin:8px 0 16px; }
+  .agentrow { display:flex; align-items:center; gap:11px; background:#1c1e26; border:1px solid #2a2c34; border-radius:11px; padding:11px 14px; }
+  .agentrow.active { border-color:#2ea043; background:#16241b; }
+  .agentrow .nm { font-size:14px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .agentrow .badge { font-size:11px; padding:2px 9px; border-radius:99px; background:#2a2c34; color:#9a9aa3; flex:none; }
+  .agentrow .badge.act { background:#2ea043; color:#fff; }
+  .agentrow button { padding:6px 11px; font-size:12px; flex:none; }
+  .dot.lit { background:#3b82f6; } .dot.bad { background:#d29922; }
+  .addbox { border-top:1px dashed #2a2c34; padding-top:14px; }
+  .addlabel { font-size:13px; color:#9a9aa3; margin-bottom:6px; }
+  .empty { color:#8a8a93; font-size:13px; padding:8px 2px; }
 </style></head>
 <body><div class="wrap">
   <h1>Agentic Android</h1>
@@ -422,16 +433,20 @@ const SETUP_PAGE = `<!doctype html>
   </div>
 
   <div class="step" id="step1">
-    <h2><span class="num">1</span> Connect your agent</h2>
-    <p>An agent is the brain that talks to you and runs things on your phone. Pick one and press Connect.</p>
-    <div class="cards">
-      <div class="card2 sel" data-type="claude"><div class="ct">Your Claude</div><div class="cd">Uses your Claude subscription. No API key.</div></div>
-      <div class="card2" data-type="basic"><div class="ct">Built-in helper</div><div class="cd">No setup, no login. Basic replies — good for a first test.</div></div>
+    <h2><span class="num">1</span> Your agents</h2>
+    <p>Agents are the brains that talk to you and act on your phone. Connect one or several — then switch between them anytime, from the phone or right here.</p>
+    <div id="agentlist" class="agentlist"></div>
+    <div class="addbox">
+      <div class="addlabel">Add an agent</div>
+      <div class="cards">
+        <div class="card2 sel" data-type="claude"><div class="ct">Your Claude</div><div class="cd">Uses your Claude subscription. No API key.</div></div>
+        <div class="card2" data-type="basic"><div class="ct">Built-in helper</div><div class="cd">No setup, no login. Basic replies — good for a first test.</div></div>
+      </div>
+      <span class="adv" id="advtoggle">Advanced: use a custom command ▸</span>
+      <input id="ccmd" placeholder="a CLI that prints a reply, e.g. codex" style="display:none;width:100%;margin:6px 0 2px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
+      <div class="cmdrow" style="margin-top:14px;"><button id="connect">Add agent</button><span id="astate" class="hint" style="margin:0;"></span></div>
+      <div id="alog" class="callout" style="display:none;"></div>
     </div>
-    <span class="adv" id="advtoggle">Advanced: use a custom command ▸</span>
-    <input id="ccmd" placeholder="a CLI that prints a reply, e.g. codex" style="display:none;width:100%;margin:6px 0 2px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
-    <div class="cmdrow" style="margin-top:14px;"><button id="connect">Connect</button><button class="ghost" id="stopagent">Stop</button><span id="astate" class="hint" style="margin:0;"></span></div>
-    <div id="alog" class="callout" style="display:none;"></div>
   </div>
 
   <div class="step" id="step2">
@@ -495,23 +510,49 @@ const SETUP_PAGE = `<!doctype html>
   }
   document.getElementById('connect').onclick=async()=>{
     const st=document.getElementById('astate');
-    st.textContent='starting…'; document.getElementById('alog').style.display='none';
+    st.textContent='adding…'; document.getElementById('alog').style.display='none';
     try{
       const body={type:curType, command:document.getElementById('ccmd').value};
       const r=await (await fetch('/agent/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})).json();
       if(!r.ok){ st.textContent=''; showCallout(r.error||'Could not start the agent.', r.command); }
+      else { st.textContent='starting…'; }
     }catch(e){ st.textContent=''; showCallout(String(e)); }
+    poll();
   };
-  document.getElementById('stopagent').onclick=async()=>{ await fetch('/agent/stop',{method:'POST'}); document.getElementById('astate').textContent='stopped'; document.getElementById('alog').style.display='none'; };
   function set(dot,val,on,wait,txt){ const d=document.getElementById(dot); d.className='dot'+(on?' on':wait?' wait':''); document.getElementById(val).textContent=txt; }
+  async function setActive(id){ try{ await fetch('/agent/select',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); }catch(e){} poll(); }
+  async function stopAgent(id){ try{ await fetch('/agent/stop',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); }catch(e){} poll(); }
+  function agentRow(a){
+    const row=document.createElement('div'); row.className='agentrow'+(a.active?' active':'');
+    const dot=document.createElement('span');
+    dot.className='dot '+(!a.connected?'wait':(a.active?(a.ready===false?'bad':'on'):'lit'));
+    row.appendChild(dot);
+    const nm=document.createElement('div'); nm.className='nm'; nm.textContent=a.name; row.appendChild(nm);
+    if(!a.connected){ const b=document.createElement('span'); b.className='badge'; b.textContent='starting…'; row.appendChild(b); }
+    else if(a.active){ const b=document.createElement('span'); b.className='badge act'; b.textContent='Active'; row.appendChild(b); }
+    else { const btn=document.createElement('button'); btn.className='ghost'; btn.textContent='Set active'; btn.onclick=()=>setActive(a.id); row.appendChild(btn); }
+    if(a.connected && !a.managed){ const b=document.createElement('span'); b.className='badge'; b.textContent='external'; row.appendChild(b); }
+    if(a.managed){ const btn=document.createElement('button'); btn.className='ghost'; btn.textContent='Stop'; btn.onclick=()=>stopAgent(a.id); row.appendChild(btn); }
+    return row;
+  }
+  let _agentsSig='';
+  function renderAgents(list){
+    const sig=JSON.stringify(list); if(sig===_agentsSig) return; _agentsSig=sig;  // only rebuild when it changes
+    const host=document.getElementById('agentlist'); host.innerHTML='';
+    if(!list.length){ const e=document.createElement('div'); e.className='empty'; e.textContent='No agents connected yet — add one below.'; host.appendChild(e); return; }
+    list.forEach(a=>host.appendChild(agentRow(a)));
+  }
   let _calloutKey='';
   async function poll(){ try{ const s=await (await fetch('/status')).json();
-    const aReady = s.agent.ready !== false;          // null/true => assume ok until the agent reports otherwise
-    const aOk = s.agent.connected && aReady;          // connected AND actually able to authenticate
-    set('ad','av', aOk, (s.agent.running&&!s.agent.connected)||(s.agent.connected&&!aReady),
-      !s.agent.connected ? (s.agent.running?'Starting…':'Not connected yet')
-      : aReady ? ('Connected — '+(s.agent.name||'agent'))
-               : 'Connected, but Claude needs sign-in');
+    const list=s.agents||[]; const active=s.active;
+    const aOk = !!active && active.ready!==false;       // active agent connected AND able to authenticate
+    const starting = list.some(a=>!a.connected);
+    renderAgents(list);
+    set('ad','av', aOk, (active&&active.ready===false)||starting,
+      !list.length ? (starting?'Starting…':'No agent connected')
+      : active ? (active.ready===false ? ('Sign-in needed — '+active.name)
+                 : ('Active: '+active.name + (list.length>1?(' · +'+(list.length-1)+' more'):'')))
+               : 'Connecting…');
     set('pd','pv',s.phone.connected,s.paired&&!s.phone.connected, s.phone.connected?('Connected — '+s.phone.caps+' actions'):(s.paired?'Paired, waiting…':'Not paired — do step 2'));
     document.getElementById('step1').classList.toggle('done',aOk);
     document.getElementById('step2').classList.toggle('done',s.phone.connected);
@@ -523,15 +564,12 @@ const SETUP_PAGE = `<!doctype html>
         if(s.relayChoice==='anywhere'){ document.getElementById('relayrow').style.display='flex';
           const ri=document.getElementById('relayinput'); if(!ri.value && (s.phoneRelay||'').startsWith('http')) ri.value=s.phoneRelay; } } }
     const st=document.getElementById('astate');
-    if(aOk) st.textContent='now running: '+(s.agent.name||'agent');
-    else if(s.agent.connected&&!aReady) st.textContent='connected, but Claude needs sign-in (see below)';
-    else if(s.agent.running) st.textContent='starting…';
-    else st.textContent='';
-    // Honest callout: when the agent is connected but can't authenticate, show the exact fix.
+    if(starting) st.textContent='starting…'; else if(st.textContent==='starting…'||st.textContent==='adding…') st.textContent='';
+    // Honest callout for the ACTIVE agent: connected but can't authenticate → show the exact fix.
     // Keyed so we don't rebuild it every 2s (which would wipe a token being typed); cleared once ready.
-    if(aOk){ if(_calloutKey){ _calloutKey=''; document.getElementById('alog').style.display='none'; } }
-    else { const key=(s.agent.connected&&!aReady)?('a:'+(s.agent.status||'')+'|'+(s.agent.command||'')):'';
-      if(key && key!==_calloutKey){ _calloutKey=key; showCallout(s.agent.status||'Claude needs sign-in on this computer.', s.agent.command); } }
+    if(aOk || !active){ if(_calloutKey){ _calloutKey=''; document.getElementById('alog').style.display='none'; } }
+    else { const key=(active&&active.ready===false)?('a:'+(active.status||'')+'|'+(active.command||'')):'';
+      if(key && key!==_calloutKey){ _calloutKey=key; showCallout(active.status||'Claude needs sign-in on this computer.', active.command); } }
   }catch(e){} }
   const relayOpts=[...document.querySelectorAll('[data-relay]')];
   const relayInput=document.getElementById('relayinput');
@@ -585,29 +623,44 @@ async function main() {
   const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, active: id === activeAgentId }));
   const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
 
-  // ---- agent process control: start/stop the brain straight from the setup UI (no terminal) ----
-  let agentChild: ChildProcess | null = null;
-  let agentChildLog = "";
-  let agentKind = "";
+  // ---- managed agent processes: start/stop brains from the setup UI (no terminal). SEVERAL at once. ----
+  // Each managed child is keyed by an instanceId we pass in via env; the agent echoes it in its hello so
+  // its roster entry uses the SAME id — that lets the UI stop exactly the agent the user picked.
+  type Managed = { child: ChildProcess; kind: string; name: string; log: string };
+  const managed = new Map<string, Managed>();
   const backboneDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
   const tsxBin = () => { const b = path.join(backboneDir, "node_modules", ".bin", "tsx"); return fs.existsSync(b) ? b : "tsx"; };
 
-  function stopAgentProc() {
-    if (agentChild) { try { agentChild.kill("SIGTERM"); } catch { /* */ } agentChild = null; }
-    agentKind = "";
+  function stopManaged(id: string) {
+    const m = managed.get(id);
+    if (m) { try { m.child.kill("SIGTERM"); } catch { /* */ } managed.delete(id); }
   }
-  function spawnAgent(kind: string, command?: string) {
-    stopAgentProc();
+  function stopAllManaged() { for (const id of [...managed.keys()]) stopManaged(id); }
+  /** A display name not already taken by a connected/managed agent (so duplicates read "Claude (2)"). */
+  function uniqueAgentName(base: string): string {
+    const taken = new Set<string>([...agents.values()].map((a) => a.name).concat([...managed.values()].map((m) => m.name)));
+    if (!taken.has(base)) return base;
+    for (let n = 2; n < 99; n++) { const cand = `${base} (${n})`; if (!taken.has(cand)) return cand; }
+    return base;
+  }
+  /** Spawn another agent process (additive — does NOT stop existing ones). Returns its instanceId. */
+  function spawnAgent(kind: string, command?: string): string {
+    const instanceId = randomUUID();
     let env: NodeJS.ProcessEnv = { ...process.env };
     let script = "src/agent.ts";                                  // basic (keyword) agent
-    if (kind === "claude") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); }            // your Claude
-    else if (kind === "custom") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); env.AGENT_CLI = command || "claude"; }
-    agentChildLog = ""; agentKind = kind;
+    let baseName = "Built-in helper";
+    if (kind === "claude") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); baseName = "Claude"; }            // your Claude
+    else if (kind === "custom") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); env.AGENT_CLI = command || "claude"; baseName = command || "custom"; }
+    const name = uniqueAgentName(baseName);
+    env.AGENT_INSTANCE_ID = instanceId;
+    env.AGENT_NAME = name;
     const child = spawn(tsxBin(), [script], { cwd: backboneDir, env });
-    const cap = (d: Buffer) => { agentChildLog = (agentChildLog + d.toString()).slice(-3000); };
+    const m: Managed = { child, kind, name, log: "" };
+    const cap = (d: Buffer) => { m.log = (m.log + d.toString()).slice(-3000); };
     child.stdout?.on("data", cap); child.stderr?.on("data", cap);
-    child.on("exit", (code) => { agentChildLog += `\n[agent process exited: ${code}]`; if (agentChild === child) agentChild = null; });
-    agentChild = child;
+    child.on("exit", (code) => { m.log += `\n[agent process exited: ${code}]`; });
+    managed.set(instanceId, m);
+    return instanceId;
   }
   // Quick auth probe so the UI can say "run `claude login`" before the user even chats.
   function authLoggedIn(cli: string): Promise<boolean> {
@@ -732,7 +785,9 @@ async function main() {
       let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
       if (m.t === "hello") {
         const name = String(m.name ?? "agent");
-        const id = randomUUID();
+        // A managed agent echoes the instanceId we spawned it with → reuse it so its roster entry and its
+        // process share one id (the UI can then stop it). External agents get a fresh id.
+        const id = (typeof m.id === "string" && m.id) ? m.id : randomUUID();
         (ws as any)._agentId = id;
         agents.set(id, { ws, name });
         // Become the active agent only if there isn't a live one already (preserves single-agent flow).
@@ -906,8 +961,20 @@ async function main() {
       res.setHeader("content-type", "text/html"); res.end(PAGE(caps, cfg.relayUrl)); return;
     }
     if (req.method === "GET" && url.pathname === "/status") {
+      // Every agent the hub knows: connected ones (the roster) + any managed child still starting up.
+      const connectedIds = new Set(agents.keys());
+      const list = [
+        ...rosterList().map((a) => ({
+          id: a.id, name: a.name, active: a.active, connected: true,
+          ready: a.active ? agentReady : null, managed: managed.has(a.id), kind: managed.get(a.id)?.kind ?? "external",
+        })),
+        ...[...managed.entries()].filter(([id]) => !connectedIds.has(id)).map(([id, m]) => ({
+          id, name: m.name, active: false, connected: false, ready: null, managed: true, kind: m.kind,
+        })),
+      ];
       return json({
-        agent: { connected: !!agentSock, name: agentName, running: !!agentChild, kind: agentKind, ready: agentReady, status: agentStatus.label ?? null, command: agentStatus.command ?? null, log: agentChildLog.slice(-400) },
+        agents: list,
+        active: activeAgentId ? { id: activeAgentId, name: agentName, ready: agentReady, status: agentStatus.label ?? null, command: agentStatus.command ?? null } : null,
         phone: { connected: caps.length > 0, caps: caps.length },
         paired: !!cfg.peerEdPub,
         relayUrl: cfg.relayUrl,
@@ -928,17 +995,40 @@ async function main() {
             const probe = await probeClaude(String(command || "claude"));
             if (!probe.ok) return json({ ok: false, error: probe.message, command: probe.command });
           }
-          spawnAgent(kind, command);
-          logEvent("connection", `started agent process: ${kind}`);
+          const id = spawnAgent(kind, command);
+          logEvent("connection", `started agent process: ${kind} (${id})`);
+          json({ ok: true, id });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/agent/select") {
+      // Web UI sets which connected agent is active (mirrors the phone's select_agent).
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const id = String(JSON.parse(body || "{}").id ?? "");
+          const a = agents.get(id);
+          if (!a) return json({ ok: false, error: "no such agent" }, 404);
+          activeAgentId = id; agentSock = a.ws; agentName = a.name;
+          agentReady = null; agentStatus = {}; agentCommands = [];
+          bus.event("agent_identity", { name: agentName });
+          announceRoster();
+          logEvent("connection", `panel selected agent "${a.name}"`);
           json({ ok: true });
         } catch (e) { json({ ok: false, error: String(e) }, 500); }
       });
       return;
     }
     if (req.method === "POST" && url.pathname === "/agent/stop") {
-      stopAgentProc();
-      logEvent("connection", "stopped agent process (from UI)");
-      return json({ ok: true });
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        const id = (() => { try { return String(JSON.parse(body || "{}").id ?? ""); } catch { return ""; } })();
+        if (id) { stopManaged(id); logEvent("connection", `stopped agent process ${id} (from UI)`); }
+        else { stopAllManaged(); logEvent("connection", "stopped all agent processes (from UI)"); }
+        json({ ok: true });
+      });
+      return;
     }
     if (req.method === "POST" && url.pathname === "/relay-url") {
       let body = ""; req.on("data", (c) => (body += c));

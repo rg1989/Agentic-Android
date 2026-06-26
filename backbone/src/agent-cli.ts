@@ -232,7 +232,9 @@ function runTurn(text: string): Promise<string> {
 async function main() {
   const ws = new WebSocket(HUB_WS);
   ws.on("open", () => {
-    ws.send(JSON.stringify({ t: "hello", name: "Claude (your subscription)" }));
+    // AGENT_NAME lets the hub label several agents distinctly; AGENT_INSTANCE_ID lets it match this
+    // process to its roster entry (so the UI can stop exactly this one).
+    ws.send(JSON.stringify({ t: "hello", name: process.env.AGENT_NAME ?? "Claude (your subscription)", id: process.env.AGENT_INSTANCE_ID }));
     console.error(`agent-cli connected to hub ${HUB_WS}; CLI = "${CLI}"`);
     // Publish the slash command/skill catalog so the phone's `/` menu mirrors what this agent can run.
     if (path.basename(CLI).includes("claude")) {
