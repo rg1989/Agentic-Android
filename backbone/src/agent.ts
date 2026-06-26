@@ -28,15 +28,18 @@ function readBrainCfg(): BrainCfg {
     apiKeyEnv: b.apiKeyEnv ?? "ANTHROPIC_API_KEY",
     maxSteps: b.maxSteps ?? 8,
     system: b.system,
-    name: b.name,
+    name: process.env.AGENT_NAME ?? b.name, // AGENT_NAME lets you run several distinguishable agents
   };
 }
 /** Human-readable name this agent announces to the hub (and thus the phone). */
 function displayName(): string {
+  if (process.env.AGENT_NAME) return process.env.AGENT_NAME; // explicit override wins
   const c = readBrainCfg();
-  if (c.name) return c.name;
   const hasKey = !!process.env[c.apiKeyEnv || "ANTHROPIC_API_KEY"];
-  return c.provider === "anthropic" && hasKey ? "Claude" : "Keyword agent";
+  // Be honest: only call it by the configured name when a real model is actually in play.
+  // Otherwise it's the keyword stub — don't announce "Claude" for it.
+  const realBrain = c.provider === "anthropic" && hasKey;
+  return realBrain ? (c.name ?? "Claude") : "Basic agent";
 }
 
 async function main() {
@@ -83,7 +86,12 @@ async function main() {
       const r = pending.get(m.id);
       if (r) { pending.delete(m.id); r({ status: m.status, result: m.result, error: m.error }); }
     } else if (m.t === "user") {
-      void runBrain(String(m.text ?? ""));
+      // Surface any attached files to the brain as a path + mime it can open/act on.
+      const files = Array.isArray(m.files) ? m.files : [];
+      const note = files
+        .map((f: any) => `\n\n[Attached file: ${f.name}${f.mime ? ` (${f.mime})` : ""} saved at ${f.path}]`)
+        .join("");
+      void runBrain(String(m.text ?? "") + note);
     }
   });
   ws.on("close", () => { console.error("hub connection closed — exiting"); process.exit(1); });

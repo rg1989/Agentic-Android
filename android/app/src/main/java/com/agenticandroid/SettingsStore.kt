@@ -13,12 +13,40 @@ import kotlinx.coroutines.flow.MutableStateFlow
 object SettingsStore {
     private const val PREFS = "agent_settings"
     private const val KEY_THEME = "theme"
+    private const val KEY_PALETTE = "theme_palette"
+    private const val KEY_DOWNLOADS = "downloaded_blobs" // StringSet of "blobId\turi"
     private const val KEY_DISABLED = "disabled_caps"
     private const val KEY_CHIMES = "chimes"
+    private const val KEY_VOICE = "voice_replies"
+    private const val KEY_WAKE = "wake_word"
+    private const val KEY_WAKE_PHRASE = "wake_phrase"
+    private const val KEY_CONNECTION = "connection_enabled"
+    private const val KEY_TTS_RATE = "tts_rate"
+    private const val KEY_TTS_PITCH = "tts_pitch"
+    private const val KEY_WAKE_TIMEOUT = "wake_timeout_sec"
+    private const val KEY_WAKE_SENS = "wake_sensitivity"
+    private const val KEY_CHIME_STYLE = "chime_style"
+    private const val KEY_DND = "wake_dnd"
+    private const val KEY_DND_START = "wake_dnd_start"
+    private const val KEY_DND_END = "wake_dnd_end"
 
-    val theme = MutableStateFlow("system")
+    val theme = MutableStateFlow("system")     // appearance: system | light | dark
+    val palette = MutableStateFlow("violet")   // color theme id (see Themes.kt)
+    val downloadedBlobs = MutableStateFlow<Map<String, String>>(emptyMap()) // blobId -> saved content uri
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
     val chimes = MutableStateFlow(true)
+    val voiceReplies = MutableStateFlow(true) // default on — the user asked for spoken replies
+    val wakeWord = MutableStateFlow(false)    // default off — an always-on mic is opt-in
+    val wakePhrase = MutableStateFlow("hey agent")
+    val connectionEnabled = MutableStateFlow(true) // master on/off for the hub connection (pairing is kept either way)
+    val ttsRate = MutableStateFlow(1.0f)  // speech speed multiplier (0.5–2.0); 1.0 = engine default
+    val ttsPitch = MutableStateFlow(1.0f) // voice pitch multiplier (0.5–2.0); 1.0 = engine default
+    val wakeTimeoutSec = MutableStateFlow(8)     // how long to wait for the command after a bare wake phrase
+    val wakeSensitivity = MutableStateFlow(0.5f) // 0 = exact phrase only; higher tolerates Vosk mishears
+    val chimeStyle = MutableStateFlow("classic") // "classic" | "soft" — the chime tone palette
+    val wakeDnd = MutableStateFlow(false)        // suppress the wake word during a quiet window
+    val wakeDndStart = MutableStateFlow(23)      // DND start hour (0–23)
+    val wakeDndEnd = MutableStateFlow(7)         // DND end hour (0–23, exclusive)
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -27,13 +55,100 @@ object SettingsStore {
         val p = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
         theme.value = p.getString(KEY_THEME, "system") ?: "system"
+        palette.value = p.getString(KEY_PALETTE, "violet") ?: "violet"
+        downloadedBlobs.value = (p.getStringSet(KEY_DOWNLOADS, emptySet()) ?: emptySet())
+            .mapNotNull { it.split("\t", limit = 2).let { kv -> if (kv.size == 2) kv[0] to kv[1] else null } }.toMap()
         disabledCaps.value = p.getStringSet(KEY_DISABLED, emptySet())?.toSet() ?: emptySet()
         chimes.value = p.getBoolean(KEY_CHIMES, true)
+        voiceReplies.value = p.getBoolean(KEY_VOICE, true)
+        wakeWord.value = p.getBoolean(KEY_WAKE, false)
+        wakePhrase.value = p.getString(KEY_WAKE_PHRASE, "hey agent") ?: "hey agent"
+        connectionEnabled.value = p.getBoolean(KEY_CONNECTION, true)
+        ttsRate.value = p.getFloat(KEY_TTS_RATE, 1.0f)
+        ttsPitch.value = p.getFloat(KEY_TTS_PITCH, 1.0f)
+        wakeTimeoutSec.value = p.getInt(KEY_WAKE_TIMEOUT, 8)
+        wakeSensitivity.value = p.getFloat(KEY_WAKE_SENS, 0.5f)
+        chimeStyle.value = p.getString(KEY_CHIME_STYLE, "classic") ?: "classic"
+        wakeDnd.value = p.getBoolean(KEY_DND, false)
+        wakeDndStart.value = p.getInt(KEY_DND_START, 23)
+        wakeDndEnd.value = p.getInt(KEY_DND_END, 7)
+    }
+
+    fun setChimeStyle(v: String) {
+        chimeStyle.value = v
+        prefs?.edit()?.putString(KEY_CHIME_STYLE, v)?.apply()
+    }
+
+    fun setWakeDnd(on: Boolean) {
+        wakeDnd.value = on
+        prefs?.edit()?.putBoolean(KEY_DND, on)?.apply()
+    }
+
+    fun setWakeDndStart(h: Int) {
+        wakeDndStart.value = h
+        prefs?.edit()?.putInt(KEY_DND_START, h)?.apply()
+    }
+
+    fun setWakeDndEnd(h: Int) {
+        wakeDndEnd.value = h
+        prefs?.edit()?.putInt(KEY_DND_END, h)?.apply()
+    }
+
+    fun setTtsRate(v: Float) {
+        ttsRate.value = v
+        prefs?.edit()?.putFloat(KEY_TTS_RATE, v)?.apply()
+    }
+
+    fun setTtsPitch(v: Float) {
+        ttsPitch.value = v
+        prefs?.edit()?.putFloat(KEY_TTS_PITCH, v)?.apply()
+    }
+
+    fun setWakeTimeoutSec(v: Int) {
+        wakeTimeoutSec.value = v
+        prefs?.edit()?.putInt(KEY_WAKE_TIMEOUT, v)?.apply()
+    }
+
+    fun setWakeSensitivity(v: Float) {
+        wakeSensitivity.value = v
+        prefs?.edit()?.putFloat(KEY_WAKE_SENS, v)?.apply()
+    }
+
+    fun setConnectionEnabled(on: Boolean) {
+        connectionEnabled.value = on
+        prefs?.edit()?.putBoolean(KEY_CONNECTION, on)?.apply()
+    }
+
+    fun setVoiceReplies(on: Boolean) {
+        voiceReplies.value = on
+        prefs?.edit()?.putBoolean(KEY_VOICE, on)?.apply()
+    }
+
+    fun setWakeWord(on: Boolean) {
+        wakeWord.value = on
+        prefs?.edit()?.putBoolean(KEY_WAKE, on)?.apply()
+    }
+
+    fun setWakePhrase(phrase: String) {
+        val p = phrase.lowercase() // matching trims/normalizes; don't fight typing here
+        wakePhrase.value = p
+        prefs?.edit()?.putString(KEY_WAKE_PHRASE, p)?.apply()
     }
 
     fun setTheme(v: String) {
         theme.value = v
         prefs?.edit()?.putString(KEY_THEME, v)?.apply()
+    }
+
+    fun setPalette(v: String) {
+        palette.value = v
+        prefs?.edit()?.putString(KEY_PALETTE, v)?.apply()
+    }
+
+    /** Record that a blob has been saved to the phone (so the UI marks it + offers Open, not Download). */
+    fun setDownloaded(blobId: String, uri: String) {
+        downloadedBlobs.value = downloadedBlobs.value + (blobId to uri)
+        prefs?.edit()?.putStringSet(KEY_DOWNLOADS, downloadedBlobs.value.map { "${it.key}\t${it.value}" }.toSet())?.apply()
     }
 
     fun setChimes(on: Boolean) {

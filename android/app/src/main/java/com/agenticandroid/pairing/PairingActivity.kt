@@ -28,11 +28,19 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,6 +108,8 @@ class PairingActivity : ComponentActivity() {
         setContent {
             var status by remember { mutableStateOf("Point camera at the bridge QR code") }
             var scanning by remember { mutableStateOf(true) }
+            val isSuccess = status.startsWith("Paired")
+            val isError = status.startsWith("Pairing failed") || status.startsWith("Couldn't")
 
             MaterialTheme {
                 Box(Modifier.fillMaxSize()) {
@@ -111,7 +121,12 @@ class PairingActivity : ComponentActivity() {
                                     // We stash the PreviewView reference via a side-effect; see
                                     // startCamera() below which calls this after permission is granted.
                                     previewViewHolder = pv
-                                    statusUpdater = { s -> status = s; if (s.startsWith("Paired") || s.startsWith("Error")) scanning = false }
+                                    statusUpdater = { s ->
+                                        status = s
+                                        // Stop the camera on any terminal state (success OR failure) so the
+                                        // result card — with buttons — replaces the live preview.
+                                        if (s.startsWith("Paired") || s.startsWith("Pairing failed") || s.startsWith("Couldn't")) scanning = false
+                                    }
                                     checkAndStartCamera()
                                 }
                             },
@@ -119,11 +134,44 @@ class PairingActivity : ComponentActivity() {
                         )
                     }
                     Column(
-                        Modifier.align(Alignment.BottomCenter).padding(24.dp),
+                        Modifier.align(if (scanning) Alignment.BottomCenter else Alignment.Center).padding(28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text(status, style = MaterialTheme.typography.bodyLarge)
-                        if (status == "Pairing…") CircularProgressIndicator()
+                        when {
+                            isSuccess -> {
+                                Icon(
+                                    Icons.Rounded.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(56.dp),
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text("Paired", style = MaterialTheme.typography.headlineSmall)
+                                Spacer(Modifier.height(8.dp))
+                                Text("Your phone is linked to the agent.", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.height(20.dp))
+                                Button(onClick = { openChat() }) { Text("Open chat") }
+                            }
+                            isError -> {
+                                Text("Couldn't pair", style = MaterialTheme.typography.titleMedium)
+                                Spacer(Modifier.height(8.dp))
+                                Text(status, style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.height(20.dp))
+                                Button(onClick = {
+                                    scanned.set(false)
+                                    status = "Point camera at the bridge QR code"
+                                    scanning = true
+                                }) { Text("Try again") }
+                                Spacer(Modifier.height(4.dp))
+                                TextButton(onClick = { openChat() }) { Text("Back to chat") }
+                            }
+                            status == "Pairing…" -> {
+                                CircularProgressIndicator()
+                                Spacer(Modifier.height(12.dp))
+                                Text(status, style = MaterialTheme.typography.bodyLarge)
+                            }
+                            else -> Text(status, style = MaterialTheme.typography.bodyLarge)
+                        }
                     }
                 }
             }
@@ -214,22 +262,36 @@ class PairingActivity : ComponentActivity() {
             bus.event("pairing.response", eventData)
             bus.close()
 
-            // TOFU: persist — from now on this bridge is our trusted peer.
-            val pairingData = PairingData(
-                self       = selfId,
-                peerEdPub  = token.edPub,
-                relayUrl   = token.relayUrl,
-            )
-            Pairing.save(this, pairingData)
+            // Append this agent as a profile (or update it) and make it active. Supports pairing
+            // several agents and switching between them; the phone keeps one identity (selfId).
+            com.agenticandroid.Agents.init(this) // ensure existing profiles are loaded before appending
+            com.agenticandroid.Agents.add(this, token.fp.take(8), token.edPub, token.relayUrl)
             update("Paired with ${token.fp.take(12)}…")
 
-            // Restart the service so it picks up the new pairing immediately.
-            startForegroundService(Intent(this, PhoneAgentService::class.java))
+            // Reconnect the running service to the newly-active agent (or start it if not running).
+            val svc = PhoneAgentService.instance
+            if (svc != null) svc.reconnect()
+            else startForegroundService(Intent(this, PhoneAgentService::class.java))
 
         }.onFailure { e ->
             scanned.set(false) // allow retry on parse/network failure
-            update("Error: ${e.message}")
+            val reach = e.message?.contains("connect", ignoreCase = true) == true || e.message?.contains("reach", ignoreCase = true) == true
+            update(
+                if (reach)
+                    "Couldn't reach the hub. Check it's running on your computer and your phone is on the same Wi-Fi (or USB). Then scan again."
+                else
+                    "Pairing failed: ${e.message}. Scan again to retry.",
+            )
         }
+    }
+
+    /** Leave the pairing screen and land on the chat (don't strand the user on a static page). */
+    private fun openChat() {
+        startActivity(
+            Intent(this, com.agenticandroid.MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
+        finish()
     }
 
     override fun onDestroy() {

@@ -33,10 +33,13 @@ class BusEndpoint(
     private val seq = AtomicInteger(0)
     private var ws: WebSocket? = null
     private var connectDone: CompletableDeferred<Unit>? = null
+    @Volatile private var established = false // true between welcome and an unexpected drop
 
     /** Phone side handles inbound requests (capability dispatch). Returns result or typed error. */
     var onRequest: (suspend (Inner.Request, String) -> CapResult)? = null
     var onEvent: ((Inner.Event) -> Unit)? = null
+    /** Fired once when an established connection drops unexpectedly (not on an explicit close()). */
+    var onDisconnect: (() -> Unit)? = null
 
     private fun newId(): String = "m_${System.currentTimeMillis().toString(36)}_${seq.incrementAndGet().toString(36)}"
 
@@ -49,7 +52,12 @@ class BusEndpoint(
     }
 
     fun close() {
+        established = false // explicit close — don't fire onDisconnect
         ws?.close(1000, null)
+    }
+
+    private fun fireDisconnect() {
+        if (established) { established = false; onDisconnect?.invoke() }
     }
 
     private inner class Listener : WebSocketListener() {
@@ -63,6 +71,11 @@ class BusEndpoint(
             // Surface the real error (cleartext blocked, host unreachable, refused) instead of a
             // silent 15s timeout. No-op if connect already succeeded.
             connectDone?.completeExceptionally(t)
+            fireDisconnect() // an established connection that later fails → trigger reconnect
+        }
+
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            fireDisconnect()
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -77,7 +90,7 @@ class BusEndpoint(
                             put("ctl", "auth"); put("sig", Crypto.sign(self.edSec, nonce.toByteArray()))
                         }))
                     }
-                    "welcome" -> connectDone?.complete(Unit)
+                    "welcome" -> { established = true; connectDone?.complete(Unit) }
                     "error" -> connectDone?.completeExceptionally(
                         IllegalStateException((map["message"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "relay error"))
                 }

@@ -5,8 +5,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -22,11 +20,14 @@ import androidx.core.view.WindowCompat
 @Composable
 fun AgentTheme(content: @Composable () -> Unit) {
     val pref by SettingsStore.theme.collectAsState()
+    val paletteId by SettingsStore.palette.collectAsState()
     val dark = when (pref) {
         "light" -> false
         "dark" -> true
         else -> isSystemInDarkTheme()
     }
+    val theme = Themes.byId(paletteId)
+    val scheme = if (dark) theme.dark else theme.light
     val view = LocalView.current
     if (!view.isInEditMode) {
         LaunchedEffect(dark) {
@@ -34,7 +35,7 @@ fun AgentTheme(content: @Composable () -> Unit) {
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !dark
         }
     }
-    MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+    MaterialTheme(colorScheme = scheme) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() }
     }
 }

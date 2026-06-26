@@ -13,14 +13,18 @@
  * Note: shares the phone identity with the MCP bridge — run ONE of them at a time.
  */
 import http from "node:http";
+import QRCode from "qrcode";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { spawn, type ChildProcess } from "node:child_process";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { ready } from "./crypto.ts";
 import { BusEndpoint } from "./peer.ts";
+import type { MsgPart } from "./parts.ts";
+import { Scheduler, type Task } from "./scheduler.ts";
+import { randomUUID } from "node:crypto";
 
 interface Cap { method: string; sensitivity: string; summary: string }
 let caps: Cap[] = []; // populated in the background once the phone answers
@@ -43,6 +47,8 @@ function configPath(): string { return path.join(configDir(), "agent.json"); }
 function eventsPath(): string { return path.join(configDir(), "panel-events.jsonl"); }
 /** The agent's consolidated photo folder, next to its config: ~/.agentic-android/media/photos/ */
 function mediaDir(): string { return path.join(configDir(), "media", "photos"); }
+/** Files the user sent from the phone (any mime), next to the photos. */
+function filesDir(): string { return path.join(configDir(), "media", "files"); }
 
 // ---------- persistent event log ----------
 const events: LogEvent[] = [];
@@ -62,6 +68,91 @@ function logEvent(type: EventType, summary: string, detail?: unknown): LogEvent 
   return e;
 }
 
+// ---------- persistent chat sessions (the hub owns chat history) ----------
+// Multiple named sessions per hub. `conversation` is the ACTIVE session's turns (in memory, so all
+// existing code keeps working); each session's turns persist to sessions/<id>.jsonl and the index to
+// sessions.jsonl. A legacy single conversation.jsonl is migrated into a session on first load.
+interface ChatTurn { role: "user" | "assistant"; text: string; ts: number; parts?: MsgPart[] }
+interface Session { id: string; title: string; createdAt: number; lastTs: number }
+let sessions: Session[] = [];
+let activeSessionId = "";
+let conversation: ChatTurn[] = []; // turns of the active session
+const MAX_CONVO = 500;
+function convoPath(): string { return path.join(configDir(), "conversation.jsonl"); } // legacy
+function sessionsDir(): string { return path.join(configDir(), "sessions"); }
+function sessionsIndexPath(): string { return path.join(configDir(), "sessions.jsonl"); }
+function sessionFilePath(id: string): string { return path.join(sessionsDir(), `${id}.jsonl`); }
+
+function trimTitle(s: string): string {
+  const t = s.trim().replace(/\s+/g, " ");
+  return t ? (t.length > 42 ? t.slice(0, 42) + "…" : t) : "New chat";
+}
+function readTurns(file: string): ChatTurn[] {
+  try { return fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as ChatTurn); }
+  catch { return []; }
+}
+function persistSessionsIndex() {
+  try {
+    fs.mkdirSync(configDir(), { recursive: true });
+    fs.writeFileSync(sessionsIndexPath(), sessions.map((s) => JSON.stringify(s)).join("\n") + (sessions.length ? "\n" : ""));
+  } catch { /* best-effort */ }
+}
+function newSession(): Session {
+  const s: Session = { id: randomUUID(), title: "New chat", createdAt: Date.now(), lastTs: Date.now() };
+  sessions.push(s); activeSessionId = s.id; conversation = [];
+  try { fs.mkdirSync(sessionsDir(), { recursive: true }); fs.writeFileSync(sessionFilePath(s.id), ""); } catch { /* */ }
+  persistSessionsIndex();
+  return s;
+}
+function selectSession(id: string): boolean {
+  const s = sessions.find((x) => x.id === id);
+  if (!s) return false;
+  activeSessionId = id; conversation = readTurns(sessionFilePath(id));
+  return true;
+}
+function deleteSession(id: string) {
+  sessions = sessions.filter((s) => s.id !== id);
+  try { fs.rmSync(sessionFilePath(id)); } catch { /* */ }
+  persistSessionsIndex();
+  if (activeSessionId === id) {
+    if (sessions.length === 0) newSession();
+    else { const newest = [...sessions].sort((a, b) => a.lastTs - b.lastTs).at(-1)!; selectSession(newest.id); }
+  }
+}
+function loadConversation() {
+  try { sessions = fs.readFileSync(sessionsIndexPath(), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Session); }
+  catch { sessions = []; }
+  if (sessions.length === 0 && fs.existsSync(convoPath())) {
+    // migrate the legacy single conversation into a session so nothing is lost
+    const legacy = readTurns(convoPath());
+    const id = randomUUID();
+    try { fs.mkdirSync(sessionsDir(), { recursive: true }); fs.copyFileSync(convoPath(), sessionFilePath(id)); } catch { /* */ }
+    const firstUser = legacy.find((t) => t.role === "user" && t.text.trim());
+    sessions = [{ id, title: firstUser ? trimTitle(firstUser.text) : "New chat", createdAt: legacy[0]?.ts ?? Date.now(), lastTs: legacy.at(-1)?.ts ?? Date.now() }];
+    persistSessionsIndex();
+  }
+  if (sessions.length === 0) { newSession(); return; }
+  const newest = [...sessions].sort((a, b) => a.lastTs - b.lastTs).at(-1)!;
+  selectSession(newest.id);
+}
+function addTurn(role: ChatTurn["role"], text: string, parts?: MsgPart[]) {
+  if (!text && !parts?.length) return;
+  const turn: ChatTurn = { role, text, ts: Date.now(), ...(parts?.length ? { parts } : {}) };
+  conversation.push(turn);
+  if (conversation.length > MAX_CONVO) conversation.shift();
+  try { fs.mkdirSync(sessionsDir(), { recursive: true }); fs.appendFileSync(sessionFilePath(activeSessionId), JSON.stringify(turn) + "\n"); } catch { /* */ }
+  const s = sessions.find((x) => x.id === activeSessionId);
+  if (s) {
+    s.lastTs = turn.ts;
+    if (role === "user" && (!s.title || s.title === "New chat")) s.title = trimTitle(text);
+    persistSessionsIndex();
+  }
+}
+/** Sessions list for the phone (newest first) + which is active. */
+function sessionsPayload() {
+  return { sessions: [...sessions].sort((a, b) => b.lastTs - a.lastTs).map((s) => ({ id: s.id, title: s.title, ts: s.lastTs })), activeId: activeSessionId };
+}
+
 // ---------- agent config (persisted in agent.json) ----------
 function loadCfg(): any { return JSON.parse(fs.readFileSync(configPath(), "utf8")); }
 function readAgentCfg(): AgentCfg {
@@ -72,6 +163,58 @@ function writeAgentCfg(next: AgentCfg) {
   const cfg = loadCfg();
   cfg.agent = next;
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
+}
+
+/** Tokens are base64url-ish and never contain whitespace; copying one out of a terminal often wraps
+ * it and injects spaces/newlines mid-string, which silently 401s. Strip ALL whitespace, not just ends. */
+function cleanToken(t: string): string { return t.replace(/\s+/g, ""); }
+/** Headless Claude auth token (from `claude setup-token`), if the user saved one. */
+function claudeOauthToken(): string | undefined {
+  try { const t = loadCfg().brain?.oauthToken; if (typeof t === "string" && cleanToken(t)) return cleanToken(t); } catch { /* */ }
+  return process.env.CLAUDE_CODE_OAUTH_TOKEN ? cleanToken(process.env.CLAUDE_CODE_OAUTH_TOKEN) : undefined;
+}
+function saveClaudeOauthToken(token: string) {
+  const cfg = loadCfg();
+  cfg.brain = { ...(cfg.brain ?? {}), oauthToken: cleanToken(token) };
+  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
+}
+/** This Mac's LAN IP (so the phone can reach the relay over Wi-Fi instead of the USB tunnel). */
+function lanIp(): string | undefined {
+  const ifaces = os.networkInterfaces();
+  for (const name of ["en0", "en1", ...Object.keys(ifaces)]) {
+    for (const a of ifaces[name] ?? []) if (a.family === "IPv4" && !a.internal) return a.address;
+  }
+  return undefined;
+}
+/** Relay address to put in the phone's pairing QR. Order: saved choice (set in the web UI) →
+ *  PHONE_RELAY_URL env → auto LAN IP (same Wi-Fi) → localhost. A Tailscale/public URL works as the
+ *  saved choice for "any network". */
+function phoneRelayUrl(cfgRelayUrl: string): string {
+  let saved: string | undefined;
+  try { const v = loadCfg().phoneRelayUrl; if (typeof v === "string" && v.trim()) saved = v.trim(); } catch { /* */ }
+  const chosen = saved ?? process.env.PHONE_RELAY_URL;
+  if (chosen && chosen !== "auto") {
+    if (chosen === "usb") return cfgRelayUrl; // 127.0.0.1
+    return chosen; // a LAN/Tailscale/public URL
+  }
+  const ip = lanIp();
+  if (!ip) return cfgRelayUrl;
+  try { const u = new URL(cfgRelayUrl); return `http://${ip}:${u.port || "8799"}`; } catch { return `http://${ip}:8799`; }
+}
+function saveRelayChoice(value: string) {
+  const cfg = loadCfg();
+  if (value === "auto") delete cfg.phoneRelayUrl; else cfg.phoneRelayUrl = value;
+  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
+}
+
+/** A clean env for spawning `claude` headlessly: drop a stray API key + the *parent* Claude-Code
+ *  session vars (which make a nested `claude -p` run credential-less), and inject the saved token. */
+function claudeSpawnEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  for (const k of Object.keys(env)) if (k === "CLAUDECODE" || (k.startsWith("CLAUDE_CODE_") && k !== "CLAUDE_CODE_OAUTH_TOKEN")) delete env[k];
+  const tk = claudeOauthToken(); if (tk) env.CLAUDE_CODE_OAUTH_TOKEN = tk;
+  return env;
 }
 
 /** Spawn the configured shell-agent for non-message phone events (optional, legacy). */
@@ -227,6 +370,193 @@ document.getElementById('savecfg').onclick=async()=>{
 loadCfg();
 </script></body></html>`;
 
+/** Guided, self-service setup page — connect an agent, then pair the phone (QR). Lives at "/". */
+const SETUP_PAGE = `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agentic Android — Setup</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { font: 15px/1.6 -apple-system,system-ui,sans-serif; margin:0; background:#14151a; color:#e7e7ea; }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; } .sub { color:#9a9aa3; margin:0 0 22px; font-size:13px; }
+  .status { display:flex; gap:12px; margin-bottom:26px; flex-wrap:wrap; }
+  .pill { display:flex; align-items:center; gap:9px; background:#1c1e26; border:1px solid #2a2c34; border-radius:11px; padding:11px 15px; flex:1; min-width:200px; }
+  .dot { width:11px; height:11px; border-radius:99px; background:#555; flex:none; }
+  .dot.on { background:#3fb950; } .dot.wait { background:#d29922; }
+  .pill .t { font-size:12px; color:#8a8a93; } .pill .v { font-size:14px; }
+  .step { background:#1c1e26; border:1px solid #2a2c34; border-radius:14px; padding:18px 20px; margin-bottom:16px; }
+  .step.done { border-color:#264d33; }
+  .step h2 { font-size:16px; margin:0 0 4px; display:flex; align-items:center; gap:9px; }
+  .num { width:24px; height:24px; border-radius:99px; background:#2a2c34; color:#cdd; font-size:13px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+  .step.done .num { background:#2ea043; color:#fff; }
+  .step p { color:#b5b5bd; font-size:13.5px; margin:6px 0; }
+  .opts { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 8px; }
+  .opt { background:#272a33; border:1px solid #2a2c34; border-radius:9px; padding:8px 13px; cursor:pointer; font-size:13px; }
+  .opt.sel { background:#1f3a5f; border-color:#3b5bdb; }
+  code, .cmd { font-family: ui-monospace,Menlo,monospace; font-size:13px; }
+  .cmdrow { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .cmd { background:#0f1014; border:1px solid #2a2c34; border-radius:8px; padding:10px 12px; flex:1; overflow:auto; white-space:nowrap; }
+  button { background:#3b5bdb; color:#fff; border:0; border-radius:8px; padding:9px 14px; font-size:13px; cursor:pointer; }
+  button:hover { background:#4c6ef5; } button.ghost { background:#272a33; }
+  .hint { color:#8a8a93; font-size:12.5px; margin-top:8px; }
+  .qrbox { display:flex; gap:18px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  .qr { background:#fff; border-radius:12px; padding:10px; width:200px; height:200px; flex:none; }
+  ol { margin:6px 0 0; padding-left:20px; } ol li { margin:3px 0; font-size:13.5px; color:#b5b5bd; }
+  a { color:#6b8afd; } .foot { margin-top:24px; font-size:13px; }
+  .cards { display:flex; gap:12px; flex-wrap:wrap; margin:14px 0 6px; }
+  .card2 { flex:1; min-width:210px; background:#272a33; border:2px solid #2a2c34; border-radius:11px; padding:13px 15px; cursor:pointer; }
+  .card2.sel { border-color:#3b5bdb; background:#1b2740; }
+  .card2 .ct { font-size:15px; } .card2 .cd { font-size:12.5px; color:#9a9aa3; margin-top:3px; }
+  .adv { color:#6b8afd; font-size:13px; cursor:pointer; display:inline-block; margin:8px 0 2px; user-select:none; }
+  .callout { background:#3a2f12; border:1px solid #6b551f; border-radius:9px; padding:13px 15px; margin-top:12px; font-size:13.5px; color:#e7d9ad; }
+  .callout code { background:#0f1014; color:#fff; padding:5px 10px; border-radius:6px; display:inline-block; margin-top:8px; font-size:13px; }
+</style></head>
+<body><div class="wrap">
+  <h1>Agentic Android</h1>
+  <p class="sub">This is the hub on your computer — the glue between your phone and your agent. No API key needed here.</p>
+
+  <div class="status">
+    <div class="pill"><span id="ad" class="dot"></span><div><div class="t">Agent</div><div id="av" class="v">checking…</div></div></div>
+    <div class="pill"><span id="pd" class="dot"></span><div><div class="t">Phone</div><div id="pv" class="v">checking…</div></div></div>
+  </div>
+
+  <div class="step" id="step1">
+    <h2><span class="num">1</span> Connect your agent</h2>
+    <p>An agent is the brain that talks to you and runs things on your phone. Pick one and press Connect.</p>
+    <div class="cards">
+      <div class="card2 sel" data-type="claude"><div class="ct">Your Claude</div><div class="cd">Uses your Claude subscription. No API key.</div></div>
+      <div class="card2" data-type="basic"><div class="ct">Built-in helper</div><div class="cd">No setup, no login. Basic replies — good for a first test.</div></div>
+    </div>
+    <span class="adv" id="advtoggle">Advanced: use a custom command ▸</span>
+    <input id="ccmd" placeholder="a CLI that prints a reply, e.g. codex" style="display:none;width:100%;margin:6px 0 2px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
+    <div class="cmdrow" style="margin-top:14px;"><button id="connect">Connect</button><button class="ghost" id="stopagent">Stop</button><span id="astate" class="hint" style="margin:0;"></span></div>
+    <div id="alog" class="callout" style="display:none;"></div>
+  </div>
+
+  <div class="step" id="step2">
+    <h2><span class="num">2</span> Pair your phone</h2>
+    <p>Open the Agentic Android app → tap <b>Pair</b> (or the agent name → <b>Pair another agent</b>) → scan this:</p>
+    <div class="qrbox">
+      <img class="qr" id="qrimg" src="/pair-qr" alt="Pairing QR code" />
+      <ol>
+        <li>Scan the code in the app's pairing screen.</li>
+        <li>The phone will connect to <b id="prelay">this Mac</b>.</li>
+        <li>This panel turns green when it connects.</li>
+      </ol>
+    </div>
+    <div style="margin-top:12px;">
+      <div class="hint" style="margin-bottom:6px;">How should the phone reach this hub?</div>
+      <div class="opts">
+        <div class="opt sel" data-relay="auto">Same Wi-Fi</div>
+        <div class="opt" data-relay="anywhere">Anywhere (Tailscale)</div>
+        <div class="opt" data-relay="usb">USB cable</div>
+      </div>
+      <div id="relayrow" style="display:none;gap:8px;margin:8px 0;">
+        <input id="relayinput" placeholder="your Mac's Tailscale IP, e.g. 100.x.x.x" style="flex:1;min-width:0;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;" />
+        <button id="relayapply" style="white-space:nowrap;">Apply</button>
+      </div>
+      <span id="relaystate" class="hint"></span>
+    </div>
+    <details style="margin-top:14px;"><summary style="cursor:pointer;color:#6b8afd;font-size:13px;">Phone won't connect?</summary>
+      <ul style="font-size:13px;color:#b5b5bd;margin:8px 0 0;padding-left:18px;">
+        <li><b>Same Wi-Fi:</b> the phone and this Mac must be on the same network — or use Tailscale to skip that.</li>
+        <li><b>Firewall:</b> if macOS asks to allow <code>node</code> to accept incoming connections, click Allow (System Settings, Network, Firewall).</li>
+        <li><b>Any network:</b> install Tailscale on both, pick "Anywhere" above, paste your Mac's Tailscale IP, then re-pair.</li>
+        <li><b>Still stuck:</b> in the phone app tap "Retry", or re-pair by scanning the QR again.</li>
+      </ul>
+    </details>
+  </div>
+
+  <p class="foot">Need the raw controls + event log? <a href="/panel">Open the control panel →</a></p>
+</div>
+<script>
+  let curType='claude';
+  const cards=[...document.querySelectorAll('.card2')];
+  cards.forEach(c=>c.onclick=()=>{ cards.forEach(x=>x.classList.toggle('sel',x===c)); curType=c.dataset.type; document.getElementById('ccmd').style.display='none'; });
+  document.getElementById('advtoggle').onclick=()=>{
+    const i=document.getElementById('ccmd'); const show=i.style.display==='none';
+    i.style.display=show?'block':'none';
+    if(show){ curType='custom'; cards.forEach(x=>x.classList.remove('sel')); } else { curType='claude'; cards[0].classList.add('sel'); }
+  };
+  function showCallout(error,command){
+    const lg=document.getElementById('alog'); lg.innerHTML='';
+    const p=document.createElement('div'); p.textContent=error; lg.appendChild(p);
+    if(command){ const code=document.createElement('code'); code.textContent=command; lg.appendChild(code); }
+    if(command==='claude setup-token'){
+      const row=document.createElement('div'); row.style.cssText='margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;';
+      const inp=document.createElement('input'); inp.placeholder='paste the token it prints (sk-ant-oat...)'; inp.style.cssText='flex:1;min-width:200px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;';
+      const btn=document.createElement('button'); btn.textContent='Save token';
+      btn.onclick=async()=>{ try{ const r=await (await fetch('/agent/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:inp.value})})).json(); btn.textContent=r.ok?'Saved — now press Connect':'Save failed'; }catch(e){ btn.textContent='Save failed'; } };
+      row.appendChild(inp); row.appendChild(btn); lg.appendChild(row);
+      const hint=document.createElement('div'); hint.style.cssText='margin-top:8px;font-size:12.5px;color:#9a9aa3;'; hint.textContent='The token is printed in the terminal where you ran the command (not the browser). Paste it here, Save, then press Connect.'; lg.appendChild(hint);
+    }
+    lg.style.display='block';
+  }
+  document.getElementById('connect').onclick=async()=>{
+    const st=document.getElementById('astate');
+    st.textContent='starting…'; document.getElementById('alog').style.display='none';
+    try{
+      const body={type:curType, command:document.getElementById('ccmd').value};
+      const r=await (await fetch('/agent/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})).json();
+      if(!r.ok){ st.textContent=''; showCallout(r.error||'Could not start the agent.', r.command); }
+    }catch(e){ st.textContent=''; showCallout(String(e)); }
+  };
+  document.getElementById('stopagent').onclick=async()=>{ await fetch('/agent/stop',{method:'POST'}); document.getElementById('astate').textContent='stopped'; document.getElementById('alog').style.display='none'; };
+  function set(dot,val,on,wait,txt){ const d=document.getElementById(dot); d.className='dot'+(on?' on':wait?' wait':''); document.getElementById(val).textContent=txt; }
+  let _calloutKey='';
+  async function poll(){ try{ const s=await (await fetch('/status')).json();
+    const aReady = s.agent.ready !== false;          // null/true => assume ok until the agent reports otherwise
+    const aOk = s.agent.connected && aReady;          // connected AND actually able to authenticate
+    set('ad','av', aOk, (s.agent.running&&!s.agent.connected)||(s.agent.connected&&!aReady),
+      !s.agent.connected ? (s.agent.running?'Starting…':'Not connected yet')
+      : aReady ? ('Connected — '+(s.agent.name||'agent'))
+               : 'Connected, but Claude needs sign-in');
+    set('pd','pv',s.phone.connected,s.paired&&!s.phone.connected, s.phone.connected?('Connected — '+s.phone.caps+' actions'):(s.paired?'Paired, waiting…':'Not paired — do step 2'));
+    document.getElementById('step1').classList.toggle('done',aOk);
+    document.getElementById('step2').classList.toggle('done',s.phone.connected);
+    if(s.phoneRelay){ const pr=document.getElementById('prelay'); if(pr) pr.textContent=s.phoneRelay; }
+    // Reflect the SAVED relay choice in the picker on first load (so Tailscale shows selected, not Wi-Fi).
+    if(!window._relaySynced && s.relayChoice){ window._relaySynced=true;
+      const opt=document.querySelector('[data-relay="'+s.relayChoice+'"]');
+      if(opt){ document.querySelectorAll('[data-relay]').forEach(x=>x.classList.toggle('sel',x===opt));
+        if(s.relayChoice==='anywhere'){ document.getElementById('relayrow').style.display='flex';
+          const ri=document.getElementById('relayinput'); if(!ri.value && (s.phoneRelay||'').startsWith('http')) ri.value=s.phoneRelay; } } }
+    const st=document.getElementById('astate');
+    if(aOk) st.textContent='now running: '+(s.agent.name||'agent');
+    else if(s.agent.connected&&!aReady) st.textContent='connected, but Claude needs sign-in (see below)';
+    else if(s.agent.running) st.textContent='starting…';
+    else st.textContent='';
+    // Honest callout: when the agent is connected but can't authenticate, show the exact fix.
+    // Keyed so we don't rebuild it every 2s (which would wipe a token being typed); cleared once ready.
+    if(aOk){ if(_calloutKey){ _calloutKey=''; document.getElementById('alog').style.display='none'; } }
+    else { const key=(s.agent.connected&&!aReady)?('a:'+(s.agent.status||'')+'|'+(s.agent.command||'')):'';
+      if(key && key!==_calloutKey){ _calloutKey=key; showCallout(s.agent.status||'Claude needs sign-in on this computer.', s.agent.command); } }
+  }catch(e){} }
+  const relayOpts=[...document.querySelectorAll('[data-relay]')];
+  const relayInput=document.getElementById('relayinput');
+  relayOpts.forEach(o=>o.onclick=()=>{
+    relayOpts.forEach(x=>x.classList.toggle('sel',x===o));
+    const kind=o.dataset.relay;
+    document.getElementById('relayrow').style.display = kind==='anywhere' ? 'flex' : 'none';
+    if(kind==='anywhere'){
+      // Prefill with the saved Tailscale address if there is one, and focus so it's obvious what to do.
+      const cur=document.getElementById('prelay').textContent||'';
+      if(!relayInput.value && cur.startsWith('http')) relayInput.value=cur;
+      relayInput.focus();
+    } else setRelay(kind);
+  });
+  relayInput.addEventListener('keydown', e=>{ if(e.key==='Enter') setRelay(relayInput.value); });
+  document.getElementById('relayapply').onclick=()=>setRelay(relayInput.value);
+  async function setRelay(value){
+    const st=document.getElementById('relaystate'); st.textContent='saving…';
+    try{ const r=await (await fetch('/relay-url',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({value})})).json();
+      if(r.ok){ st.textContent='✓ saved as '+(r.phoneRelay||value)+' — re-scan the QR to apply'; document.getElementById('qrimg').src='/pair-qr?t='+Date.now(); } else { st.textContent=r.error||'failed'; } }
+    catch(e){ st.textContent='failed'; }
+  }
+  setInterval(poll,2000); poll();
+</script></body></html>`;
+
 async function main() {
   await ready();
   const cp = configPath();
@@ -234,6 +564,7 @@ async function main() {
   const cfg = loadCfg();
   if (!cfg.peerEdPub) { console.error("Not paired (no peerEdPub)."); process.exit(1); }
   loadEvents();
+  loadConversation();
 
   const bus = new BusEndpoint({ self: cfg.self, peerEdPub: cfg.peerEdPub, relayUrl: cfg.relayUrl });
   await bus.connect();
@@ -241,9 +572,75 @@ async function main() {
 
   // ---------- the agent connects IN over a local WebSocket; the brain runs as its OWN process ----------
   const AGENT_PORT = Number(process.env.AGENT_PORT ?? 8124);
-  let agentSock: WebSocket | null = null;
+  let agentSock: WebSocket | null = null; // the ACTIVE agent's socket — all existing routing uses this
   let agentName: string | null = null;
+  let agentReady: boolean | null = null; // null = unknown (probing); false = connected but can't auth
+  let agentStatus: { label?: string; command?: string } = {};
+  let agentCommands: unknown[] = []; // slash command/skill catalog the agent published, for the phone's `/` menu
   let pendingSay: ((text: string) => void) | null = null; // resolves /say with the next agent reply
+  // Phase 8: the hub can hold several agents at once. `agentSock` stays the active one (single-agent
+  // behavior is unchanged); this roster tracks everyone connected so the phone can see + switch them.
+  const agents = new Map<string, { ws: WebSocket; name: string }>();
+  let activeAgentId: string | null = null;
+  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, active: id === activeAgentId }));
+  const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
+
+  // ---- agent process control: start/stop the brain straight from the setup UI (no terminal) ----
+  let agentChild: ChildProcess | null = null;
+  let agentChildLog = "";
+  let agentKind = "";
+  const backboneDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  const tsxBin = () => { const b = path.join(backboneDir, "node_modules", ".bin", "tsx"); return fs.existsSync(b) ? b : "tsx"; };
+
+  function stopAgentProc() {
+    if (agentChild) { try { agentChild.kill("SIGTERM"); } catch { /* */ } agentChild = null; }
+    agentKind = "";
+  }
+  function spawnAgent(kind: string, command?: string) {
+    stopAgentProc();
+    let env: NodeJS.ProcessEnv = { ...process.env };
+    let script = "src/agent.ts";                                  // basic (keyword) agent
+    if (kind === "claude") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); }            // your Claude
+    else if (kind === "custom") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); env.AGENT_CLI = command || "claude"; }
+    agentChildLog = ""; agentKind = kind;
+    const child = spawn(tsxBin(), [script], { cwd: backboneDir, env });
+    const cap = (d: Buffer) => { agentChildLog = (agentChildLog + d.toString()).slice(-3000); };
+    child.stdout?.on("data", cap); child.stderr?.on("data", cap);
+    child.on("exit", (code) => { agentChildLog += `\n[agent process exited: ${code}]`; if (agentChild === child) agentChild = null; });
+    agentChild = child;
+  }
+  // Quick auth probe so the UI can say "run `claude login`" before the user even chats.
+  function authLoggedIn(cli: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const c = spawn(cli, ["auth", "status"], { env: process.env });
+      let out = ""; const t = setTimeout(() => { try { c.kill(); } catch { /* */ } resolve(false); }, 6000);
+      c.on("error", () => { clearTimeout(t); resolve(false); });
+      c.stdout?.on("data", (d) => (out += d.toString()));
+      c.on("close", () => { clearTimeout(t); try { resolve(JSON.parse(out).loggedIn === true); } catch { resolve(false); } });
+    });
+  }
+  function probeClaude(cli: string): Promise<{ ok: boolean; message?: string; command?: string }> {
+    return new Promise((resolve) => {
+      const env = claudeSpawnEnv();
+      const c = spawn(cli, ["-p", "--output-format", "json", "ping"], { env });
+      let out = "";
+      const timer = setTimeout(() => { try { c.kill(); } catch { /* */ } resolve({ ok: true }); }, 12000);
+      c.on("error", () => { clearTimeout(timer); resolve({ ok: false, message: `Couldn't find "${cli}" on this computer. Install it first, then press Connect again.` }); });
+      c.stdout?.on("data", (d) => (out += d.toString()));
+      c.on("close", async () => {
+        clearTimeout(timer);
+        try {
+          const j = JSON.parse(out);
+          if (j.is_error && /401|auth|login|credential|unauthor/i.test(String(j.result))) {
+            const signedIn = cli === "claude" ? await authLoggedIn(cli) : false;
+            if (signedIn) return resolve({ ok: false, message: "You're signed in, but the agent runs Claude headlessly, which needs a one-time token here. In a terminal run the command below (uses your subscription — no API key), then press Connect again.", command: "claude setup-token" });
+            return resolve({ ok: false, message: "Your Claude isn't signed in on this computer. In a terminal run the command below, then press Connect again. (No API key needed.)", command: cli === "claude" ? "claude auth login" : undefined });
+          }
+        } catch { /* */ }
+        resolve({ ok: true });
+      });
+    });
+  }
 
   /** The hub owns media: when a tool result carries an image blob, save it to ~/.agentic-android/media. */
   async function saveMediaFromResult(result: unknown) {
@@ -274,47 +671,206 @@ async function main() {
     }
   }
 
+  // ---------- hub-owned scheduler (Phase 9): deferred/recurring phone actions ----------
+  const schedulePath = path.join(configDir(), "schedule.jsonl");
+  const loadSchedule = (): Task[] => {
+    try { return fs.readFileSync(schedulePath, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Task); }
+    catch { return []; }
+  };
+  const persistSchedule = (tasks: Task[]) => {
+    try { fs.writeFileSync(schedulePath, tasks.map((t) => JSON.stringify(t)).join("\n") + (tasks.length ? "\n" : "")); }
+    catch (e) { logEvent("error", `persist schedule failed: ${String(e)}`); }
+  };
+  const scheduler = new Scheduler({
+    now: () => Date.now(),
+    setTimer: (ms, fn) => setTimeout(fn, ms),
+    clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    persist: persistSchedule,
+    load: loadSchedule,
+    genId: () => randomUUID(),
+    fire: async (task) => {
+      // The always-on hub runs the action itself, surfaces it to the phone chat, and (if connected)
+      // hands the result to the agent — so it fires even if the scheduling agent's turn ended long ago.
+      logEvent("agent_run", `scheduled fire: ${task.method}`, task);
+      const resp = await execForAgent(task.method, task.args);
+      const summary = resp.status === "ok" ? "done" : `error: ${JSON.stringify(resp.error)}`;
+      const note = `⏰ Ran scheduled ${task.method} — ${summary}.`;
+      bus.event("assistant_message", { text: note });
+      addTurn("assistant", note);
+      if (agentSock) agentSock.send(JSON.stringify({ t: "task_result", id: task.id, method: task.method, status: resp.status, result: resp.result, error: resp.error }));
+    },
+  });
+  scheduler.loadAndArm();
+  logEvent("config", `scheduler: re-armed ${scheduler.list().length} task(s) from disk`);
+
+  // Hub-handled "tools" the agent can call (intercepted before reaching the phone). Appended to the
+  // catalog the agent sees so the brain knows it can schedule.
+  const SCHEDULER_TOOLS: Cap[] = [
+    { method: "schedule", sensitivity: "ALLOW", summary: "Schedule a phone action for later. Args: {method, args?, delayMs OR atMs, everyMs? to repeat}." },
+    { method: "list_scheduled", sensitivity: "ALLOW", summary: "List pending scheduled tasks." },
+    { method: "cancel_scheduled", sensitivity: "ALLOW", summary: "Cancel a scheduled task. Args: {id}." },
+  ];
+  const agentCatalog = () => [...caps, ...SCHEDULER_TOOLS];
+  const handleSchedulerTool = (method: string, params: Record<string, unknown>): unknown => {
+    if (method === "schedule") {
+      const t = scheduler.add({
+        method: String(params.method), args: (params.args as Record<string, unknown>) ?? {},
+        delayMs: params.delayMs as number | undefined, atMs: params.atMs as number | undefined,
+        everyMs: params.everyMs as number | undefined, agentId: agentName ?? undefined,
+      });
+      return { scheduled: true, id: t.id, fireAt: t.fireAt };
+    }
+    if (method === "list_scheduled") return { tasks: scheduler.list() };
+    if (method === "cancel_scheduled") return { cancelled: scheduler.cancel(String(params.id)) };
+    return { error: "unknown scheduler tool" };
+  };
+  const isSchedulerTool = (m: string) => m === "schedule" || m === "list_scheduled" || m === "cancel_scheduled";
+
   const agentWss = new WebSocketServer({ port: AGENT_PORT });
   agentWss.on("connection", (ws) => {
     ws.on("message", (raw) => {
       let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
       if (m.t === "hello") {
-        agentSock = ws; agentName = String(m.name ?? "agent");
-        logEvent("connection", `agent connected: "${agentName}"`);
-        bus.event("agent_identity", { name: agentName }); // tell the phone who's here now
-        ws.send(JSON.stringify({ t: "ready", catalog: caps }));
+        const name = String(m.name ?? "agent");
+        const id = randomUUID();
+        (ws as any)._agentId = id;
+        agents.set(id, { ws, name });
+        // Become the active agent only if there isn't a live one already (preserves single-agent flow).
+        if (!agentSock || !activeAgentId || !agents.has(activeAgentId)) {
+          activeAgentId = id; agentSock = ws; agentName = name;
+          agentReady = null; agentStatus = {}; agentCommands = [];
+          bus.event("agent_identity", { name: agentName });
+        }
+        logEvent("connection", `agent connected: "${name}" (${agents.size} online)`);
+        announceRoster();
+        ws.send(JSON.stringify({ t: "ready", catalog: agentCatalog() }));
       } else if (m.t === "tool") {
-        void execForAgent(String(m.method), m.params ?? {}).then((resp) =>
-          ws.send(JSON.stringify({ t: "result", id: m.id, status: resp.status, result: resp.result, error: resp.error })));
+        const method = String(m.method);
+        if (isSchedulerTool(method)) {
+          const result = handleSchedulerTool(method, (m.params ?? {}) as Record<string, unknown>);
+          logEvent("response", `${method} ok`, result);
+          ws.send(JSON.stringify({ t: "result", id: m.id, status: "ok", result }));
+        } else {
+          void execForAgent(method, m.params ?? {}).then((resp) =>
+            ws.send(JSON.stringify({ t: "result", id: m.id, status: resp.status, result: resp.result, error: resp.error })));
+        }
       } else if (m.t === "event") {
         const topic = String(m.topic); const data = (m.data ?? {}) as Record<string, unknown>;
-        if (topic === "agent_status") bus.event("agent_status", data);
+        if (topic === "agent_status") {
+          if (typeof (data as any).ready === "boolean") agentReady = (data as any).ready;
+          agentStatus = { label: data.label as string | undefined, command: (data as any).command as string | undefined };
+          bus.event("agent_status", data);
+        }
+        else if (topic === "agent_commands") {
+          agentCommands = Array.isArray((data as any).commands) ? (data as any).commands : [];
+          bus.event("agent_commands", { commands: agentCommands });
+          logEvent("connection", `agent published ${agentCommands.length} slash commands`);
+        }
         else if (topic === "assistant_message") {
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
+          const parts = Array.isArray((data as any).parts) ? ((data as any).parts as MsgPart[]) : undefined;
+          addTurn("assistant", String(data.text ?? ""), parts);
           pendingSay?.(String(data.text ?? "")); pendingSay = null;
         }
       }
     });
-    ws.on("close", () => { if (agentSock === ws) { agentSock = null; agentName = null; logEvent("connection", "agent disconnected"); } });
+    ws.on("close", () => {
+      const id = (ws as any)._agentId as string | undefined;
+      if (id) agents.delete(id);
+      if (agentSock === ws) {
+        // The active agent left — promote another connected one, or go empty.
+        const next = [...agents.entries()][0];
+        if (next) {
+          activeAgentId = next[0]; agentSock = next[1].ws; agentName = next[1].name;
+          agentReady = null; agentStatus = {}; agentCommands = [];
+          bus.event("agent_identity", { name: agentName });
+          logEvent("connection", `active agent left; switched to "${agentName}"`);
+        } else {
+          agentSock = null; agentName = null; agentReady = null; agentStatus = {}; agentCommands = []; activeAgentId = null;
+          logEvent("connection", "agent disconnected");
+        }
+      }
+      announceRoster();
+    });
   });
   logEvent("connection", `agent WebSocket on ws://127.0.0.1:${AGENT_PORT}`);
 
   // ---------- phone -> hub -> agent ----------
+  const histMsgs = () => conversation.slice(-100).map((t) => ({ role: t.role, text: t.text, ts: t.ts, ...(t.parts?.length ? { parts: t.parts } : {}) }));
+  const emitHistory = () => bus.event("history", { messages: histMsgs() });
+  const emitSessions = () => bus.event("sessions", sessionsPayload());
   bus.onEvent((ev) => {
     if (ev.topic === "whoami") {
       bus.event("agent_identity", { name: agentName ?? "No agent connected", relay: cfg.relayUrl });
-      logEvent("connection", `identified to phone as "${agentName ?? "No agent"}"`);
+      // Replay the active session + the session list so the phone shows history on (re)connect.
+      emitHistory();
+      emitSessions();
+      // If the agent connected but can't authenticate, a freshly-opened phone would otherwise miss the
+      // one-time status event — replay it so the phone shows the warning, not a silent "connected".
+      if (agentReady === false && agentStatus.label) bus.event("agent_status", { label: agentStatus.label });
+      // Replay the slash catalog so a phone that connects after the agent still gets the `/` menu.
+      if (agentCommands.length) bus.event("agent_commands", { commands: agentCommands });
+      announceRoster(); // Phase 8: tell the phone which agents are connected right now
+      logEvent("connection", `identified to phone as "${agentName ?? "No agent"}" (replayed ${Math.min(conversation.length, 100)} turns)`);
+      return;
+    }
+    if (ev.topic === "select_agent") {
+      // Phase 8: the phone picked which connected agent should be active; route to its socket.
+      const id = String((ev.data as { id?: unknown }).id ?? "");
+      const a = agents.get(id);
+      if (a) {
+        activeAgentId = id; agentSock = a.ws; agentName = a.name;
+        agentReady = null; agentStatus = {}; agentCommands = [];
+        bus.event("agent_identity", { name: agentName });
+        announceRoster();
+        logEvent("connection", `phone selected agent "${a.name}"`);
+      }
+      return;
+    }
+    if (ev.topic === "new_session") {
+      newSession();
+      emitHistory(); emitSessions();
+      logEvent("config", "phone started a new chat");
+      return;
+    }
+    if (ev.topic === "select_session") {
+      if (selectSession(String((ev.data as { id?: unknown }).id ?? ""))) { emitHistory(); emitSessions(); }
+      return;
+    }
+    if (ev.topic === "delete_session") {
+      deleteSession(String((ev.data as { id?: unknown }).id ?? ""));
+      emitHistory(); emitSessions();
+      logEvent("config", "phone deleted a chat");
       return;
     }
     if (ev.topic === "user_message") {
-      const text = String((ev.data as { text?: unknown }).text ?? "");
-      logEvent("user_message", text, { text });
-      if (agentSock) agentSock.send(JSON.stringify({ t: "user", text }));
-      else {
-        bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." });
-        logEvent("error", "user_message but no agent connected");
-      }
+      const d = ev.data as { text?: unknown; parts?: unknown };
+      const text = String(d.text ?? "");
+      const parts = Array.isArray(d.parts) ? (d.parts as MsgPart[]) : undefined;
+      logEvent("user_message", text, { text, parts });
+      // Persist any attached file blobs to disk so the agent gets a real local path + mime to open.
+      void (async () => {
+        const files: { path: string; name: string; mime?: string; size?: number }[] = [];
+        for (const p of parts ?? []) {
+          if (p.kind !== "file") continue;
+          try {
+            const bytes = await bus.getBlob(p.blobId);
+            fs.mkdirSync(filesDir(), { recursive: true });
+            const safe = p.name.replace(/[^\w.\-]+/g, "_") || "file";
+            const fp = path.join(filesDir(), `${Date.now()}_${safe}`);
+            fs.writeFileSync(fp, bytes);
+            files.push({ path: fp, name: p.name, mime: p.mime, size: bytes.length });
+            logEvent("phone_event", `saved attached file ${p.name} (${bytes.length} bytes)`, { path: fp });
+          } catch (e) { logEvent("error", `failed to save attached file ${p.name}`, { error: String(e) }); }
+        }
+        addTurn("user", text || (files.length ? `(sent ${files.length} file${files.length > 1 ? "s" : ""})` : ""), parts);
+        if (agentSock) agentSock.send(JSON.stringify({ t: "user", text, ...(files.length ? { files } : {}) }));
+        else {
+          bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." });
+          logEvent("error", "user_message but no agent connected");
+        }
+      })();
       return;
     }
     logEvent("phone_event", `phone event: ${ev.topic}`, ev.data);
@@ -327,7 +883,7 @@ async function main() {
   });
 
   /** Push the catalog to the connected agent (called whenever caps refresh). */
-  function pushCatalog() { if (agentSock?.readyState === WebSocket.OPEN) agentSock.send(JSON.stringify({ t: "catalog", catalog: caps })); }
+  function pushCatalog() { if (agentSock?.readyState === WebSocket.OPEN) agentSock.send(JSON.stringify({ t: "catalog", catalog: agentCatalog() })); }
 
   // Fetch the phone's catalog in the BACKGROUND so the panel serves even if the phone is offline.
   const refreshCatalog = async () => {
@@ -344,7 +900,89 @@ async function main() {
     const json = (o: unknown, code = 200) => { res.statusCode = code; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(o)); };
 
     if (req.method === "GET" && url.pathname === "/") {
+      res.setHeader("content-type", "text/html"); res.setHeader("cache-control", "no-store"); res.end(SETUP_PAGE); return;
+    }
+    if (req.method === "GET" && url.pathname === "/panel") {
       res.setHeader("content-type", "text/html"); res.end(PAGE(caps, cfg.relayUrl)); return;
+    }
+    if (req.method === "GET" && url.pathname === "/status") {
+      return json({
+        agent: { connected: !!agentSock, name: agentName, running: !!agentChild, kind: agentKind, ready: agentReady, status: agentStatus.label ?? null, command: agentStatus.command ?? null, log: agentChildLog.slice(-400) },
+        phone: { connected: caps.length > 0, caps: caps.length },
+        paired: !!cfg.peerEdPub,
+        relayUrl: cfg.relayUrl,
+        phoneRelay: phoneRelayUrl(cfg.relayUrl),
+        relayChoice: (() => { try { const v = loadCfg().phoneRelayUrl; return typeof v === "string" && v.trim() ? (v === "usb" ? "usb" : "anywhere") : "auto"; } catch { return "auto"; } })(),
+      });
+    }
+    if (req.method === "POST" && url.pathname === "/agent/start") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", async () => {
+        try {
+          const { type, command } = JSON.parse(body || "{}");
+          const kind = String(type ?? "basic");
+          if (kind === "claude") {
+            const probe = await probeClaude("claude");
+            if (!probe.ok) return json({ ok: false, error: probe.message, command: probe.command });
+          } else if (kind === "custom") {
+            const probe = await probeClaude(String(command || "claude"));
+            if (!probe.ok) return json({ ok: false, error: probe.message, command: probe.command });
+          }
+          spawnAgent(kind, command);
+          logEvent("connection", `started agent process: ${kind}`);
+          json({ ok: true });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/agent/stop") {
+      stopAgentProc();
+      logEvent("connection", "stopped agent process (from UI)");
+      return json({ ok: true });
+    }
+    if (req.method === "POST" && url.pathname === "/relay-url") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { value } = JSON.parse(body || "{}");
+          let v = String(value ?? "auto").trim();
+          // accept: "auto" (Wi-Fi LAN), "usb" (localhost), or a Tailscale/LAN address. Be forgiving:
+          // a bare IP/host ("100.64.1.5" or "100.64.1.5:8799") is normalized to http://host:8799.
+          if (v !== "auto" && v !== "usb") {
+            if (!/^https?:\/\/|^wss?:\/\//i.test(v)) v = "http://" + v;
+            try {
+              const u = new URL(v);
+              if (!u.port) u.port = "8799";        // default to the relay port
+              v = u.toString().replace(/\/+$/, ""); // strip trailing slash
+            } catch { return json({ ok: false, error: "Couldn't read that address — try your Tailscale IP, e.g. 100.x.x.x" }); }
+          }
+          saveRelayChoice(v);
+          logEvent("config", `phone relay set to ${v}`);
+          json({ ok: true, phoneRelay: phoneRelayUrl(cfg.relayUrl) });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/agent/token") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { token } = JSON.parse(body || "{}");
+          const t = String(token ?? "").trim();
+          if (!t) return json({ ok: false, error: "Empty token." });
+          saveClaudeOauthToken(t);
+          logEvent("config", "saved Claude headless token");
+          json({ ok: true });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/pair-qr") {
+      const token = "PAIR:" + Buffer.from(JSON.stringify({ edPub: cfg.self.edPub, fp: cfg.self.fp, relayUrl: phoneRelayUrl(cfg.relayUrl) })).toString("base64url");
+      QRCode.toString(token, { type: "svg", margin: 1, width: 220 })
+        .then((svg) => { res.setHeader("content-type", "image/svg+xml"); res.end(svg); })
+        .catch((e) => { res.statusCode = 500; res.end(String(e)); });
+      return;
     }
     if (req.method === "GET" && url.pathname === "/events") {
       const since = Number(url.searchParams.get("since") ?? 0);
@@ -369,6 +1007,7 @@ async function main() {
           const { text } = JSON.parse(body || "{}");
           if (!agentSock) return json({ error: "no agent connected (run `pnpm agent`)" }, 503);
           logEvent("user_message", String(text ?? ""), { text, via: "/say" });
+          addTurn("user", String(text ?? ""));
           const reply = await new Promise<string>((resolve) => {
             const timer = setTimeout(() => { pendingSay = null; resolve("(no reply within timeout)"); }, 60_000);
             pendingSay = (t) => { clearTimeout(timer); resolve(t); };
@@ -377,6 +1016,58 @@ async function main() {
           json({ reply });
         } catch (e) { json({ error: String(e) }, 500); }
       });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/demo-image") {
+      // Test affordance for the Phase 6 image part: upload a sample photo as an E2E blob sealed for
+      // the phone, then push an assistant_message with an image-ref part so the phone renders it inline.
+      void (async () => {
+        try {
+          const dir = mediaDir();
+          const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".jpg")).sort() : [];
+          if (!files.length) return json({ error: "no sample .jpg in media dir" }, 404);
+          const jpeg = fs.readFileSync(path.join(dir, files[files.length - 1]));
+          const { blob_id } = await bus.putBlob(new Uint8Array(jpeg), "image/jpeg");
+          const parts: MsgPart[] = [{ kind: "image", blobId: blob_id, mime: "image/jpeg", alt: "demo photo" }];
+          const text = "Here's an image.";
+          bus.event("assistant_message", { text, parts } as unknown as Record<string, unknown>);
+          addTurn("assistant", text, parts);
+          json({ ok: true, blob_id });
+        } catch (e) { json({ error: String(e) }, 500); }
+      })();
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/demo-file") {
+      // Test affordance for the Phase 6 file part: send a small file as an E2E blob + a file-ref part.
+      void (async () => {
+        try {
+          const body = Buffer.from("Hello from your agent.\nThis is a demo attachment.\n");
+          const { blob_id } = await bus.putBlob(new Uint8Array(body), "text/plain");
+          const parts: MsgPart[] = [{ kind: "file", blobId: blob_id, name: "notes.txt", mime: "text/plain", size: body.length }];
+          const text = "Here's a file.";
+          bus.event("assistant_message", { text, parts } as unknown as Record<string, unknown>);
+          addTurn("assistant", text, parts);
+          json({ ok: true, blob_id });
+        } catch (e) { json({ error: String(e) }, 500); }
+      })();
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/scheduled") return json({ tasks: scheduler.list() });
+    if (req.method === "POST" && url.pathname === "/schedule") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const b = JSON.parse(body || "{}");
+          const t = scheduler.add({ method: String(b.method), args: b.args ?? {}, delayMs: b.delayMs, atMs: b.atMs, everyMs: b.everyMs });
+          logEvent("config", `scheduled ${t.method} for ${new Date(t.fireAt).toISOString()}`, t);
+          json({ ok: true, id: t.id, fireAt: t.fireAt });
+        } catch (e) { json({ error: String(e) }, 400); }
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/cancel") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => { try { json({ cancelled: scheduler.cancel(String(JSON.parse(body || "{}").id)) }); } catch (e) { json({ error: String(e) }, 400); } });
       return;
     }
     if (req.method === "GET" && url.pathname === "/config") return json(readAgentCfg());

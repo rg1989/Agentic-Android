@@ -32,11 +32,14 @@ class TextToSpeech(
         fun init(context: Context, onReady: (success: Boolean) -> Unit)
         /** Speak [text]; call [onDone] when the utterance completes or errors. */
         fun speak(text: String, onDone: () -> Unit)
+        /** Stop the current utterance immediately (barge-in), keeping the engine alive. */
+        fun stop()
         fun shutdown()
     }
 
     fun init(onReady: (Boolean) -> Unit) = backend.init(context, onReady)
     fun speak(text: String, onDone: () -> Unit = {}) = backend.speak(text, onDone)
+    fun stop() = backend.stop()
     fun shutdown() = backend.shutdown()
 }
 
@@ -59,6 +62,10 @@ class PlatformTtsBackend : TextToSpeech.Backend {
         val engine = tts ?: run { onDone(); return }
         if (!ready) { onDone(); return }
 
+        // Apply the user's rate/pitch fresh each time, so a change in Settings takes effect immediately.
+        engine.setSpeechRate(com.agenticandroid.SettingsStore.ttsRate.value)
+        engine.setPitch(com.agenticandroid.SettingsStore.ttsPitch.value)
+
         val utteranceId = "utt_${System.currentTimeMillis()}"
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String) {}
@@ -69,6 +76,8 @@ class PlatformTtsBackend : TextToSpeech.Backend {
 
         engine.speak(text, AndroidTTS.QUEUE_FLUSH, Bundle(), utteranceId)
     }
+
+    override fun stop() { tts?.stop() }
 
     override fun shutdown() {
         tts?.stop()

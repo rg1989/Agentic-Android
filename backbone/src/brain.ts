@@ -11,6 +11,7 @@
  *                  loop on the real device, so the plumbing is verifiable. Drop in a key to upgrade.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import type { AssistantMessage } from "./parts.ts";
 
 export interface Cap { method: string; sensitivity: string; summary: string }
 export interface BrainCfg { provider: string; model: string; apiKeyEnv: string; maxSteps: number; system?: string; name?: string }
@@ -64,7 +65,7 @@ export function makeBrain(deps: BrainDeps) {
     deps.bus.event("agent_status", { label: "Thinking…" }); // live status on the phone
     const cfg = deps.getCfg();
     const key = process.env[cfg.apiKeyEnv || "ANTHROPIC_API_KEY"];
-    let reply: string;
+    let reply: string | AssistantMessage;
     try {
       reply = cfg.provider === "anthropic" && key
         ? await anthropicLoop(deps, userText, cfg, key)
@@ -73,9 +74,10 @@ export function makeBrain(deps: BrainDeps) {
       reply = `Sorry — I hit an error: ${String(e)}`;
       deps.log("error", "brain error", { error: String(e) });
     }
-    deps.log("assistant_message", reply.slice(0, 200), { text: reply });
-    deps.bus.event("assistant_message", { text: reply });
-    return reply;
+    const msg: AssistantMessage = typeof reply === "string" ? { text: reply } : reply;
+    deps.log("assistant_message", msg.text.slice(0, 200), msg);
+    deps.bus.event("assistant_message", msg as unknown as Record<string, unknown>);
+    return msg.text;
   };
 }
 
@@ -124,9 +126,27 @@ async function anthropicLoop(deps: BrainDeps, userText: string, cfg: BrainCfg, k
 }
 
 /** No-key keyword router. Exercises the real input→tool→reply loop so the plumbing is verifiable. */
-async function stubLoop(deps: BrainDeps, userText: string): Promise<string> {
+async function stubLoop(deps: BrainDeps, userText: string): Promise<string | AssistantMessage> {
   const t = userText.toLowerCase();
   const has = (...w: string[]) => w.some((x) => t.includes(x));
+
+  // Acknowledge an attached file (Phase 7) so the send-file path is verifiable end to end.
+  const fileNote = userText.match(/\[Attached file: ([^\]]+)\]/);
+  if (fileNote) return `📎 Got your file — ${fileNote[1]}.`;
+
+  // Identify which agent answered (Phase 8 multi-agent routing is verifiable by name).
+  if (has("who are you", "your name", "which agent")) return `I'm ${deps.getCfg().name ?? "your agent"}.`;
+
+  // Demo trigger for the Phase 6 rich-reply pipeline (markdown + table parts). No device needed.
+  if (has("demo rich", "demo parts", "rich demo")) {
+    return {
+      text: "Here is a rich reply: a short report and a table.",
+      parts: [
+        { kind: "markdown", text: "## Status report\n- battery: **100%**\n- network: _online_\n- see `panel.ts`" },
+        { kind: "table", columns: ["Metric", "Value"], rows: [["Battery", "100%"], ["CPU", "42%"], ["Storage", "free"]] },
+      ],
+    };
+  }
   const call = async (method: string, args: Record<string, unknown> = {}) => {
     deps.log("tool", method, args);
     deps.bus.event("agent_status", { label: friendlyStatus(method) });
@@ -179,8 +199,10 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string> {
     await call("ui.global", { action: "home" });
     return `🏠 Went to the home screen.`;
   }
-  // default: list what I can do
-  return `No LLM key set, so I'm running the keyword brain (set ANTHROPIC_API_KEY for the real Claude). ` +
-    `Try: "take a photo", "battery?", "turn on the flashlight", "ring my phone", "screenshot", "where am I". ` +
-    `I have ${deps.getCaps().length} phone capabilities.`;
+  // default: introduce myself + what I can do (no API key required to use the system —
+  // connect your own agent for a real brain; this built-in one is just a keyword fallback).
+  return `Hi — I'm the built-in basic agent (keywords, no AI model). For a real brain, connect your ` +
+    `own agent on your machine (e.g. your Claude — your subscription, no API key needed). ` +
+    `Meanwhile I can: "take a photo", "battery?", "flashlight on", "ring my phone", "screenshot", "where am I". ` +
+    `(${deps.getCaps().length} phone tools.)`;
 }
