@@ -108,7 +108,7 @@ command capture in one continuous stream (no mic handoff).
 - [x] **Switch**: header picker (tap the agent name) + Settings → Agents. Switching rebuilds the
       `BusEndpoint` (fresh registry) and reconnects; the agent's announced name is saved on the profile.
 - [x] **Manage**: Forget an agent; the active profile shows the live connection state.
-- [ ] (Later) keep several connected at once and route per message. → **moved to Phase 8.**
+- [x] (Later) keep several connected at once and route per message. → **done in Phase 8.**
 
 ## Phase H — Make the hub a real, separate service (architectural)
 The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
@@ -129,7 +129,10 @@ The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
       a macOS **TCC** caveat: launchd can't read this checkout under `~/Documents` ("Operation not
       permitted") — fix is to move the checkout out of a protected folder or grant Full Disk Access
       (documented in the README). Plist/script are otherwise correct.
-- [ ] Multiple agents connectable at once; route/select. → **moved to Phase 8.**
+      → **SUPERSEDED by Phase 10**: the hand-installed plist isn't a premium experience. Keep it as the
+        low-level mechanism, but the user-facing answer is a menu-bar app (Start/Stop + Launch-at-login),
+        which also sidesteps the TCC issue by running from `/Applications`.
+- [x] Multiple agents connectable at once; route/select. → **done in Phase 8.**
 
 ## Phase 5 — Polish
 - [x] Tap-to-stop spoken replies; long-press a message to copy.
@@ -158,8 +161,8 @@ speech), the **eye** gets the full rich render in chat. Agent replies are more t
       photo rendered inline + fullscreen. (Replay after the relay's 5-min blob TTL shows "unavailable".)
 - [x] **Tables**: a `table {columns, rows}` part renders as a real grid (bold header + divider + data
       rows, columns evenly weighted, ragged rows padded). Spoken as a one-line summary ("a table with
-      N rows"), not cell-by-cell. Device-verified live + on history replay. (A dedicated *chart* spec is
-      deferred — YAGNI until an agent emits one; the table already carries structured data visually.)
+      N rows"), not cell-by-cell. Device-verified live + on history replay. (A dedicated *chart* part is
+      **DROPPED** — the agent can render a chart as an image, which the image part already shows.)
 - [x] **Receive files from the agent**: a `file-ref {blobId, name, mime, size}` part renders as a chat
       attachment chip (type icon + name + human size). Tap → SAF `CreateDocument` picker → the phone
       fetches + E2E-decrypts the blob and writes it (reuses the same blob transport as photos). Spoken:
@@ -184,7 +187,11 @@ for the agent. Reuses the same hub blob/media path + the `file-ref` part (phone�
       brain as an `[Attached file: … saved at <path>]` note it can open/act on.
       Device-verified end-to-end: picked log_list.json → saved on the hub (41646 B) → agent replied
       "📎 Got your file — log_list.json (application/json) saved at …".
-- Notes: large-file streaming/progress + an image thumbnail (vs the type-icon chip) are minor later adds.
+- [x] **Upload progress + image thumbnails** (the two "minor later adds"). Attach shows a pending chip
+      with a live progress bar ("uploading… N%") streaming the sealed buffer in 64 KB chunks; image
+      attachments render a real thumbnail instead of the generic file icon. Device-verified (386 KB photo:
+      pending chip → thumbnail chip; hub persisted the .jpg, agent received it). commit 66f006f.
+      Streamed *crypto* (vs sealing the whole file in memory) deferred until 100s-of-MB files appear.
 
 ## Phase 8 — Multiple agents at the hub  ← **DONE (SAFE, device-verified w/ 2 stub agents)**
 Implemented the **1:1-selected** routing model (the simplest the plan flagged) in a **SAFE, additive**
@@ -205,8 +212,10 @@ Feature B) stays a clean future layer on top — the data model doesn't preclude
       a "who are you" stub reply proves routing: roster showed Ada*+Bob, selecting Bob made replies
       switch from "I'm Ada" → "I'm Bob", header updated to Bob. (Real-brain concierge still needs ≥2
       real brains; the routing core is proven.)
-- Open Qs (still open): concierge `ask_agent` orchestration; per-agent unread badges; auth when
-      several agents share one hub. Resolved: 1:1-selected routing, active-agent-only to the phone.
+- Open Qs: concierge `ask_agent` orchestration = **Feature B** (deferred by user; needs 2 live brains
+      to verify). Per-agent unread badges = **DROPPED** (only meaningful once Feature B exists). Auth
+      when several agents share one hub = **deferred security gate** — fine on a single-user private
+      Tailscale tailnet; REQUIRED before any shared/exposed hub. Resolved: 1:1-selected routing.
 
 ## Phase 9 — Hub-owned scheduler (deferred & timed actions)  ← **DONE (device-verified)**
 **Found via a live test:** "wait 30s, then take a photo, then another" silently did nothing. Root
@@ -253,6 +262,20 @@ never by the ephemeral agent turn or a per-process timer.
 | Wake sensitivity / listen timeout / boot restart | 3 | [x] |
 | Agents: list / add / switch / forget | 4 | [x] |
 
+## Phase 10 — Premium install: macOS menu-bar app  ← **planned (not started)**
+Goal: a real, premium install experience — no terminals, no scripts, no plist-editing, no TCC dance.
+The user installs the Mac side like any app and controls it from the menu bar; the phone side stays the
+APK (→ signed APK → Play Store later). Supersedes the hand-installed launchd item in Phase H.
+- [ ] Menu-bar app (Swift / `SMAppService`) that bundles node + the backbone (relay + hub + agent) in
+      its `.app` and lives in `/Applications` (running from there sidesteps the `~/Documents` TCC block).
+- [ ] Menu: **Start / Stop** (full manual control), **Launch at login** toggle (`SMAppService`, no plist),
+      a **status line** (running/stopped, agents connected), and Open-logs / Quit.
+- [ ] Supervises the child process: auto-restart on crash (the KeepAlive the plist gave us, but app-owned).
+- [ ] Data stays in `~/.agentic-android` (already outside TCC); first-run sets up config/pairing.
+- [ ] Distribution: signed + notarized `.dmg` (drag to Applications). Android: signed APK → Play Store.
+Open Qs: Swift native vs a tiny Tauri/Electron tray wrapper (lean Swift — smallest, most "Mac"); how to
+bundle/locate node (embed a pinned node vs require a system one); code-signing/notarization account.
+
 ## Protocol additions (brain ↔ phone, over the existing bus)
 - `agent_status` (brain→phone): `{ label: string }` — transient "what I'm doing now". Cleared by
   the next `assistant_message`. (Phase 1)
@@ -266,9 +289,13 @@ never by the ephemeral agent turn or a per-process timer.
    add concurrent later.
 
 ## Where to resume
-Pointer lives here + in `backbone/LOOP-STATE.md`. Phases 1–5 are done (one-active multi-agent;
-wake word offline via Vosk; TTS with speech-cleaning; hub-owned history; auto-reconnect). **What's
-left:** run the hub as a managed service (Phase H — launchd/systemd); multiple agents connected at
-once + per-message routing (Phase 4 later); the smaller knobs (TTS voice/rate, wake sensitivity/
-timeout, typing dots/haptics/timestamps). Set `ANTHROPIC_API_KEY` (agent.json `brain`) to swap the
-keyword stub for real Claude.
+Pointer lives here + in `backbone/LOOP-STATE.md`. Phases 1–9 are done (one-active multi-agent at the
+hub; wake word offline via Vosk; TTS with speech-cleaning; hub-owned history; auto-reconnect; rich
+parts — markdown/image/file/table; send files both ways with upload progress + thumbnails; scheduler).
+**What's left:**
+- **Phase 10 — premium macOS menu-bar install** (planned, not started) — the user-facing answer to
+  "run it as a service"; replaces the hand-installed launchd plist.
+- **Feature B — concierge `ask_agent`** (deferred by user; needs 2 live brains to verify).
+- **Deferred security gate** — agent auth when a hub is shared/exposed (fine on a private tailnet now).
+Dropped: native chart part, per-agent unread badges. Use `pnpm agent:claude` (your logged-in CLI) for
+the real brain — no API key needed.
