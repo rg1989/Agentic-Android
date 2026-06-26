@@ -84,14 +84,13 @@ command capture in one continuous stream (no mic handoff).
       **different** chime at **end of capture** (utterance done / command sent). Today only the generic
       `listening`/`sent`/`error` tones exist — add two recognizably distinct tones so hands-free use is
       audible without looking. Gated by the existing chimes setting.
-- [ ] **Wake word must coexist with hold-to-talk + TTS (bug).** Today enabling wake word effectively
-      blocks button recording: the FGS holds the mic continuously (Vosk `AudioRecord`), and `pause()`
-      only calls `setPause(true)` — which stops *processing* but **keeps the mic open**, so hold-to-talk's
-      `SpeechRecognizer` can't acquire it. Fix: `pause()` must **fully release the mic** (stop/teardown
-      the Vosk `SpeechService`), and `resume()` restart it. Wake word should pause-and-release whenever
-      (a) the user is recording via the button, and (b) a reply is being read aloud (so the agent's own
-      voice can't trigger it — stronger than today's "ignore results while `speaking`" flag). Resume
-      after. Net: the two input paths and TTS take turns on the one mic instead of fighting over it.
+- [x] **Wake word must coexist with hold-to-talk + TTS (bug).** Fixed: `pause(reason)` now **fully
+      releases the mic** (stop+shutdown the Vosk `SpeechService`), `resume(reason)` recreates it, and a
+      reason-set ("rec"=button, "tts"=playback) means the mic only restarts once *every* holder is done.
+      Both hold-to-talk (MainActivity) and TTS playback (`PhoneAgentService.speak`/`stopSpeaking`) now
+      release+restore the mic, so the two input paths and TTS take turns on the one mic instead of
+      fighting over it. Device-verified via logcat: TTS → "mic released (held by [tts])" → on done →
+      "listening for wake phrase". (commit pending)
 
 ## Phase 4 — Multiple agents  ← **DONE (one-active; migration device-verified)**
 - [x] **Data model**: `Agents` store — list of `AgentProfile {id, name, peerEdPub, relayUrl}` +

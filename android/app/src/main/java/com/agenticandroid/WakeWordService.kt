@@ -34,6 +34,10 @@ class WakeWordService : Service(), RecognitionListener {
     private var lastWakeAt = 0L
     private val chimes by lazy { Chimes() }
     private var wakeLock: android.os.PowerManager.WakeLock? = null
+    // Who currently needs the mic released (button recording, TTS playback). The mic is held only
+    // while this is empty; it's fully released the moment anyone is in here. Touched on main thread.
+    private val pausedBy = mutableSetOf<String>()
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
@@ -53,6 +57,7 @@ class WakeWordService : Service(), RecognitionListener {
 
     private fun startRecognition() {
         val m = model ?: return
+        if (speech != null || pausedBy.isNotEmpty()) return // already listening, or someone owns the mic
         try {
             val rec = Recognizer(m, 16000.0f)
             speech = SpeechService(rec, 16000.0f).also { it.startListening(this) }
@@ -62,9 +67,26 @@ class WakeWordService : Service(), RecognitionListener {
         }
     }
 
-    /** Pause/resume listening — used while hold-to-talk owns the mic. */
-    fun pause() { runCatching { speech?.setPause(true) } }
-    fun resume() { runCatching { speech?.setPause(false) } }
+    /**
+     * Pause/resume listening. Unlike Vosk's `setPause` (which keeps the AudioRecord open), [pause]
+     * **fully releases the mic** by tearing down the SpeechService, so hold-to-talk's recognizer and
+     * the TTS engine can take their turn. The mic is only restarted once every [reason] has resumed.
+     */
+    fun pause(reason: String = REC) = main.post {
+        val wasFree = pausedBy.isEmpty()
+        pausedBy.add(reason)
+        if (wasFree) releaseMic()
+    }
+    fun resume(reason: String = REC) = main.post {
+        pausedBy.remove(reason)
+        if (pausedBy.isEmpty()) startRecognition()
+    }
+
+    private fun releaseMic() {
+        runCatching { speech?.stop(); speech?.shutdown() }
+        speech = null
+        android.util.Log.i(TAG, "mic released (held by $pausedBy)")
+    }
 
     override fun onResult(hypothesis: String?) {
         val text = textOf(hypothesis)
@@ -140,6 +162,8 @@ class WakeWordService : Service(), RecognitionListener {
         private const val NOTIF_ID = 2
         const val MODEL_ASSET = "vosk-model-small-en-us-0.15"
         private const val CAPTURE_WINDOW_MS = 8000L
+        const val REC = "rec" // hold-to-talk button owns the mic
+        const val TTS = "tts" // a spoken reply is playing — don't let the agent hear itself
         @Volatile var instance: WakeWordService? = null
         fun start(ctx: Context) { ctx.startForegroundService(Intent(ctx, WakeWordService::class.java)) }
         fun stop(ctx: Context) { ctx.stopService(Intent(ctx, WakeWordService::class.java)) }

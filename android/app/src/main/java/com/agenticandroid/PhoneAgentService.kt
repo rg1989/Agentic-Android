@@ -232,6 +232,7 @@ class PhoneAgentService : Service() {
     fun stopSpeaking() {
         tts?.stop()
         speaking.value = false
+        WakeWordService.instance?.resume(WakeWordService.TTS) // give the mic back to the wake word
         if (status.value == "🔊 Speaking…") status.value = null
     }
 
@@ -251,8 +252,10 @@ class PhoneAgentService : Service() {
         android.util.Log.i("AgentTTS", "speaking: ${say.take(80)}")
         status.value = "🔊 Speaking…"
         speaking.value = true
+        WakeWordService.instance?.pause(WakeWordService.TTS) // release the mic so we don't hear ourselves
         tts?.speak(say) {
             speaking.value = false
+            WakeWordService.instance?.resume(WakeWordService.TTS)
             if (status.value == "🔊 Speaking…") status.value = null
         }
     }

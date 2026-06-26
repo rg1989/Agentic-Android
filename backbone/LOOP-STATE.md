@@ -52,6 +52,37 @@ settings cover it all.
 
 ## To run on YOUR Claude (no key): `claude login` once, then `pnpm agent:claude` (instead of `pnpm agent`).
 
+## Run 4 — overnight finishing run (autonomous; started 2026-06-26)
+Goal: every unimplemented PLAN.md item (`[ ]`/`[~]`) implemented + verified. Run until done or all-blocked.
+Decisions (user): **Phase 8 = SAFE — never commit a change that breaks the working single-agent app**
+(implement behind no-regression; if multi-brain routing can't be verified solo, leave single-agent path
+untouched + flag). **Git = one commit per item on `feature/phone-agent-computer-use`, NO push.**
+Defaults: launchd (Phase H) = write+test plist, do NOT install a system service unattended — leave for user.
+Audible/2-brain checks = verify code path via logcat, flag for user. Test with the **basic** agent.
+Keep device awake (`svc power stayon true`); re-add `adb reverse tcp:8799 tcp:8799` after every reinstall.
+
+Stop: all items `[x]` → done · 3 failed tries on one item → mark blocked, move on · all remaining blocked → stalled.
+ONE bounded item per iteration; never weaken a test to pass; tick PLAN.md box + commit per item.
+
+Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-done-needs-verify · [x] done · [B] blocked):
+- [ ] W1  Phase 3 wake-word coexist bug: `pause()` must fully release the mic (stop Vosk SpeechService), `resume()` restart. (real bug, high value)
+- [ ] W2  Phase 2 verify "button mic wins over speaker" `[~]` on device (logcat: recording flag stops TTS).
+- [ ] W3  Phase 2 smart-speech junk filter in SpeechText.forSpeech() (UUIDs/hashes/hex/paths/long digits) + unit tests.
+- [ ] W4  Phase 5 chat polish: animated typing dots, haptics on state change, message timestamps. (screenshot-verify)
+- [ ] W5  Phase 3 distinct chimes: wake-ack tone + end-of-capture tone in Chimes.kt (gated by chimes setting).
+- [ ] W6  Phase 2 Settings: TTS voice/locale + speech rate (persist; audible = user).
+- [ ] W7  Phase 3 Settings: wake sensitivity / listen-timeout knobs + boot restart of WakeWordService.
+- [ ] W8  Phase 5 per-state custom chime sounds + wake-word DND windows.
+- [ ] W9  Phase 6 wire shape: extend assistant_message with typed parts (text/markdown/image-ref/file-ref/table), back-compat.
+- [ ] W10 Phase 6 markdown rendering in chat bubbles (headings/bold/lists/links/inline+fenced code); TTS still strips it.
+- [ ] W11 Phase 6 inline images (reuse hub blob/media path), tap-to-fullscreen; spoken "(an image)".
+- [ ] W12 Phase 6 receive files from agent: file-ref part → chat attachment (name/size/icon) + save (SAF) / share.
+- [ ] W13 Phase 6 tables/charts: structured part rendered visually; spoken as one-line summary.
+- [ ] W14 Phase 7 send files phone→agent: attach button → SAF picker → blob upload → hub persist → agent sees path/mime.
+- [ ] W15 Phase 9 hub-owned scheduler: move into panel.ts, persist schedule.jsonl, re-arm on boot, fire+wake agent, schedule/list/cancel + cron.
+- [ ] W16 Phase 8 (SAFE) hub holds N agents + live roster + route-at-hub, single-agent behavior identical. Multi-brain verify flagged for user.
+- [ ] W17 Phase H write+test launchd plist (load/unload), do NOT auto-install — leave for user.
+
 ## Log
 - init: Bluetooth icon = PhoneAgentService.kt:146 `stat_sys_data_bluetooth`. No launcher icon / no
   mipmap assets. voice/ pkg: TextToSpeech wrapper good+reusable, VoiceController over-coupled+unused.
