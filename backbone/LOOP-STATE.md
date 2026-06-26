@@ -67,7 +67,7 @@ ONE bounded item per iteration; never weaken a test to pass; tick PLAN.md box + 
 Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-done-needs-verify · [x] done · [B] blocked):
 - [x] W1  Wake-word coexist bug FIXED + device-verified (logcat: mic released on TTS, restarts after). commit 760c1f5. Note: I left wake word ON in settings for upcoming items; turn OFF at end + restore Claude agent.
 - [x] W2  "button mic wins" device-verified: long-press mid-TTS → red "Listening…" bar, TTS halted. (verify-only, doc commit)
-- [ ] W3  Phase 2 smart-speech junk filter in SpeechText.forSpeech() (UUIDs/hashes/hex/paths/long digits) + unit tests.
+- [x] W3  Smart-speech junk filter (UUID/hash/ID/path/long-digits) + 12/12 unit tests, no speak regression. commit pending below.
 - [ ] W4  Phase 5 chat polish: animated typing dots, haptics on state change, message timestamps. (screenshot-verify)
 - [ ] W5  Phase 3 distinct chimes: wake-ack tone + end-of-capture tone in Chimes.kt (gated by chimes setting).
 - [ ] W6  Phase 2 Settings: TTS voice/locale + speech rate (persist; audible = user).

@@ -64,12 +64,11 @@ Make a single exchange feel alive. No new dependencies.
       Device-verified: long-pressed the mic mid-reply (during the TTS speech window) → red "Listening…"
       bar active, TTS halted via `setRecording`→`stopSpeaking`, wake-word mic held by [rec] until done.
 - [ ] Settings: pick TTS voice/locale, speech rate. (later)
-- [ ] **Smart speech for machine-junk** (extends `SpeechText.forSpeech()`): a human shouldn't hear
-      UUIDs, hashes, long hex/IDs, file paths, or long digit runs read out character-by-character —
-      they flood the speech and add nothing. Detect these tokens and either drop them, collapse to a
-      short spoken stand-in ("a UUID", "an ID", "a long number"), or speak only a useful summary
-      (e.g. "ends in 4271"). Chat keeps the full text; only the *ear* is filtered. Unit-test the
-      classifier on real agent replies. (later)
+- [x] **Smart speech for machine-junk** (extends `SpeechText.forSpeech()`): UUIDs → "a UUID",
+      16+ hex blobs (md5/sha/git) → "a hash", 20+ opaque tokens w/ letter+digit (api keys/base64) →
+      "an ID", file paths (unix/win) → "a file path", 7+ digit runs → "ending in NNNN". Chat keeps the
+      full text; only the *ear* is filtered. 12/12 unit tests incl. regression (Android 16, 2024, 3.5,
+      and/or, short model ids like CPH2653 all kept). Device: speak path unaffected (no regression).
 
 ## Phase 3 — Always-on wake word  ← **DONE (Vosk; listen path device-verified)**
 Engine: **Vosk** (offline, on-device, no key) — user-chosen. Vosk does both hotword spotting and
