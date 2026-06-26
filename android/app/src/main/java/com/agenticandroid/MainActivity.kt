@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,6 +71,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -213,6 +215,12 @@ class MainActivity : ComponentActivity() {
                 }
                 val active = profiles.firstOrNull { it.id == activeId }
                 val who = agentName ?: active?.name ?: if (paired) "your agent" else "no agent"
+                // Compact name for the header + placeholder: drop a "(your subscription)"-style qualifier
+                // (the agent names itself in agent-cli.ts; the full name still shows in Settings → Agents).
+                val shortWho = who.substringBefore(" (").trim().ifBlank { who }
+                var attachOpen by remember { mutableStateOf(false) }  // `+` attach panel open?
+                // Typing anything (incl. "/") collapses the attach panel, so the two palettes never stack.
+                LaunchedEffect(input) { if (input.isNotEmpty()) attachOpen = false }
 
                 // hold-to-talk voice → transcript fills the field live, sends on release; chimes per state
                 val chimes = remember { Chimes() }
@@ -366,7 +374,7 @@ class MainActivity : ComponentActivity() {
                             Modifier.align(Alignment.Center).padding(horizontal = 100.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Text(who, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(shortWho, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 val dotColor = if (!paired) Color(0xFF9AA0A6) else if (connected) Color(0xFF34C759) else Color(0xFFFFB020)
                                 Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
@@ -532,6 +540,12 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    // tap anywhere over the transcript to dismiss the attach panel (click-away)
+                    if (attachOpen) {
+                        Box(Modifier.matchParentSize().pointerInput(Unit) {
+                            detectTapGestures { attachOpen = false }
+                        })
+                    }
                     } // end transcript Box
 
                     // `/` command palette: type "/" to browse the agent's skills & commands, like the TUI.
@@ -556,7 +570,6 @@ class MainActivity : ComponentActivity() {
                     // composer: one rounded pill — [+ attach] · [text / live recording] · [send/mic].
                     // `+` opens a floating attach panel (like the `/` palette); the button taps to send,
                     // holds to talk, slides up to lock hands-free, slides left to cancel.
-                    var attachOpen by remember { mutableStateOf(false) }
                     AnimatedVisibility(
                         visible = attachOpen && paired && !recording,
                         enter = fadeIn(tween(140)) + expandVertically(tween(180)),
@@ -575,7 +588,7 @@ class MainActivity : ComponentActivity() {
                         tonalElevation = 2.dp,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                     ) {
-                      Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.Bottom) {
+                      Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (paired && !recording) {
                             val plusRot by animateFloatAsState(if (attachOpen) 45f else 0f, label = "plusRot")
                             IconButton(onClick = { attachOpen = !attachOpen }) {
@@ -599,15 +612,19 @@ class MainActivity : ComponentActivity() {
                                     value = input,
                                     onValueChange = { input = it },
                                     enabled = paired,
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(vertical = 11.dp),
+                                    // focusing the field (tapping it) collapses the attach panel
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                                        .onFocusChanged { if (it.isFocused) attachOpen = false },
                                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                     maxLines = 5,
                                     decorationBox = { inner ->
                                         if (input.isEmpty()) Text(
-                                            if (paired) "Message $who…" else "Pair an agent first",
+                                            if (paired) "Message $shortWho…" else "Pair an agent first",
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             style = MaterialTheme.typography.bodyLarge,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                         inner()
                                     },
@@ -816,7 +833,8 @@ private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> 
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(16.dp)),
     ) {
         LazyColumn {
-            items(matches) { c ->
+            itemsIndexed(matches) { i, c ->
+                if (i > 0) PaletteDivider()
                 Row(
                     Modifier.fillMaxWidth().clickable { onPick(c) }.padding(horizontal = 14.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -861,12 +879,23 @@ private fun AttachPalette(onPhotos: () -> Unit, onDocuments: () -> Unit, onDownl
     ) {
         Column {
             AttachRow(Icons.Rounded.Image, "Photos", "Pick from your gallery", onPhotos)
+            PaletteDivider()
             AttachRow(Icons.Rounded.Folder, "Documents", "Browse your documents", onDocuments)
+            PaletteDivider()
             AttachRow(Icons.Rounded.Download, "Downloads", "Browse your downloads", onDownloads)
+            PaletteDivider()
             AttachRow(Icons.AutoMirrored.Rounded.InsertDriveFile, "Files", "Any file type", onFiles)
         }
     }
 }
+
+/** A subtle inset divider between palette rows — visible but light, premium. */
+@Composable
+private fun PaletteDivider() = HorizontalDivider(
+    Modifier.padding(horizontal = 12.dp),
+    thickness = 1.dp,
+    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+)
 
 @Composable
 private fun AttachRow(icon: ImageVector, label: String, hint: String, onClick: () -> Unit) {
