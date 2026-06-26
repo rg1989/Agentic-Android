@@ -57,11 +57,12 @@ Make a single exchange feel alive. No new dependencies.
 - [x] **Speech cleaning**: a separate `SpeechText.forSpeech()` pass strips JSON/braces/URLs/emoji and
       shortens long numbers for the *ear only* (chat keeps full text). Unit-tested.
 - [x] "🔊 Speaking…" status + tap-to-stop; barge-in stops TTS when a new turn starts.
-- [~] **Button mic wins over the speaker**: a service-owned `recording` flag (set by the hold-to-talk
+- [x] **Button mic wins over the speaker**: a service-owned `recording` flag (set by the hold-to-talk
       button only) stops any in-progress reply the moment you press to talk, and blocks `speak()` from
       starting one while you're holding. **Button-only by design** — the wake word does *not* barge in
-      on a playing reply; it instead pauses during TTS (see the coexistence item in Phase 3). Code done;
-      **needs device verification**.
+      on a playing reply; it instead pauses during TTS (see the coexistence item in Phase 3).
+      Device-verified: long-pressed the mic mid-reply (during the TTS speech window) → red "Listening…"
+      bar active, TTS halted via `setRecording`→`stopSpeaking`, wake-word mic held by [rec] until done.
 - [ ] Settings: pick TTS voice/locale, speech rate. (later)
 - [ ] **Smart speech for machine-junk** (extends `SpeechText.forSpeech()`): a human shouldn't hear
       UUIDs, hashes, long hex/IDs, file paths, or long digit runs read out character-by-character —
