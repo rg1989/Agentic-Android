@@ -878,6 +878,10 @@ async function main() {
       // Replay the slash catalog so a phone that connects after the agent still gets the `/` menu.
       if (agentCommands.length) bus.event("agent_commands", { commands: agentCommands });
       announceRoster(); // Phase 8: tell the phone which agents are connected right now
+      // The phone just (re)connected — re-fetch its capability catalog so the panel shows "Connected —
+      // N actions" instead of "Paired, waiting…" (the startup fetch loop may have given up before the
+      // phone re-registered, e.g. after a hub restart). Chat already works over the event path.
+      void refreshCatalog();
       logEvent("connection", `identified to phone as "${agentName ?? "No agent"}" (replayed ${Math.min(conversation.length, 100)} turns)`);
       return;
     }
@@ -958,7 +962,10 @@ async function main() {
       if (r.status === "ok") { caps = (r.result as { capabilities: Cap[] }).capabilities; logEvent("connection", `catalog: ${caps.length} capabilities`); pushCatalog(); }
     } catch { /* phone offline; retry below */ }
   };
-  void (async () => { for (let i = 0; i < 30 && caps.length === 0; i++) { await refreshCatalog(); if (caps.length === 0) await new Promise((r) => setTimeout(r, 3000)); } })();
+  // Keep trying until the phone answers (fast at first, then relaxed) — don't give up after a fixed
+  // window, or a phone that links up late (e.g. the hub restarted while the phone was reconnecting)
+  // would stay stuck on "Paired, waiting…" forever even though chat works.
+  void (async () => { let n = 0; while (caps.length === 0) { await refreshCatalog(); if (caps.length === 0) await new Promise((r) => setTimeout(r, n++ < 10 ? 3000 : 15000)); } })();
 
   const PORT = Number(process.env.PANEL_PORT ?? 8123);
   const server = http.createServer((req, res) => {
