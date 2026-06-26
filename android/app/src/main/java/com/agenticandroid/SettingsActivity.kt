@@ -8,17 +8,23 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -66,6 +72,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.agenticandroid.pairing.PairingActivity
@@ -85,6 +93,7 @@ class SettingsActivity : ComponentActivity() {
         setContent {
             AgentTheme {
                 val theme by SettingsStore.theme.collectAsState()
+                val palette by SettingsStore.palette.collectAsState()
                 val disabled by SettingsStore.disabledCaps.collectAsState()
                 val chimes by SettingsStore.chimes.collectAsState()
                 val voiceReplies by SettingsStore.voiceReplies.collectAsState()
@@ -229,6 +238,14 @@ class SettingsActivity : ComponentActivity() {
                             }
                             HorizontalDivider()
                             SectionLabel("Theme")
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Themes.all.forEach { t -> ThemeSwatch(t, selected = palette == t.id) { SettingsStore.setPalette(t.id) } }
+                            }
+                            SectionLabel("Appearance")
                             listOf("system" to "System default", "light" to "Light", "dark" to "Dark").forEach { (key, label) ->
                                 Row(
                                     Modifier.fillMaxWidth().clickable { SettingsStore.setTheme(key) }
@@ -488,6 +505,34 @@ private fun capIcon(method: String): ImageVector = when {
     method == "ui.read" -> Icons.Rounded.Visibility
     method == "ui.screenshot" -> Icons.Rounded.Screenshot
     else -> Icons.Rounded.Extension
+}
+
+/** A round multi-color swatch + label for picking a color theme; a ring marks the selected one. */
+@Composable
+private fun ThemeSwatch(theme: AppTheme, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick).padding(vertical = 4.dp),
+    ) {
+        Box(
+            Modifier.size(56.dp).clip(CircleShape)
+                .border(
+                    width = if (selected) 3.dp else 1.dp,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                    shape = CircleShape,
+                ),
+        ) {
+            Row(Modifier.fillMaxSize()) {
+                theme.swatch.forEach { c -> Box(Modifier.weight(1f).fillMaxHeight().background(c)) }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            theme.label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 object SettingsStore {
     private const val PREFS = "agent_settings"
     private const val KEY_THEME = "theme"
+    private const val KEY_PALETTE = "theme_palette"
     private const val KEY_DISABLED = "disabled_caps"
     private const val KEY_CHIMES = "chimes"
     private const val KEY_VOICE = "voice_replies"
@@ -28,7 +29,8 @@ object SettingsStore {
     private const val KEY_DND_START = "wake_dnd_start"
     private const val KEY_DND_END = "wake_dnd_end"
 
-    val theme = MutableStateFlow("system")
+    val theme = MutableStateFlow("system")     // appearance: system | light | dark
+    val palette = MutableStateFlow("violet")   // color theme id (see Themes.kt)
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
     val chimes = MutableStateFlow(true)
     val voiceReplies = MutableStateFlow(true) // default on — the user asked for spoken replies
@@ -51,6 +53,7 @@ object SettingsStore {
         val p = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
         theme.value = p.getString(KEY_THEME, "system") ?: "system"
+        palette.value = p.getString(KEY_PALETTE, "violet") ?: "violet"
         disabledCaps.value = p.getStringSet(KEY_DISABLED, emptySet())?.toSet() ?: emptySet()
         chimes.value = p.getBoolean(KEY_CHIMES, true)
         voiceReplies.value = p.getBoolean(KEY_VOICE, true)
@@ -131,6 +134,11 @@ object SettingsStore {
     fun setTheme(v: String) {
         theme.value = v
         prefs?.edit()?.putString(KEY_THEME, v)?.apply()
+    }
+
+    fun setPalette(v: String) {
+        palette.value = v
+        prefs?.edit()?.putString(KEY_PALETTE, v)?.apply()
     }
 
     fun setChimes(on: Boolean) {
