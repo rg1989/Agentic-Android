@@ -44,9 +44,9 @@ sealed class MsgPart {
             val s = parts.joinToString(" ") { p ->
                 when (p) {
                     is Text -> p.text
-                    is ImageRef -> "(an image)"
-                    is FileRef -> "(a file: ${p.name})"
-                    is Table -> "(a table with ${p.rows.size} rows)"
+                    is ImageRef -> "Here's an image."
+                    is FileRef -> "Here's a file."
+                    is Table -> "Here's a table."
                 }
             }.trim()
             return s.ifBlank { fallback }

@@ -241,8 +241,13 @@ class PhoneAgentService : Service() {
         }
     }
 
-    /** Phone-initiated message to the agent (the user typed/spoke it), optionally with attached parts. */
-    fun sendUserMessage(text: String, parts: JsonArray? = null) {
+    /**
+     * Phone-initiated message to the agent (the user typed/spoke it), optionally with attached parts.
+     * [viaWake] marks a hands-free wake-word turn — its reply is always spoken even if replies are
+     * muted, since the user can't see the screen.
+     */
+    fun sendUserMessage(text: String, parts: JsonArray? = null, viaWake: Boolean = false) {
+        lastTurnViaWake = viaWake
         tts?.stop() // barge-in: stop speaking the previous reply when the user talks again
         chat.value = chat.value + ChatMsg("user", text, parts = MsgPart.parse(parts))
         status.value = "Sending…"
@@ -276,9 +281,12 @@ class PhoneAgentService : Service() {
         if (on) stopSpeaking()
     }
 
-    /** Speak [raw] aloud, cleaned for listening, if the user enabled spoken replies. */
+    /** True when the in-flight turn came from the wake word — its reply speaks even if replies are muted. */
+    @Volatile private var lastTurnViaWake = false
+
+    /** Speak [raw] aloud, cleaned for listening, if replies are on (or it's a hands-free wake-word turn). */
     private fun speak(raw: String) {
-        if (!SettingsStore.voiceReplies.value) return
+        if (!SettingsStore.voiceReplies.value && !lastTurnViaWake) return
         if (recording.value) return // never start reading while the user is recording
         val say = SpeechText.forSpeech(raw)
         if (say.isBlank()) return

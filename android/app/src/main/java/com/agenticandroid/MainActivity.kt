@@ -84,6 +84,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.AudioFile
@@ -165,6 +167,7 @@ class MainActivity : ComponentActivity() {
                 val messages by PhoneAgentService.chat.collectAsState()
                 val connected by PhoneAgentService.connected.collectAsState()
                 val agentName by PhoneAgentService.agentName.collectAsState()
+                val voiceReplies by SettingsStore.voiceReplies.collectAsState()
                 val status by PhoneAgentService.status.collectAsState()
                 val speaking by PhoneAgentService.speaking.collectAsState()
                 val commands by PhoneAgentService.commands.collectAsState()
@@ -359,6 +362,14 @@ class MainActivity : ComponentActivity() {
                                     Spacer(Modifier.width(3.dp))
                                     Text("connecting…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
+                            }
+                            // Quick mute for spoken replies (wake-word turns still speak — they're hands-free).
+                            IconButton(onClick = { SettingsStore.setVoiceReplies(!voiceReplies) }) {
+                                Icon(
+                                    if (voiceReplies) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
+                                    contentDescription = if (voiceReplies) "Mute spoken replies" else "Unmute spoken replies",
+                                    tint = if (voiceReplies) MaterialTheme.colorScheme.primary else Color.Gray,
+                                )
                             }
                             IconButton(onClick = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }) {
                                 Icon(Icons.Rounded.Settings, contentDescription = "Settings")

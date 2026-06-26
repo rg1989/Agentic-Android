@@ -122,7 +122,7 @@ class WakeWordService : Service(), RecognitionListener {
         if (c.isEmpty()) return
         android.util.Log.i(TAG, "wake → command: $c")
         chimes.wakeDone() // distinct end-of-capture tone (utterance done / command sent)
-        PhoneAgentService.instance?.sendUserMessage(c)
+        PhoneAgentService.instance?.sendUserMessage(c, viaWake = true) // hands-free → always speak the reply
     }
 
     override fun onPartialResult(hypothesis: String?) {}
