@@ -68,7 +68,7 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W1  Wake-word coexist bug FIXED + device-verified (logcat: mic released on TTS, restarts after). commit 760c1f5. Note: I left wake word ON in settings for upcoming items; turn OFF at end + restore Claude agent.
 - [x] W2  "button mic wins" device-verified: long-press mid-TTS → red "Listening…" bar, TTS halted. (verify-only, doc commit)
 - [x] W3  Smart-speech junk filter (UUID/hash/ID/path/long-digits) + 12/12 unit tests, no speak regression. commit pending below.
-- [ ] W4  Phase 5 chat polish: animated typing dots, haptics on state change, message timestamps. (screenshot-verify)
+- [x] W4  Chat polish: timestamps under bubbles (hub replay carries ts) + state-change haptics; typing dots already existed. Screenshot-verified. commit pending.
 - [ ] W5  Phase 3 distinct chimes: wake-ack tone + end-of-capture tone in Chimes.kt (gated by chimes setting).
 - [ ] W6  Phase 2 Settings: TTS voice/locale + speech rate (persist; audible = user).
 - [ ] W7  Phase 3 Settings: wake sensitivity / listen-timeout knobs + boot restart of WakeWordService.

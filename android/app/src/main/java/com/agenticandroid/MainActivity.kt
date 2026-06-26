@@ -162,7 +162,20 @@ class MainActivity : ComponentActivity() {
                 // hold-to-talk voice → transcript fills the field live, sends on release; chimes per state
                 val chimes = remember { Chimes() }
                 val haptics = remember { Haptics(context) }
+                val timeFmt = remember { android.text.format.DateFormat.getTimeFormat(context) }
                 DisposableEffect(Unit) { onDispose { chimes.release() } }
+                // Feel the agent change state without looking: a tick when it starts working, a firmer
+                // confirm when a reply lands. Phone-local states (Transcribing/Sending) and the spoken
+                // reply are skipped — those already had their own cue.
+                var lastMsgCount by remember { mutableStateOf(0) }
+                LaunchedEffect(messages.size) {
+                    if (messages.size == lastMsgCount + 1 && messages.lastOrNull()?.role == "assistant") haptics.confirm()
+                    lastMsgCount = messages.size
+                }
+                LaunchedEffect(status) {
+                    val st = status ?: return@LaunchedEffect
+                    if (st != "Transcribing…" && st != "Sending…" && !st.startsWith("🔊")) haptics.tick()
+                }
                 var recording by remember { mutableStateOf(false) }   // capturing voice (held or locked)
                 var locked by remember { mutableStateOf(false) }      // hands-free: keeps recording after release
                 var dragY by remember { mutableStateOf(0f) }          // upward drag toward the lock threshold
@@ -336,6 +349,7 @@ class MainActivity : ComponentActivity() {
                                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
                             ) {
+                                Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
                                 Surface(
                                     modifier = Modifier.widthIn(max = 300.dp),
                                     color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
@@ -370,6 +384,13 @@ class MainActivity : ComponentActivity() {
                                             color = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
+                                }
+                                Text(
+                                    remember(m.ts) { timeFmt.format(java.util.Date(m.ts)) },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                )
                                 }
                             }
                         }

@@ -120,7 +120,10 @@ The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
 ## Phase 5 — Polish
 - [x] Tap-to-stop spoken replies; long-press a message to copy.
 - [x] Durable connection: auto-reconnect with exponential backoff on a dropped link.
-- [ ] Animated typing dots, haptics on state changes, message timestamps.
+- [x] Animated typing dots (StatusStrip `TypingDots`, already present), **haptics on state changes**
+      (tick when the agent starts working, confirm when a reply lands; phone-local states + the spoken
+      reply skipped), **message timestamps** under each bubble (aligned end/start). Hub replay now carries
+      `ts` so history shows real times. Device-verified: distinct replayed times (3:51/3:57/3:59) + live.
 - [ ] Per-state custom chime sounds; "do not disturb" windows for the wake word.
 
 ## Phase 6 — Rich responses (eye vs ear)  ← **not started**

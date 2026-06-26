@@ -638,7 +638,7 @@ async function main() {
     if (ev.topic === "whoami") {
       bus.event("agent_identity", { name: agentName ?? "No agent connected", relay: cfg.relayUrl });
       // Replay the conversation the hub holds so the phone shows history on (re)connect.
-      bus.event("history", { messages: conversation.slice(-100).map((t) => ({ role: t.role, text: t.text })) });
+      bus.event("history", { messages: conversation.slice(-100).map((t) => ({ role: t.role, text: t.text, ts: t.ts })) });
       // If the agent connected but can't authenticate, a freshly-opened phone would otherwise miss the
       // one-time status event — replay it so the phone shows the warning, not a silent "connected".
       if (agentReady === false && agentStatus.label) bus.event("agent_status", { label: agentStatus.label });

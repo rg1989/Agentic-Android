@@ -21,7 +21,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** A line in the on-phone chat with the agent. `imagePath` (a local JPEG) renders as an inline preview. */
-data class ChatMsg(val role: String, val text: String, val imagePath: String? = null)
+data class ChatMsg(val role: String, val text: String, val imagePath: String? = null, val ts: Long = System.currentTimeMillis())
 
 /** A slash command/skill the connected agent exposes, shown in the phone's `/` menu. */
 data class SlashCommand(val invoke: String, val description: String, val hint: String?, val kind: String, val group: String)
@@ -180,7 +180,8 @@ class PhoneAgentService : Service() {
                         val msgs = arr.mapNotNull { el ->
                             val o = el as? JsonObject ?: return@mapNotNull null
                             val role = (o["role"] as? JsonPrimitive)?.content ?: return@mapNotNull null
-                            ChatMsg(role, (o["text"] as? JsonPrimitive)?.content ?: "")
+                            val ts = (o["ts"] as? JsonPrimitive)?.content?.toLongOrNull() ?: System.currentTimeMillis()
+                            ChatMsg(role, (o["text"] as? JsonPrimitive)?.content ?: "", ts = ts)
                         }
                         if (msgs.isNotEmpty()) chat.value = msgs
                         android.util.Log.i("AgentHistory", "replayed ${msgs.size} turns from hub")
