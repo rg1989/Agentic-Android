@@ -85,7 +85,8 @@ command capture in one continuous stream (no mic handoff).
       Exact/Tolerant/Loose, unit-tested), **listen-timeout** knob (3–15s, replaces the hardcoded 8s
       window), and **boot restart** (`BootReceiver` on `BOOT_COMPLETED` restarts the wake service if
       enabled + mic granted). Sliders persist (verified 14→8s). Boot receiver registered; live
-      reboot-test deferred to loop end (BOOT_COMPLETED is a protected broadcast, can't be faked).
+      **boot restart device-verified** (loop end): after a real `adb reboot` the wake service was
+      running with the app never launched — `BootReceiver` started it on `BOOT_COMPLETED`.
       (Per-state custom chimes → Phase 5 / W8.)
 - [x] **Distinct wake-flow chimes**: added `wakeHeard()` (TONE_PROP_BEEP2 double-beep — fires the
       instant the wake phrase is recognized) and `wakeDone()` (TONE_PROP_PROMPT — at end of capture /

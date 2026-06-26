@@ -82,7 +82,12 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W14 Send files phone->agent: attach->SAF->blob->user_message file part; hub persists to media/files; agent gets path+mime. Device-verified log_list.json round-trip. commit pending.
 - [x] W15 Hub scheduler (scheduler.ts + 5 tests): persist/rearm/fire/recurrence; WS tools + HTTP + phone-mcp. Device-verified schedule->fire->chat + rearm across restart. commit pending.
 - [x] W16 Multi-agent hub (SAFE, additive): roster Map + select_agent routing; agentSock=active preserved (no regression). VERIFIED with 2 stub agents Ada/Bob (select Bob -> reply switches to Bob). commit pending.
-- [~] W17 launchd plist + service-run.sh + README written; load/unload lifecycle verified; NOT installed (per decision). TCC blocks ~/Documents for launchd — documented (move checkout or grant FDA). Plist correct. commit pending.
+- [x] W17 launchd plist + service-run.sh + README written; load/unload lifecycle verified; NOT installed (per decision). TCC blocks ~/Documents for launchd — documented (move checkout or grant FDA). Plist correct. commit 1209763.
+- [x] W7-followup BootReceiver REBOOT-TEST PASSED at loop end: after real `adb reboot` the wake service was running with the app never launched.
+
+## RUN 4 COMPLETE — all 17 items done (16 fully [x], W17 [x] w/ documented macOS TCC caveat). Terminal state: DONE.
+Cleanup done: settings restored (wake word OFF, chime classic, TTS 1.0), `svc power stayon false`, Claude agent restored + E2E-verified ("100% and charging" via real Claude + live phone tools).
+LEARNED (save to memory): the phone reaches the hub over **Tailscale** (`phoneRelayUrl=http://100.106.88.65:8799`), NOT the adb tunnel — `adb reverse tcp:8799` is redundant. After a phone **reboot** the Tailscale VPN is DOWN and must be reconnected (open the Tailscale app → it auto-starts), else the app shows "Can't reach your hub" even with the stack up + tunnel working. Relay MUST be started with `PORT=8799`.
 
 ## Log
 - init: Bluetooth icon = PhoneAgentService.kt:146 `stat_sys_data_bluetooth`. No launcher icon / no
