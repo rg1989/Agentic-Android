@@ -9,7 +9,7 @@ Worklist remaining:
 - [x] U2 Slash palette = floating inset card (border, ~4 rows + scroll, gaps). Device-verified.
 - [x] U3 File preview popup (text/code inline, Close/Download/Share); tap file = preview. Device-verified (notes.txt content shown).
 - [x] U4 Per-message menu: file chip ⋮ -> Preview/Download/Share; image fullscreen -> Download/Share; FileProvider for share. Text copy = long-press (kept). Device-verified.
-- [ ] U5 Multi-session backend (hub): sessions per agent, auto-title from 1st user msg, storage + wire (list/new/switch/delete).
+- [x] U5 Multi-session backend: per-session storage + index, legacy migration, auto-title from 1st user msg, wire (sessions event + new/select/delete_session). Migration + replay device-verified, no regression.
 - [ ] U6 Header redesign: agent name centered (2 rows: name + status dot/text); remove dropdown; hamburger left.
 - [ ] U7 Hamburger LEFT drawer: agents -> their sessions; new chat; open chat; delete chat; change agent.
 - [ ] U8 Chat actions wired: new chat / delete (clear) session; copy.

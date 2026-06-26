@@ -68,25 +68,89 @@ function logEvent(type: EventType, summary: string, detail?: unknown): LogEvent 
   return e;
 }
 
-// ---------- persistent conversation (the hub owns chat history) ----------
-// The phone holds chat only in memory; the hub persists it so reopening the app (or swapping the
-// app/agent) replays the conversation. Scoped per AGENTIC_HOME, i.e. per agent.
+// ---------- persistent chat sessions (the hub owns chat history) ----------
+// Multiple named sessions per hub. `conversation` is the ACTIVE session's turns (in memory, so all
+// existing code keeps working); each session's turns persist to sessions/<id>.jsonl and the index to
+// sessions.jsonl. A legacy single conversation.jsonl is migrated into a session on first load.
 interface ChatTurn { role: "user" | "assistant"; text: string; ts: number; parts?: MsgPart[] }
-const conversation: ChatTurn[] = [];
+interface Session { id: string; title: string; createdAt: number; lastTs: number }
+let sessions: Session[] = [];
+let activeSessionId = "";
+let conversation: ChatTurn[] = []; // turns of the active session
 const MAX_CONVO = 500;
-function convoPath(): string { return path.join(configDir(), "conversation.jsonl"); }
-function loadConversation() {
+function convoPath(): string { return path.join(configDir(), "conversation.jsonl"); } // legacy
+function sessionsDir(): string { return path.join(configDir(), "sessions"); }
+function sessionsIndexPath(): string { return path.join(configDir(), "sessions.jsonl"); }
+function sessionFilePath(id: string): string { return path.join(sessionsDir(), `${id}.jsonl`); }
+
+function trimTitle(s: string): string {
+  const t = s.trim().replace(/\s+/g, " ");
+  return t ? (t.length > 42 ? t.slice(0, 42) + "…" : t) : "New chat";
+}
+function readTurns(file: string): ChatTurn[] {
+  try { return fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as ChatTurn); }
+  catch { return []; }
+}
+function persistSessionsIndex() {
   try {
-    const lines = fs.readFileSync(convoPath(), "utf8").trim().split("\n").filter(Boolean);
-    for (const l of lines.slice(-MAX_CONVO)) { try { conversation.push(JSON.parse(l) as ChatTurn); } catch { /* skip */ } }
-  } catch { /* no file yet */ }
+    fs.mkdirSync(configDir(), { recursive: true });
+    fs.writeFileSync(sessionsIndexPath(), sessions.map((s) => JSON.stringify(s)).join("\n") + (sessions.length ? "\n" : ""));
+  } catch { /* best-effort */ }
+}
+function newSession(): Session {
+  const s: Session = { id: randomUUID(), title: "New chat", createdAt: Date.now(), lastTs: Date.now() };
+  sessions.push(s); activeSessionId = s.id; conversation = [];
+  try { fs.mkdirSync(sessionsDir(), { recursive: true }); fs.writeFileSync(sessionFilePath(s.id), ""); } catch { /* */ }
+  persistSessionsIndex();
+  return s;
+}
+function selectSession(id: string): boolean {
+  const s = sessions.find((x) => x.id === id);
+  if (!s) return false;
+  activeSessionId = id; conversation = readTurns(sessionFilePath(id));
+  return true;
+}
+function deleteSession(id: string) {
+  sessions = sessions.filter((s) => s.id !== id);
+  try { fs.rmSync(sessionFilePath(id)); } catch { /* */ }
+  persistSessionsIndex();
+  if (activeSessionId === id) {
+    if (sessions.length === 0) newSession();
+    else { const newest = [...sessions].sort((a, b) => a.lastTs - b.lastTs).at(-1)!; selectSession(newest.id); }
+  }
+}
+function loadConversation() {
+  try { sessions = fs.readFileSync(sessionsIndexPath(), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Session); }
+  catch { sessions = []; }
+  if (sessions.length === 0 && fs.existsSync(convoPath())) {
+    // migrate the legacy single conversation into a session so nothing is lost
+    const legacy = readTurns(convoPath());
+    const id = randomUUID();
+    try { fs.mkdirSync(sessionsDir(), { recursive: true }); fs.copyFileSync(convoPath(), sessionFilePath(id)); } catch { /* */ }
+    const firstUser = legacy.find((t) => t.role === "user" && t.text.trim());
+    sessions = [{ id, title: firstUser ? trimTitle(firstUser.text) : "New chat", createdAt: legacy[0]?.ts ?? Date.now(), lastTs: legacy.at(-1)?.ts ?? Date.now() }];
+    persistSessionsIndex();
+  }
+  if (sessions.length === 0) { newSession(); return; }
+  const newest = [...sessions].sort((a, b) => a.lastTs - b.lastTs).at(-1)!;
+  selectSession(newest.id);
 }
 function addTurn(role: ChatTurn["role"], text: string, parts?: MsgPart[]) {
   if (!text && !parts?.length) return;
   const turn: ChatTurn = { role, text, ts: Date.now(), ...(parts?.length ? { parts } : {}) };
   conversation.push(turn);
   if (conversation.length > MAX_CONVO) conversation.shift();
-  try { fs.appendFileSync(convoPath(), JSON.stringify(turn) + "\n"); } catch { /* best-effort */ }
+  try { fs.mkdirSync(sessionsDir(), { recursive: true }); fs.appendFileSync(sessionFilePath(activeSessionId), JSON.stringify(turn) + "\n"); } catch { /* */ }
+  const s = sessions.find((x) => x.id === activeSessionId);
+  if (s) {
+    s.lastTs = turn.ts;
+    if (role === "user" && (!s.title || s.title === "New chat")) s.title = trimTitle(text);
+    persistSessionsIndex();
+  }
+}
+/** Sessions list for the phone (newest first) + which is active. */
+function sessionsPayload() {
+  return { sessions: [...sessions].sort((a, b) => b.lastTs - a.lastTs).map((s) => ({ id: s.id, title: s.title, ts: s.lastTs })), activeId: activeSessionId };
 }
 
 // ---------- agent config (persisted in agent.json) ----------
@@ -733,11 +797,15 @@ async function main() {
   logEvent("connection", `agent WebSocket on ws://127.0.0.1:${AGENT_PORT}`);
 
   // ---------- phone -> hub -> agent ----------
+  const histMsgs = () => conversation.slice(-100).map((t) => ({ role: t.role, text: t.text, ts: t.ts, ...(t.parts?.length ? { parts: t.parts } : {}) }));
+  const emitHistory = () => bus.event("history", { messages: histMsgs() });
+  const emitSessions = () => bus.event("sessions", sessionsPayload());
   bus.onEvent((ev) => {
     if (ev.topic === "whoami") {
       bus.event("agent_identity", { name: agentName ?? "No agent connected", relay: cfg.relayUrl });
-      // Replay the conversation the hub holds so the phone shows history on (re)connect.
-      bus.event("history", { messages: conversation.slice(-100).map((t) => ({ role: t.role, text: t.text, ts: t.ts, ...(t.parts?.length ? { parts: t.parts } : {}) })) });
+      // Replay the active session + the session list so the phone shows history on (re)connect.
+      emitHistory();
+      emitSessions();
       // If the agent connected but can't authenticate, a freshly-opened phone would otherwise miss the
       // one-time status event — replay it so the phone shows the warning, not a silent "connected".
       if (agentReady === false && agentStatus.label) bus.event("agent_status", { label: agentStatus.label });
@@ -758,6 +826,22 @@ async function main() {
         announceRoster();
         logEvent("connection", `phone selected agent "${a.name}"`);
       }
+      return;
+    }
+    if (ev.topic === "new_session") {
+      newSession();
+      emitHistory(); emitSessions();
+      logEvent("config", "phone started a new chat");
+      return;
+    }
+    if (ev.topic === "select_session") {
+      if (selectSession(String((ev.data as { id?: unknown }).id ?? ""))) { emitHistory(); emitSessions(); }
+      return;
+    }
+    if (ev.topic === "delete_session") {
+      deleteSession(String((ev.data as { id?: unknown }).id ?? ""));
+      emitHistory(); emitSessions();
+      logEvent("config", "phone deleted a chat");
       return;
     }
     if (ev.topic === "user_message") {
