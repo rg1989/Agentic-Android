@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,7 +54,6 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,7 +69,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -547,41 +549,40 @@ class MainActivity : ComponentActivity() {
 
                     // input bar: morphs between a text field and a live recording bar; ONE combined
                     // button — tap to send, hold to talk, slide up to lock hands-free, slide left to cancel.
-                    Row(
-                        Modifier.fillMaxWidth().padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    // composer: one rounded pill — [+ attach] · [text / live recording] · [send/mic].
+                    // `+` opens a floating attach panel (like the `/` palette); the button taps to send,
+                    // holds to talk, slides up to lock hands-free, slides left to cancel.
+                    var attachOpen by remember { mutableStateOf(false) }
+                    AnimatedVisibility(
+                        visible = attachOpen && paired && !recording,
+                        enter = fadeIn(tween(140)) + expandVertically(tween(180)),
+                        exit = fadeOut(tween(120)) + shrinkVertically(tween(160)),
                     ) {
+                        AttachPalette(
+                            onPhotos = { attachOpen = false; pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            onDocuments = { attachOpen = false; pickDocs.launch(arrayOf("*/*")) },
+                            onDownloads = { attachOpen = false; pickDownloads.launch(arrayOf("*/*")) },
+                            onFiles = { attachOpen = false; pickFiles.launch(arrayOf("*/*")) },
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(26.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    ) {
+                      Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.Bottom) {
                         if (paired && !recording) {
-                            var attachMenu by remember { mutableStateOf(false) }
-                            Box {
-                                IconButton(onClick = { attachMenu = true }) {
-                                    Icon(
-                                        Icons.Rounded.AttachFile,
-                                        contentDescription = "Attach a file",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                DropdownMenu(expanded = attachMenu, onDismissRequest = { attachMenu = false }) {
-                                    DropdownMenuItem(
-                                        text = { Text("Photos") }, leadingIcon = { Icon(Icons.Rounded.Image, null) },
-                                        onClick = { attachMenu = false; pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Documents") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) },
-                                        onClick = { attachMenu = false; pickDocs.launch(arrayOf("*/*")) },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Downloads") }, leadingIcon = { Icon(Icons.Rounded.Download, null) },
-                                        onClick = { attachMenu = false; pickDownloads.launch(arrayOf("*/*")) },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Files") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.InsertDriveFile, null) },
-                                        onClick = { attachMenu = false; pickFiles.launch(arrayOf("*/*")) },
-                                    )
-                                }
+                            val plusRot by animateFloatAsState(if (attachOpen) 45f else 0f, label = "plusRot")
+                            IconButton(onClick = { attachOpen = !attachOpen }) {
+                                Icon(
+                                    Icons.Rounded.Add, contentDescription = "Add attachment",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.rotate(plusRot),
+                                )
                             }
                         }
-                        Box(Modifier.weight(1f)) {
+                        Box(Modifier.weight(1f).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
                             if (recording) {
                                 RecordingBar(
                                     locked = locked,
@@ -590,17 +591,26 @@ class MainActivity : ComponentActivity() {
                                     onCancel = { cancelRecording() },
                                 )
                             } else {
-                                OutlinedTextField(
+                                BasicTextField(
                                     value = input,
                                     onValueChange = { input = it },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    placeholder = { Text(if (paired) "Message $who…" else "Pair an agent first") },
-                                    maxLines = 4,
+                                    enabled = paired,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(vertical = 11.dp),
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    maxLines = 5,
+                                    decorationBox = { inner ->
+                                        if (input.isEmpty()) Text(
+                                            if (paired) "Message $who…" else "Pair an agent first",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                        )
+                                        inner()
+                                    },
                                 )
                             }
                         }
                         if (paired) {
-                            Spacer(Modifier.width(8.dp))
                             val canSend = input.isNotBlank() && !recording
                             val showSend = canSend || locked || !voice.available
                             val scale by animateFloatAsState(
@@ -608,7 +618,7 @@ class MainActivity : ComponentActivity() {
                                 spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "btnScale",
                             )
                             Box(
-                                Modifier.size(52.dp).scale(scale).clip(CircleShape)
+                                Modifier.size(44.dp).scale(scale).clip(CircleShape)
                                     // tertiary = the theme's 3rd (middle-swatch) color; the always-on send/mic
                                     // button is its home, so every theme shows all three colors at once.
                                     .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary)
@@ -667,11 +677,12 @@ class MainActivity : ComponentActivity() {
                                         imageVector = if (send) Icons.AutoMirrored.Rounded.Send else Icons.Rounded.Mic,
                                         contentDescription = if (send) "Send" else "Hold to talk",
                                         tint = if (recording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onTertiary,
-                                        modifier = Modifier.size(24.dp),
+                                        modifier = Modifier.size(22.dp),
                                     )
                                 }
                             }
                         }
+                      }
                     }
                 }
                 // Listening glow around the screen edges while recording or wake-listening.
@@ -827,6 +838,43 @@ private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> 
                     }
                 }
             }
+        }
+    }
+}
+
+/** The `+` attach menu: a floating card (same style as the `/` palette) with the four sources. */
+@Composable
+private fun AttachPalette(onPhotos: () -> Unit, onDocuments: () -> Unit, onDownloads: () -> Unit, onFiles: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 3.dp,
+        shadowElevation = 10.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 8.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(16.dp)),
+    ) {
+        Column {
+            AttachRow(Icons.Rounded.Image, "Photos", "Pick from your gallery", onPhotos)
+            AttachRow(Icons.Rounded.Folder, "Documents", "Browse your documents", onDocuments)
+            AttachRow(Icons.Rounded.Download, "Downloads", "Browse your downloads", onDownloads)
+            AttachRow(Icons.AutoMirrored.Rounded.InsertDriveFile, "Files", "Any file type", onFiles)
+        }
+    }
+}
+
+@Composable
+private fun AttachRow(icon: ImageVector, label: String, hint: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
