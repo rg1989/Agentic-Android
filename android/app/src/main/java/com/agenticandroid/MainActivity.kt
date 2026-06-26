@@ -2,6 +2,8 @@ package com.agenticandroid
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -9,6 +11,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -98,6 +101,8 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Delete
@@ -250,19 +255,21 @@ class MainActivity : ComponentActivity() {
                 val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
 
-                // Attach a file from the phone and send it to the agent: pick → upload blob → user_message w/ file part.
-                val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-                    if (uri != null) scope.launch(Dispatchers.IO) {
-                        runCatching {
-                            val cr = context.contentResolver
+                // Attach files and send them to the agent: pick (gallery / docs / downloads / any) → upload
+                // each blob with a progress chip → one user_message carrying all the file parts.
+                fun uploadUris(uris: List<Uri>) {
+                    if (uris.isEmpty()) return
+                    scope.launch(Dispatchers.IO) {
+                        val cr = context.contentResolver
+                        val done = mutableListOf<UploadedFile>()
+                        for (uri in uris) runCatching {
                             val mime = cr.getType(uri)
                             var name = "file"
                             cr.query(uri, null, null, null, null)?.use { c ->
                                 val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                                 if (c.moveToFirst() && ni >= 0) c.getString(ni)?.let { name = it }
                             }
-                            val bytes = cr.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
-                            // show a pending chip with an upload bar straight away (uploads were invisible before)
+                            val bytes = cr.openInputStream(uri)?.use { it.readBytes() } ?: return@runCatching
                             val uid = java.util.UUID.randomUUID().toString()
                             PhoneAgentService.uploads.value = PhoneAgentService.uploads.value +
                                 PendingUpload(uid, name, mime, bytes.size, 0)
@@ -272,22 +279,27 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             PhoneAgentService.uploads.value = PhoneAgentService.uploads.value.filterNot { it.id == uid }
-                            if (id == null) {
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(context, "Couldn't send file", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                                return@launch
-                            }
-                            val partsJson = buildJsonArray {
-                                addJsonObject {
-                                    put("kind", "file"); put("blobId", id); put("name", name)
-                                    mime?.let { put("mime", it) }; put("size", bytes.size)
-                                }
-                            }
-                            withContext(Dispatchers.Main) { PhoneAgentService.instance?.sendUserMessage("", partsJson) }
+                            if (id != null) done.add(UploadedFile(id, name, mime, bytes.size))
                         }
+                        if (done.isEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(context, "Couldn't send file", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            return@launch
+                        }
+                        val partsJson = buildJsonArray {
+                            for (f in done) addJsonObject {
+                                put("kind", "file"); put("blobId", f.blobId); put("name", f.name)
+                                f.mime?.let { put("mime", it) }; put("size", f.size)
+                            }
+                        }
+                        withContext(Dispatchers.Main) { PhoneAgentService.instance?.sendUserMessage("", partsJson) }
                     }
                 }
+                val pickImages = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uploadUris(it) }
+                val pickDocs = rememberLauncherForActivityResult(OpenDocsFrom(DOCUMENTS_URI)) { uploadUris(it) }
+                val pickDownloads = rememberLauncherForActivityResult(OpenDocsFrom(DOWNLOADS_URI)) { uploadUris(it) }
+                val pickFiles = rememberLauncherForActivityResult(OpenDocsFrom(null)) { uploadUris(it) }
 
                 // --- combined hold-to-talk / tap-to-send button: gesture helpers ---
                 fun sendText() {
@@ -436,7 +448,7 @@ class MainActivity : ComponentActivity() {
                                 Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
                                 Surface(
                                     modifier = Modifier.widthIn(max = 300.dp),
-                                    color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
                                     shape = RoundedCornerShape(16.dp),
                                 ) {
                                     if (m.imagePath != null) {
@@ -459,7 +471,7 @@ class MainActivity : ComponentActivity() {
                                             m.parts.forEach { PartView(it, isUser) }
                                         }
                                     } else {
-                                        val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
                                         val mod = Modifier
                                             .pointerInput(m.text) {
                                                 detectTapGestures(onLongPress = {
@@ -540,12 +552,33 @@ class MainActivity : ComponentActivity() {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (paired && !recording) {
-                            IconButton(onClick = { pickFile.launch(arrayOf("*/*")) }) {
-                                Icon(
-                                    Icons.Rounded.AttachFile,
-                                    contentDescription = "Attach a file",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                            var attachMenu by remember { mutableStateOf(false) }
+                            Box {
+                                IconButton(onClick = { attachMenu = true }) {
+                                    Icon(
+                                        Icons.Rounded.AttachFile,
+                                        contentDescription = "Attach a file",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                DropdownMenu(expanded = attachMenu, onDismissRequest = { attachMenu = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Photos") }, leadingIcon = { Icon(Icons.Rounded.Image, null) },
+                                        onClick = { attachMenu = false; pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Documents") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) },
+                                        onClick = { attachMenu = false; pickDocs.launch(arrayOf("*/*")) },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Downloads") }, leadingIcon = { Icon(Icons.Rounded.Download, null) },
+                                        onClick = { attachMenu = false; pickDownloads.launch(arrayOf("*/*")) },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Files") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.InsertDriveFile, null) },
+                                        onClick = { attachMenu = false; pickFiles.launch(arrayOf("*/*")) },
+                                    )
+                                }
                             }
                         }
                         Box(Modifier.weight(1f)) {
@@ -802,7 +835,7 @@ private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> 
  */
 @Composable
 private fun PartView(part: MsgPart, isUser: Boolean) {
-    val fg = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    val fg = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
     when (part) {
         is MsgPart.Text -> if (part.markdown) MarkdownText(part.text, fg) else Text(part.text, color = fg, style = MaterialTheme.typography.bodyMedium)
         is MsgPart.Table -> TableView(part, fg)
@@ -855,6 +888,21 @@ private fun openDownloaded(context: android.content.Context, uri: String) {
 
 /** A blob the agent sent that we can download/share (file or image). */
 data class BlobRef(val blobId: String, val name: String, val mime: String?)
+
+/** A file the user just uploaded to the agent, ready to ride as a file-ref part. */
+private data class UploadedFile(val blobId: String, val name: String, val mime: String?, val size: Int)
+
+/** SAF "open documents" (multi-select) that opens in a given folder (Documents / Downloads) when supported. */
+private class OpenDocsFrom(private val initial: Uri?) : ActivityResultContracts.OpenMultipleDocuments() {
+    override fun createIntent(context: android.content.Context, input: Array<String>): Intent {
+        val i = super.createIntent(context, input)
+        if (initial != null) i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial)
+        return i
+    }
+}
+// Start-folder hints for the docs/downloads pickers (EXTRA_INITIAL_URI is advisory — falls back if unknown).
+private val DOCUMENTS_URI: Uri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADocuments")
+private val DOWNLOADS_URI: Uri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
 
 /** Share an agent-sent blob via the system share sheet (writes a temp copy under cache/shared). */
 private fun shareBlob(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, ref: BlobRef) {
@@ -1151,7 +1199,8 @@ private fun AgentImage(part: MsgPart.ImageRef, fg: Color) {
 /** Renders a markdown subset (headings/bold/italic/code/bullets/links) into a styled Text. */
 @Composable
 private fun MarkdownText(md: String, color: Color, modifier: Modifier = Modifier) {
-    val accent = MaterialTheme.colorScheme.primary
+    // tertiary = the theme's 3rd color; this is what surfaces it (code + links inside agent replies)
+    val accent = MaterialTheme.colorScheme.tertiary
     Text(
         Markdown.toAnnotated(md, codeColor = accent, linkColor = accent),
         color = color,
