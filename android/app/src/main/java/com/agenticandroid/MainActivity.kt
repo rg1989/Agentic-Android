@@ -375,18 +375,18 @@ class MainActivity : ComponentActivity() {
                                             m.parts.forEach { PartView(it, isUser) }
                                         }
                                     } else {
-                                        Text(
-                                            m.text,
-                                            modifier = Modifier
-                                                .pointerInput(m.text) {
-                                                    detectTapGestures(onLongPress = {
-                                                        clipboard.setText(AnnotatedString(m.text))
-                                                        android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
-                                                    })
-                                                }
-                                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                                            color = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
+                                        val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        val mod = Modifier
+                                            .pointerInput(m.text) {
+                                                detectTapGestures(onLongPress = {
+                                                    clipboard.setText(AnnotatedString(m.text))
+                                                    android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+                                                })
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                        // The user's own text stays literal; the agent replies in markdown.
+                                        if (isUser) Text(m.text, modifier = mod, color = textColor)
+                                        else MarkdownText(m.text, textColor, mod)
                                     }
                                 }
                                 Text(
@@ -636,11 +636,23 @@ private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> 
 private fun PartView(part: MsgPart, isUser: Boolean) {
     val fg = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     when (part) {
-        is MsgPart.Text -> Text(part.text, color = fg, style = MaterialTheme.typography.bodyMedium)
+        is MsgPart.Text -> if (part.markdown) MarkdownText(part.text, fg) else Text(part.text, color = fg, style = MaterialTheme.typography.bodyMedium)
         is MsgPart.Table -> Text("📊 table · ${part.rows.size}×${part.columns.size}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
         is MsgPart.ImageRef -> Text("🖼️ ${part.alt ?: "image"}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
         is MsgPart.FileRef -> Text("📎 ${part.name}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
     }
+}
+
+/** Renders a markdown subset (headings/bold/italic/code/bullets/links) into a styled Text. */
+@Composable
+private fun MarkdownText(md: String, color: Color, modifier: Modifier = Modifier) {
+    val accent = MaterialTheme.colorScheme.primary
+    Text(
+        Markdown.toAnnotated(md, codeColor = accent, linkColor = accent),
+        color = color,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = modifier,
+    )
 }
 
 /** Pinned "agent is typing / transcribing / speaking" strip that animates IN and OUT. */

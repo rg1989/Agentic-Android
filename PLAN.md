@@ -141,9 +141,10 @@ The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
 ## Phase 6 — Rich responses (eye vs ear)  ← **not started**
 The two channels carry different loads: the **ear** gets a clean spoken summary (Phase 2 smart
 speech), the **eye** gets the full rich render in chat. Agent replies are more than plain text.
-- [ ] **Markdown rendering** in chat bubbles: headings, bold/italic, lists, links, inline `code`
-      and fenced code blocks (monospace, scrollable). Pick a Compose markdown lib or render a
-      minimal subset by hand. The TTS pass keeps stripping all of this for the ear.
+- [x] **Markdown rendering** in chat bubbles: headings, bold/italic, bullets, links, inline `code`,
+      fenced code blocks — a minimal subset rendered by hand to `AnnotatedString` ([Markdown.kt](android/app/src/main/java/com/agenticandroid/Markdown.kt)),
+      no new dependency. Assistant text bubbles + markdown parts render it; user text stays literal; TTS
+      still strips it. 6 unit tests on the plain output. Device-verified (heading/bold/italic/code/bullets).
 - [ ] **Images**: the agent can attach/return an image (already have the media/blob path via the
       hub) → render inline in the bubble, tap to fullscreen. Spoken: just "(an image)".
 - [ ] **Charts/tables**: structured data (a table or a simple chart spec) rendered visually; spoken

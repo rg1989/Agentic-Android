@@ -75,7 +75,7 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W7  Wake sensitivity (fuzzy match, unit-tested) + listen-timeout slider (persist 14->8) + BootReceiver (registered; reboot-test deferred to loop end). commit pending.
 - [x] W8  Chime style (Classic/Soft palette) + wake-word DND windows (WakeWindow unit-tested overnight wrap). Device-verified persist + sliders. commit pending.
 - [x] W9  Wire shape: typed parts (text/markdown/image/file/table), hub persist+replay, phone parse+render (placeholders), speech routing. Demo-verified "2 parts". commit pending.
-- [ ] W10 Phase 6 markdown rendering in chat bubbles (headings/bold/lists/links/inline+fenced code); TTS still strips it.
+- [x] W10 Markdown rendering (hand-rolled AnnotatedString, no dep) for assistant bubbles + md parts; 6 unit tests; device-verified styled. commit pending.
 - [ ] W11 Phase 6 inline images (reuse hub blob/media path), tap-to-fullscreen; spoken "(an image)".
 - [ ] W12 Phase 6 receive files from agent: file-ref part → chat attachment (name/size/icon) + save (SAF) / share.
 - [ ] W13 Phase 6 tables/charts: structured part rendered visually; spoken as one-line summary.
