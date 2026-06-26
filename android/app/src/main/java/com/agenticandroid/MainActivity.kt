@@ -609,7 +609,9 @@ class MainActivity : ComponentActivity() {
                             )
                             Box(
                                 Modifier.size(52.dp).scale(scale).clip(CircleShape)
-                                    .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                                    // tertiary = the theme's 3rd (middle-swatch) color; the always-on send/mic
+                                    // button is its home, so every theme shows all three colors at once.
+                                    .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary)
                                     // Stable key: we mutate recording/locked DURING the gesture, so keying on
                                     // them would restart the handler mid-gesture and kill the drag loop.
                                     .pointerInput(Unit) {
@@ -664,7 +666,7 @@ class MainActivity : ComponentActivity() {
                                     Icon(
                                         imageVector = if (send) Icons.AutoMirrored.Rounded.Send else Icons.Rounded.Mic,
                                         contentDescription = if (send) "Send" else "Hold to talk",
-                                        tint = if (recording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
+                                        tint = if (recording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onTertiary,
                                         modifier = Modifier.size(24.dp),
                                     )
                                 }

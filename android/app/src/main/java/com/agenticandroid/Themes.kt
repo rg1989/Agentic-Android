@@ -43,7 +43,7 @@ object Themes {
 
     // ---- Violet: refined purple, rose accent ----
     private fun violet() = AppTheme(
-        "violet", "Violet", listOf(Color(0xFF6B4FB0), Color(0xFF8B4A63), Color(0xFFE5DCF5)),
+        "violet", "Violet", listOf(Color(0xFF6B4FB0), Color(0xFFB0436A), Color(0xFFE5DCF5)),
         light = mk(false,
             Color(0xFF6B4FB0), Color.White, Color(0xFFE9DDFF), Color(0xFF23005C),
             Color(0xFFE7DCF7), Color(0xFF2A2440), Color(0xFFB0436A),
@@ -121,7 +121,7 @@ object Themes {
 
     // ---- Vibrant: hot magenta + cyan bubbles + golden yellow ----
     private fun vibrant() = AppTheme(
-        "vibrant", "Vibrant", listOf(Color(0xFFD6008C), Color(0xFF00BFA5), Color(0xFFFFD54F)),
+        "vibrant", "Vibrant", listOf(Color(0xFFD6008C), Color(0xFFFFD54F), Color(0xFF00BFA5)),
         light = mk(false,
             Color(0xFFD6008C), Color.White, Color(0xFFFFD8EC), Color(0xFF3A0027),
             Color(0xFFCFF5F2), Color(0xFF003733), Color(0xFFB58A00),
