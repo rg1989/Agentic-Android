@@ -68,6 +68,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -93,8 +94,10 @@ import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BrokenImage
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.FlashlightOn
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.PhotoCamera
@@ -230,8 +233,8 @@ class MainActivity : ComponentActivity() {
                 DisposableEffect(Unit) { onDispose { voice.destroy() } }
                 val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
-                // Save a file the agent sent: tap the attachment → system "create document" picker → write the blob.
-                var pendingSave by remember { mutableStateOf<MsgPart.FileRef?>(null) }
+                // Download an agent-sent blob (file or image) → system "create document" picker → write it.
+                var pendingSave by remember { mutableStateOf<BlobRef?>(null) }
                 val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
                     val f = pendingSave; pendingSave = null
                     if (uri != null && f != null) scope.launch(Dispatchers.IO) {
@@ -242,7 +245,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                val onSaveFile: (MsgPart.FileRef) -> Unit = { f -> pendingSave = f; saveLauncher.launch(f.name) }
+                val onSave: (BlobRef) -> Unit = { f -> pendingSave = f; saveLauncher.launch(f.name) }
 
                 // Attach a file from the phone and send it to the agent: pick → upload blob → user_message w/ file part.
                 val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -448,7 +451,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     } else if (m.parts.isNotEmpty()) {
                                         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                            m.parts.forEach { PartView(it, isUser, onSaveFile) }
+                                            m.parts.forEach { PartView(it, isUser, onSave) }
                                         }
                                     } else {
                                         val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -723,33 +726,121 @@ private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> 
  * in a later item); image / file / table show a compact stand-in until their own renderers arrive.
  */
 @Composable
-private fun PartView(part: MsgPart, isUser: Boolean, onSaveFile: (MsgPart.FileRef) -> Unit = {}) {
+private fun PartView(part: MsgPart, isUser: Boolean, onSave: (BlobRef) -> Unit = {}) {
     val fg = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     when (part) {
         is MsgPart.Text -> if (part.markdown) MarkdownText(part.text, fg) else Text(part.text, color = fg, style = MaterialTheme.typography.bodyMedium)
         is MsgPart.Table -> TableView(part, fg)
-        is MsgPart.ImageRef -> AgentImage(part, fg)
-        is MsgPart.FileRef -> FilePart(part, fg, onSaveFile)
+        is MsgPart.ImageRef -> AgentImage(part, fg, onSave)
+        is MsgPart.FileRef -> FilePart(part, fg, onSave)
     }
 }
 
-/** A file the agent sent (file-ref part): name + size + type icon, tap to save it via the system picker. */
+/** A blob the agent sent that we can download/share (file or image). */
+data class BlobRef(val blobId: String, val name: String, val mime: String?)
+
+/** Share an agent-sent blob via the system share sheet (writes a temp copy under cache/shared). */
+private fun shareBlob(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, ref: BlobRef) {
+    scope.launch(Dispatchers.IO) {
+        runCatching {
+            val bytes = PhoneAgentService.instance?.fetchBlob(ref.blobId) ?: return@launch
+            val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
+            val file = java.io.File(dir, ref.name.ifBlank { "file" })
+            file.writeBytes(bytes)
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = ref.mime ?: "application/octet-stream"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            withContext(Dispatchers.Main) { context.startActivity(android.content.Intent.createChooser(send, "Share")) }
+        }
+    }
+}
+
+/** Can we show this file's contents as text? (text mimes + common code/data extensions) */
+private fun previewableText(mime: String?, name: String): Boolean {
+    if (mime?.startsWith("text/") == true) return true
+    return name.substringAfterLast('.', "").lowercase() in setOf(
+        "txt", "md", "markdown", "csv", "tsv", "log", "json", "xml", "yml", "yaml", "html", "htm",
+        "css", "js", "ts", "kt", "java", "py", "sh", "bash", "c", "h", "cpp", "go", "rs", "rb",
+        "toml", "ini", "gradle", "properties", "sql", "conf",
+    )
+}
+
+/** A file the agent sent: type icon + name + size. Tap to preview; the ⋮ menu has Preview/Download/Share. */
 @Composable
-private fun FilePart(part: MsgPart.FileRef, fg: Color, onSave: (MsgPart.FileRef) -> Unit) {
+private fun FilePart(part: MsgPart.FileRef, fg: Color, onSave: (BlobRef) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val ref = BlobRef(part.blobId, part.name, part.mime)
+    var menu by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf(false) }
     Surface(
         color = fg.copy(alpha = 0.10f),
         shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.padding(vertical = 2.dp).clickable { onSave(part) },
+        modifier = Modifier.padding(vertical = 2.dp).clickable { preview = true },
     ) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(fileIcon(part.mime), contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
             Spacer(Modifier.width(8.dp))
-            Column {
+            Column(Modifier.weight(1f, fill = false)) {
                 Text(part.name, color = fg, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    (part.size?.let { humanSize(it) + " · " } ?: "") + "tap to save",
+                    (part.size?.let { humanSize(it) + " · " } ?: "") + "tap to preview",
                     color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall,
                 )
+            }
+            Box {
+                IconButton(onClick = { menu = true }) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = fg)
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("Preview") }, onClick = { menu = false; preview = true })
+                    DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; onSave(ref) })
+                    DropdownMenuItem(text = { Text("Share") }, onClick = { menu = false; shareBlob(context, scope, ref) })
+                }
+            }
+        }
+    }
+    if (preview) FilePreviewDialog(part, onClose = { preview = false }, onDownload = { onSave(ref) }, onShare = { shareBlob(context, scope, ref) })
+}
+
+/** A pop-up preview of a file: shows text/code inline (capped), or "no preview"; with Download + Share. */
+@Composable
+private fun FilePreviewDialog(part: MsgPart.FileRef, onClose: () -> Unit, onDownload: () -> Unit, onShare: () -> Unit) {
+    val canPreview = remember(part.blobId) { previewableText(part.mime, part.name) }
+    val content by produceState<String?>(if (canPreview) null else "", part.blobId) {
+        if (canPreview) {
+            value = withContext(Dispatchers.IO) {
+                PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { b ->
+                    String(b.copyOf(minOf(b.size, 256 * 1024)), Charsets.UTF_8)
+                } ?: "(couldn't load this file)"
+            }
+        }
+    }
+    Dialog(onDismissRequest = onClose) {
+        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth().heightIn(max = 540.dp)) {
+            Column {
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(fileIcon(part.mime), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(part.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = "Close") }
+                }
+                HorizontalDivider()
+                Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState())) {
+                    when {
+                        !canPreview -> Text("No preview available for this file type.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        content == null -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        else -> Text(content!!, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    }
+                }
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onShare) { Text("Share") }
+                    TextButton(onClick = onDownload) { Text("Download") }
+                }
             }
         }
     }
@@ -819,7 +910,10 @@ private object BlobImages { val cache = mutableMapOf<String, androidx.compose.ui
 
 /** An image the agent sent (image-ref part): fetch + decrypt the blob, show inline, tap for fullscreen. */
 @Composable
-private fun AgentImage(part: MsgPart.ImageRef, fg: Color) {
+private fun AgentImage(part: MsgPart.ImageRef, fg: Color, onSave: (BlobRef) -> Unit = {}) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val ref = BlobRef(part.blobId, part.alt?.ifBlank { null } ?: "image.jpg", part.mime ?: "image/jpeg")
     val bmp by produceState(BlobImages.cache[part.blobId], part.blobId) {
         if (value == null) {
             val decoded = withContext(Dispatchers.IO) {
@@ -844,12 +938,19 @@ private fun AgentImage(part: MsgPart.ImageRef, fg: Color) {
     )
     if (full) {
         Dialog(onDismissRequest = { full = false }) {
-            Image(
-                bitmap = b,
-                contentDescription = part.alt ?: "image from the agent",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth().clickable { full = false },
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Image(
+                    bitmap = b,
+                    contentDescription = part.alt ?: "image from the agent",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().clickable { full = false },
+                )
+                Spacer(Modifier.height(8.dp))
+                Row {
+                    TextButton(onClick = { onSave(ref) }) { Text("Download") }
+                    TextButton(onClick = { shareBlob(context, scope, ref) }) { Text("Share") }
+                }
+            }
         }
     }
 }
