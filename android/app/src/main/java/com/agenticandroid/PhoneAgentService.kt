@@ -29,6 +29,9 @@ data class RosterAgent(val id: String, val name: String, val active: Boolean)
 /** A chat session with the agent (Phase: multi-session). */
 data class SessionInfo(val id: String, val title: String, val ts: Long)
 
+/** A file being uploaded to the agent right now — shown as a pending chip with progress until sent. */
+data class PendingUpload(val id: String, val name: String, val mime: String?, val size: Int, val sent: Long)
+
 /** A slash command/skill the connected agent exposes, shown in the phone's `/` menu. */
 data class SlashCommand(val invoke: String, val description: String, val hint: String?, val kind: String, val group: String)
 
@@ -282,8 +285,10 @@ class PhoneAgentService : Service() {
         bus?.event("user_message", JsonObject(data))
     }
 
-    /** Upload bytes as an E2E blob sealed for the agent; returns its id. Blocking — call off-main. */
-    fun putBlob(bytes: ByteArray): String? = runCatching { bus?.putBlob(bytes) }.getOrNull()
+    /** Upload bytes as an E2E blob sealed for the agent; returns its id. Blocking — call off-main.
+     *  [onProgress] (sent, total) fires as the sealed buffer streams up, for an upload bar. */
+    fun putBlob(bytes: ByteArray, onProgress: ((Long, Long) -> Unit)? = null): String? =
+        runCatching { bus?.putBlob(bytes, onProgress) }.getOrNull()
 
     /** Phase 8: tell the hub which connected agent should be active (route this phone's messages to it). */
     fun selectAgent(id: String) {
@@ -379,6 +384,8 @@ class PhoneAgentService : Service() {
         val activeSessionId = MutableStateFlow<String?>(null)
         /** Blob ids currently being saved to the phone (drives the per-file download spinner). */
         val downloading = MutableStateFlow<Set<String>>(emptySet())
+        /** Files being uploaded to the agent right now (drives the pending-upload chips + progress). */
+        val uploads = MutableStateFlow<List<PendingUpload>>(emptyList())
         /** True while a spoken reply is playing — the wake-word service ignores input meanwhile. */
         val speaking = MutableStateFlow(false)
         /** True while the user is recording voice (hold-to-talk or wake-word capture). The agent

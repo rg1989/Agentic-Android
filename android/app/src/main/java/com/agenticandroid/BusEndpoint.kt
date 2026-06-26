@@ -145,11 +145,27 @@ class BusEndpoint(
     fun event(topic: String, data: JsonObject = JsonObject(emptyMap())) = send(wrap(Inner.Event(topic, data)))
 
     // ---- out-of-band blobs ----
-    fun putBlob(bytes: ByteArray): String {
+    fun putBlob(bytes: ByteArray, onProgress: ((Long, Long) -> Unit)? = null): String {
         val id = randomHex(16)
         val packed = Crypto.sealFor(peerEdPub, self.edSec, bytes)
-        val req = Request.Builder().url("$relayUrl/blob/$id")
-            .put(packed.toRequestBody("application/octet-stream".toMediaType())).build()
+        val media = "application/octet-stream".toMediaType()
+        // ponytail: progress is reported on the sealed-buffer upload (the visible wait); sealing the
+        // whole file in memory stays as-is — stream the crypto too only if multi-hundred-MB files appear.
+        val body = if (onProgress == null) packed.toRequestBody(media) else object : RequestBody() {
+            val data = packed.toByteArray()
+            override fun contentType() = media
+            override fun contentLength() = data.size.toLong()
+            override fun writeTo(sink: okio.BufferedSink) {
+                var off = 0
+                while (off < data.size) {
+                    val n = minOf(64 * 1024, data.size - off)
+                    sink.write(data, off, n); sink.flush()
+                    off += n
+                    onProgress(off.toLong(), data.size.toLong())
+                }
+            }
+        }
+        val req = Request.Builder().url("$relayUrl/blob/$id").put(body).build()
         http.newCall(req).execute().use { if (!it.isSuccessful) error("blob put ${it.code}") }
         return id
     }

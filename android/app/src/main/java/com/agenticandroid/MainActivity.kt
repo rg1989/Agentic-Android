@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -181,6 +182,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             AgentTheme {
                 val messages by PhoneAgentService.chat.collectAsState()
+                val uploads by PhoneAgentService.uploads.collectAsState()
                 val connected by PhoneAgentService.connected.collectAsState()
                 val agentName by PhoneAgentService.agentName.collectAsState()
                 val voiceReplies by SettingsStore.voiceReplies.collectAsState()
@@ -260,7 +262,22 @@ class MainActivity : ComponentActivity() {
                                 if (c.moveToFirst() && ni >= 0) c.getString(ni)?.let { name = it }
                             }
                             val bytes = cr.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
-                            val id = PhoneAgentService.instance?.putBlob(bytes) ?: return@launch
+                            // show a pending chip with an upload bar straight away (uploads were invisible before)
+                            val uid = java.util.UUID.randomUUID().toString()
+                            PhoneAgentService.uploads.value = PhoneAgentService.uploads.value +
+                                PendingUpload(uid, name, mime, bytes.size, 0)
+                            val id = PhoneAgentService.instance?.putBlob(bytes) { sent, _ ->
+                                PhoneAgentService.uploads.value = PhoneAgentService.uploads.value.map {
+                                    if (it.id == uid) it.copy(sent = sent) else it
+                                }
+                            }
+                            PhoneAgentService.uploads.value = PhoneAgentService.uploads.value.filterNot { it.id == uid }
+                            if (id == null) {
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, "Couldn't send file", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                return@launch
+                            }
                             val partsJson = buildJsonArray {
                                 addJsonObject {
                                     put("kind", "file"); put("blobId", id); put("name", name)
@@ -463,6 +480,15 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                                 )
                                 }
+                            }
+                        }
+                        items(uploads, key = { it.id }) { up ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.End) {
+                                Surface(
+                                    modifier = Modifier.widthIn(max = 300.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = RoundedCornerShape(16.dp),
+                                ) { UploadChip(up, MaterialTheme.colorScheme.onPrimary) }
                             }
                         }
                     }
@@ -859,8 +885,30 @@ private fun previewableText(mime: String?, name: String): Boolean {
     )
 }
 
-/** A file the agent sent: type icon + name + size. Tap to preview; the ⋮ menu has Preview/Open or
- *  Download/Share. Shows a spinner while saving and a "Saved" mark once it's on the phone. */
+/** A file being uploaded to the agent: type icon + name + a determinate progress bar. Replaced by a
+ *  normal sent bubble once the upload completes. */
+@Composable
+private fun UploadChip(up: PendingUpload, fg: Color) {
+    val frac = if (up.size > 0) (up.sent.toFloat() / up.size).coerceIn(0f, 1f) else 0f
+    Row(Modifier.width(260.dp).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(fileIcon(up.mime), contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(up.name, color = fg, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(5.dp))
+            LinearProgressIndicator(
+                progress = { frac },
+                modifier = Modifier.fillMaxWidth().height(3.dp),
+                color = fg, trackColor = fg.copy(alpha = 0.25f),
+            )
+            Spacer(Modifier.height(3.dp))
+            Text("uploading… ${(frac * 100).toInt()}%", color = fg.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+/** A file the agent sent: type icon (or thumbnail for images) + name + size. Tap to preview; the ⋮ menu
+ *  has Preview/Open or Download/Share. Shows a spinner while saving and a "Saved" mark once on the phone. */
 @Composable
 private fun FilePart(part: MsgPart.FileRef, fg: Color) {
     val context = LocalContext.current
@@ -872,13 +920,31 @@ private fun FilePart(part: MsgPart.FileRef, fg: Color) {
     val savedUri = downloaded[part.blobId]
     var menu by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf(false) }
+    // images get a real thumbnail (decoded once, cached) instead of the generic file icon
+    val isImage = part.mime?.startsWith("image/") == true
+    val thumb by produceState(BlobImages.cache[part.blobId], part.blobId, isImage) {
+        if (isImage && value == null) {
+            val decoded = withContext(Dispatchers.IO) {
+                PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { b ->
+                    BitmapFactory.decodeByteArray(b, 0, b.size)?.asImageBitmap()
+                }
+            }
+            if (decoded != null) { BlobImages.cache[part.blobId] = decoded; value = decoded }
+        }
+    }
     Surface(
         color = fg.copy(alpha = 0.10f),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier.padding(vertical = 2.dp).clickable { preview = true },
     ) {
         Row(Modifier.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(fileIcon(part.mime), contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
+            val t = thumb
+            if (isImage && t != null) {
+                Image(bitmap = t, contentDescription = part.name, contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)))
+            } else {
+                Icon(fileIcon(part.mime), contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
+            }
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f, fill = false)) {
                 Text(part.name, color = fg, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
