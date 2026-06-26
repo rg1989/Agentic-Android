@@ -81,11 +81,21 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.FolderZip
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
@@ -414,7 +424,7 @@ class MainActivity : ComponentActivity() {
                                                 modifier = Modifier.width(240.dp).aspectRatio(bmp.width.toFloat() / bmp.height),
                                             )
                                         } else {
-                                            Text("📷 photo unavailable", modifier = Modifier.padding(12.dp))
+                                            UnavailableMedia("Photo unavailable", MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     } else if (m.parts.isNotEmpty()) {
                                         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -494,7 +504,11 @@ class MainActivity : ComponentActivity() {
                     ) {
                         if (paired && !recording) {
                             IconButton(onClick = { pickFile.launch(arrayOf("*/*")) }) {
-                                Text("📎", style = MaterialTheme.typography.titleLarge)
+                                Icon(
+                                    Icons.Rounded.AttachFile,
+                                    contentDescription = "Attach a file",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                         Box(Modifier.weight(1f)) {
@@ -703,7 +717,7 @@ private fun FilePart(part: MsgPart.FileRef, fg: Color, onSave: (MsgPart.FileRef)
         modifier = Modifier.padding(vertical = 2.dp).clickable { onSave(part) },
     ) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(fileIcon(part.mime), style = MaterialTheme.typography.titleMedium)
+            Icon(fileIcon(part.mime), contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
             Spacer(Modifier.width(8.dp))
             Column {
                 Text(part.name, color = fg, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -713,6 +727,16 @@ private fun FilePart(part: MsgPart.FileRef, fg: Color, onSave: (MsgPart.FileRef)
                 )
             }
         }
+    }
+}
+
+/** Compact placeholder when an image/photo can't be shown (e.g. its blob expired). */
+@Composable
+private fun UnavailableMedia(label: String, color: Color) {
+    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.BrokenImage, contentDescription = null, tint = color.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = color.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -748,15 +772,15 @@ private fun TableView(part: MsgPart.Table, fg: Color) {
     }
 }
 
-private fun fileIcon(mime: String?): String = when {
-    mime == null -> "📎"
-    mime.startsWith("image/") -> "🖼️"
-    mime.startsWith("audio/") -> "🎵"
-    mime.startsWith("video/") -> "🎬"
-    mime == "application/pdf" -> "📕"
-    mime.startsWith("text/") -> "📄"
-    mime.contains("zip") || mime.contains("compress") -> "🗜️"
-    else -> "📎"
+private fun fileIcon(mime: String?): ImageVector = when {
+    mime == null -> Icons.AutoMirrored.Rounded.InsertDriveFile
+    mime.startsWith("image/") -> Icons.Rounded.Image
+    mime.startsWith("audio/") -> Icons.Rounded.AudioFile
+    mime.startsWith("video/") -> Icons.Rounded.Movie
+    mime == "application/pdf" -> Icons.Rounded.PictureAsPdf
+    mime.startsWith("text/") -> Icons.Rounded.Description
+    mime.contains("zip") || mime.contains("compress") -> Icons.Rounded.FolderZip
+    else -> Icons.AutoMirrored.Rounded.InsertDriveFile
 }
 
 private fun humanSize(bytes: Long): String = when {
@@ -783,7 +807,7 @@ private fun AgentImage(part: MsgPart.ImageRef, fg: Color) {
     }
     val b = bmp
     if (b == null) {
-        Text("🖼️ image unavailable", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+        UnavailableMedia("Image unavailable", fg)
         return
     }
     var full by remember { mutableStateOf(false) }
