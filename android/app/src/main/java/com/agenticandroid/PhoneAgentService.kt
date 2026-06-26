@@ -21,7 +21,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** A line in the on-phone chat with the agent. `imagePath` (a local JPEG) renders as an inline preview. */
-data class ChatMsg(val role: String, val text: String, val imagePath: String? = null, val ts: Long = System.currentTimeMillis())
+data class ChatMsg(val role: String, val text: String, val imagePath: String? = null, val ts: Long = System.currentTimeMillis(), val parts: List<MsgPart> = emptyList())
 
 /** A slash command/skill the connected agent exposes, shown in the phone's `/` menu. */
 data class SlashCommand(val invoke: String, val description: String, val hint: String?, val kind: String, val group: String)
@@ -145,9 +145,11 @@ class PhoneAgentService : Service() {
                 "assistant_message" -> {
                     status.value = null // the reply landed — clear the "thinking…" indicator
                     val txt = (ev.data["text"] as? JsonPrimitive)?.content ?: ""
-                    if (txt.isNotEmpty()) {
-                        chat.value = chat.value + ChatMsg("assistant", txt)
-                        speak(txt) // reads it aloud (cleaned for listening) if the setting is on
+                    val parts = MsgPart.parse(ev.data["parts"] as? JsonArray)
+                    if (parts.isNotEmpty()) android.util.Log.i("AgentParts", "assistant_message: ${parts.size} parts")
+                    if (txt.isNotEmpty() || parts.isNotEmpty()) {
+                        chat.value = chat.value + ChatMsg("assistant", txt, parts = parts)
+                        speak(MsgPart.spoken(parts, txt)) // reads it aloud (cleaned for listening) if on
                     }
                 }
                 "agent_status" -> {
@@ -181,7 +183,8 @@ class PhoneAgentService : Service() {
                             val o = el as? JsonObject ?: return@mapNotNull null
                             val role = (o["role"] as? JsonPrimitive)?.content ?: return@mapNotNull null
                             val ts = (o["ts"] as? JsonPrimitive)?.content?.toLongOrNull() ?: System.currentTimeMillis()
-                            ChatMsg(role, (o["text"] as? JsonPrimitive)?.content ?: "", ts = ts)
+                            val parts = MsgPart.parse(o["parts"] as? JsonArray)
+                            ChatMsg(role, (o["text"] as? JsonPrimitive)?.content ?: "", ts = ts, parts = parts)
                         }
                         if (msgs.isNotEmpty()) chat.value = msgs
                         android.util.Log.i("AgentHistory", "replayed ${msgs.size} turns from hub")

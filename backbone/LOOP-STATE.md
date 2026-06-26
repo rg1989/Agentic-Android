@@ -74,7 +74,7 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W6  TTS speech rate + voice pitch sliders (persist+apply). Device-verified prefs round-trip 1.9->1.0. Named-voice catalog skipped (YAGNI). commit pending.
 - [x] W7  Wake sensitivity (fuzzy match, unit-tested) + listen-timeout slider (persist 14->8) + BootReceiver (registered; reboot-test deferred to loop end). commit pending.
 - [x] W8  Chime style (Classic/Soft palette) + wake-word DND windows (WakeWindow unit-tested overnight wrap). Device-verified persist + sliders. commit pending.
-- [ ] W9  Phase 6 wire shape: extend assistant_message with typed parts (text/markdown/image-ref/file-ref/table), back-compat.
+- [x] W9  Wire shape: typed parts (text/markdown/image/file/table), hub persist+replay, phone parse+render (placeholders), speech routing. Demo-verified "2 parts". commit pending.
 - [ ] W10 Phase 6 markdown rendering in chat bubbles (headings/bold/lists/links/inline+fenced code); TTS still strips it.
 - [ ] W11 Phase 6 inline images (reuse hub blob/media path), tap-to-fullscreen; spoken "(an image)".
 - [ ] W12 Phase 6 receive files from agent: file-ref part → chat attachment (name/size/icon) + save (SAF) / share.

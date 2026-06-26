@@ -370,6 +370,10 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             Text("📷 photo unavailable", modifier = Modifier.padding(12.dp))
                                         }
+                                    } else if (m.parts.isNotEmpty()) {
+                                        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                            m.parts.forEach { PartView(it, isUser) }
+                                        }
                                     } else {
                                         Text(
                                             m.text,
@@ -621,6 +625,21 @@ private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> 
                 }
             }
         }
+    }
+}
+
+/**
+ * Renders one typed part of a rich reply (Phase 6). Text parts show as text (markdown styling lands
+ * in a later item); image / file / table show a compact stand-in until their own renderers arrive.
+ */
+@Composable
+private fun PartView(part: MsgPart, isUser: Boolean) {
+    val fg = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    when (part) {
+        is MsgPart.Text -> Text(part.text, color = fg, style = MaterialTheme.typography.bodyMedium)
+        is MsgPart.Table -> Text("📊 table · ${part.rows.size}×${part.columns.size}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+        is MsgPart.ImageRef -> Text("🖼️ ${part.alt ?: "image"}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+        is MsgPart.FileRef -> Text("📎 ${part.name}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
     }
 }
 

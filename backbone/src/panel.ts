@@ -22,6 +22,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { ready } from "./crypto.ts";
 import { BusEndpoint } from "./peer.ts";
+import type { MsgPart } from "./parts.ts";
 
 interface Cap { method: string; sensitivity: string; summary: string }
 let caps: Cap[] = []; // populated in the background once the phone answers
@@ -66,7 +67,7 @@ function logEvent(type: EventType, summary: string, detail?: unknown): LogEvent 
 // ---------- persistent conversation (the hub owns chat history) ----------
 // The phone holds chat only in memory; the hub persists it so reopening the app (or swapping the
 // app/agent) replays the conversation. Scoped per AGENTIC_HOME, i.e. per agent.
-interface ChatTurn { role: "user" | "assistant"; text: string; ts: number }
+interface ChatTurn { role: "user" | "assistant"; text: string; ts: number; parts?: MsgPart[] }
 const conversation: ChatTurn[] = [];
 const MAX_CONVO = 500;
 function convoPath(): string { return path.join(configDir(), "conversation.jsonl"); }
@@ -76,9 +77,9 @@ function loadConversation() {
     for (const l of lines.slice(-MAX_CONVO)) { try { conversation.push(JSON.parse(l) as ChatTurn); } catch { /* skip */ } }
   } catch { /* no file yet */ }
 }
-function addTurn(role: ChatTurn["role"], text: string) {
-  if (!text) return;
-  const turn: ChatTurn = { role, text, ts: Date.now() };
+function addTurn(role: ChatTurn["role"], text: string, parts?: MsgPart[]) {
+  if (!text && !parts?.length) return;
+  const turn: ChatTurn = { role, text, ts: Date.now(), ...(parts?.length ? { parts } : {}) };
   conversation.push(turn);
   if (conversation.length > MAX_CONVO) conversation.shift();
   try { fs.appendFileSync(convoPath(), JSON.stringify(turn) + "\n"); } catch { /* best-effort */ }
@@ -624,7 +625,8 @@ async function main() {
         else if (topic === "assistant_message") {
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
-          addTurn("assistant", String(data.text ?? ""));
+          const parts = Array.isArray((data as any).parts) ? ((data as any).parts as MsgPart[]) : undefined;
+          addTurn("assistant", String(data.text ?? ""), parts);
           pendingSay?.(String(data.text ?? "")); pendingSay = null;
         }
       }
@@ -638,7 +640,7 @@ async function main() {
     if (ev.topic === "whoami") {
       bus.event("agent_identity", { name: agentName ?? "No agent connected", relay: cfg.relayUrl });
       // Replay the conversation the hub holds so the phone shows history on (re)connect.
-      bus.event("history", { messages: conversation.slice(-100).map((t) => ({ role: t.role, text: t.text, ts: t.ts })) });
+      bus.event("history", { messages: conversation.slice(-100).map((t) => ({ role: t.role, text: t.text, ts: t.ts, ...(t.parts?.length ? { parts: t.parts } : {}) })) });
       // If the agent connected but can't authenticate, a freshly-opened phone would otherwise miss the
       // one-time status event — replay it so the phone shows the warning, not a silent "connected".
       if (agentReady === false && agentStatus.label) bus.event("agent_status", { label: agentStatus.label });

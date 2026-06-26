@@ -153,9 +153,12 @@ speech), the **eye** gets the full rich render in chat. Agent replies are more t
       Reuse the existing hub blob+media path (same one photos use) — generalize it to any mime type,
       don't build a new transport. New wire part `file-ref {blobId, name, mime, size}`. Spoken: just
       "(a file: <name>)". Mind Android scoped storage (SAF / MediaStore) for the save step.
-- [ ] Decide the **wire shape**: extend `assistant_message` with optional typed parts
-      (text / markdown / image-ref / file-ref / table / chart) so the phone knows how to render each
-      and the speech sanitizer knows what to skip. Backwards-compatible (plain text still works).
+- [x] **Wire shape** decided + plumbed: `assistant_message` keeps plain `text` (spoken/fallback) and
+      MAY add `parts: MsgPart[]` — a tagged union `text | markdown | image | file | table` ([parts.ts](backbone/src/parts.ts),
+      mirrored in [MsgPart.kt](android/app/src/main/java/com/agenticandroid/MsgPart.kt)). Hub forwards +
+      persists + replays parts; phone parses them into `ChatMsg.parts`; speech speaks only text/markdown
+      parts. Back-compat: no parts → renders `text`. Device-verified via a `demo rich` stub trigger
+      ("2 parts" parsed; markdown + table placeholder rendered). image/file/table renderers follow below.
 
 ## Phase 7 — Send files from the phone (phone → agent)  ← **not started**
 The mirror of Phase 6's "receive files": let the user attach a file from the phone and drop it into

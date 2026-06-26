@@ -11,6 +11,7 @@
  *                  loop on the real device, so the plumbing is verifiable. Drop in a key to upgrade.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import type { AssistantMessage } from "./parts.ts";
 
 export interface Cap { method: string; sensitivity: string; summary: string }
 export interface BrainCfg { provider: string; model: string; apiKeyEnv: string; maxSteps: number; system?: string; name?: string }
@@ -64,7 +65,7 @@ export function makeBrain(deps: BrainDeps) {
     deps.bus.event("agent_status", { label: "Thinking…" }); // live status on the phone
     const cfg = deps.getCfg();
     const key = process.env[cfg.apiKeyEnv || "ANTHROPIC_API_KEY"];
-    let reply: string;
+    let reply: string | AssistantMessage;
     try {
       reply = cfg.provider === "anthropic" && key
         ? await anthropicLoop(deps, userText, cfg, key)
@@ -73,9 +74,10 @@ export function makeBrain(deps: BrainDeps) {
       reply = `Sorry — I hit an error: ${String(e)}`;
       deps.log("error", "brain error", { error: String(e) });
     }
-    deps.log("assistant_message", reply.slice(0, 200), { text: reply });
-    deps.bus.event("assistant_message", { text: reply });
-    return reply;
+    const msg: AssistantMessage = typeof reply === "string" ? { text: reply } : reply;
+    deps.log("assistant_message", msg.text.slice(0, 200), msg);
+    deps.bus.event("assistant_message", msg as unknown as Record<string, unknown>);
+    return msg.text;
   };
 }
 
@@ -124,9 +126,20 @@ async function anthropicLoop(deps: BrainDeps, userText: string, cfg: BrainCfg, k
 }
 
 /** No-key keyword router. Exercises the real input→tool→reply loop so the plumbing is verifiable. */
-async function stubLoop(deps: BrainDeps, userText: string): Promise<string> {
+async function stubLoop(deps: BrainDeps, userText: string): Promise<string | AssistantMessage> {
   const t = userText.toLowerCase();
   const has = (...w: string[]) => w.some((x) => t.includes(x));
+
+  // Demo trigger for the Phase 6 rich-reply pipeline (markdown + table parts). No device needed.
+  if (has("demo rich", "demo parts", "rich demo")) {
+    return {
+      text: "Here is a rich reply: a short report and a table.",
+      parts: [
+        { kind: "markdown", text: "## Status report\n- battery: **100%**\n- network: _online_\n- see `panel.ts`" },
+        { kind: "table", columns: ["Metric", "Value"], rows: [["Battery", "100%"], ["CPU", "42%"], ["Storage", "free"]] },
+      ],
+    };
+  }
   const call = async (method: string, args: Record<string, unknown> = {}) => {
     deps.log("tool", method, args);
     deps.bus.event("agent_status", { label: friendlyStatus(method) });
