@@ -77,7 +77,7 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W9  Wire shape: typed parts (text/markdown/image/file/table), hub persist+replay, phone parse+render (placeholders), speech routing. Demo-verified "2 parts". commit pending.
 - [x] W10 Markdown rendering (hand-rolled AnnotatedString, no dep) for assistant bubbles + md parts; 6 unit tests; device-verified styled. commit pending.
 - [x] W11 Inline agent images (image-ref part, E2E blob fetch+decode, tap fullscreen, cache). Hub /demo-image. Device-verified inline + fullscreen. commit pending.
-- [ ] W12 Phase 6 receive files from agent: file-ref part → chat attachment (name/size/icon) + save (SAF) / share.
+- [x] W12 Receive files: file-ref chip + SAF save (E2E blob -> write). Device-verified notes.txt 50B to /Download. Hub /demo-file. commit pending.
 - [ ] W13 Phase 6 tables/charts: structured part rendered visually; spoken as one-line summary.
 - [ ] W14 Phase 7 send files phone→agent: attach button → SAF picker → blob upload → hub persist → agent sees path/mime.
 - [ ] W15 Phase 9 hub-owned scheduler: move into panel.ts, persist schedule.jsonl, re-arm on boot, fire+wake agent, schedule/list/cancel + cron.

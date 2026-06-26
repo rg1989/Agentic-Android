@@ -152,11 +152,11 @@ speech), the **eye** gets the full rich render in chat. Agent replies are more t
       photo rendered inline + fullscreen. (Replay after the relay's 5-min blob TTL shows "unavailable".)
 - [ ] **Charts/tables**: structured data (a table or a simple chart spec) rendered visually; spoken
       as a one-line summary, not cell-by-cell. Define a small reply-content type the agent emits.
-- [ ] **Receive files from the agent**: agent sends an arbitrary file (PDF, doc, zip, audio…), the
-      phone shows it as a chat attachment (name + size + type icon) with **save to device** / share.
-      Reuse the existing hub blob+media path (same one photos use) — generalize it to any mime type,
-      don't build a new transport. New wire part `file-ref {blobId, name, mime, size}`. Spoken: just
-      "(a file: <name>)". Mind Android scoped storage (SAF / MediaStore) for the save step.
+- [x] **Receive files from the agent**: a `file-ref {blobId, name, mime, size}` part renders as a chat
+      attachment chip (type icon + name + human size). Tap → SAF `CreateDocument` picker → the phone
+      fetches + E2E-decrypts the blob and writes it (reuses the same blob transport as photos). Spoken:
+      "(a file: <name>)". Hub `POST /demo-file` test affordance. Device-verified end-to-end: saved
+      notes.txt (50 B) to /Download with exact contents. (Share-sheet is a later minor add; save shipped.)
 - [x] **Wire shape** decided + plumbed: `assistant_message` keeps plain `text` (spoken/fallback) and
       MAY add `parts: MsgPart[]` — a tagged union `text | markdown | image | file | table` ([parts.ts](backbone/src/parts.ts),
       mirrored in [MsgPart.kt](android/app/src/main/java/com/agenticandroid/MsgPart.kt)). Hub forwards +

@@ -205,6 +205,20 @@ class MainActivity : ComponentActivity() {
                 DisposableEffect(Unit) { onDispose { voice.destroy() } }
                 val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+                // Save a file the agent sent: tap the attachment → system "create document" picker → write the blob.
+                var pendingSave by remember { mutableStateOf<MsgPart.FileRef?>(null) }
+                val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
+                    val f = pendingSave; pendingSave = null
+                    if (uri != null && f != null) scope.launch(Dispatchers.IO) {
+                        runCatching {
+                            val bytes = PhoneAgentService.instance?.fetchBlob(f.blobId) ?: return@launch
+                            context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                            android.util.Log.i("AgentFile", "saved ${f.name} (${bytes.size} bytes)")
+                        }
+                    }
+                }
+                val onSaveFile: (MsgPart.FileRef) -> Unit = { f -> pendingSave = f; saveLauncher.launch(f.name) }
+
                 // --- combined hold-to-talk / tap-to-send button: gesture helpers ---
                 fun sendText() {
                     val t = input.trim()
@@ -376,7 +390,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     } else if (m.parts.isNotEmpty()) {
                                         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                            m.parts.forEach { PartView(it, isUser) }
+                                            m.parts.forEach { PartView(it, isUser, onSaveFile) }
                                         }
                                     } else {
                                         val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -637,14 +651,53 @@ private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> 
  * in a later item); image / file / table show a compact stand-in until their own renderers arrive.
  */
 @Composable
-private fun PartView(part: MsgPart, isUser: Boolean) {
+private fun PartView(part: MsgPart, isUser: Boolean, onSaveFile: (MsgPart.FileRef) -> Unit = {}) {
     val fg = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     when (part) {
         is MsgPart.Text -> if (part.markdown) MarkdownText(part.text, fg) else Text(part.text, color = fg, style = MaterialTheme.typography.bodyMedium)
         is MsgPart.Table -> Text("📊 table · ${part.rows.size}×${part.columns.size}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
         is MsgPart.ImageRef -> AgentImage(part, fg)
-        is MsgPart.FileRef -> Text("📎 ${part.name}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+        is MsgPart.FileRef -> FilePart(part, fg, onSaveFile)
     }
+}
+
+/** A file the agent sent (file-ref part): name + size + type icon, tap to save it via the system picker. */
+@Composable
+private fun FilePart(part: MsgPart.FileRef, fg: Color, onSave: (MsgPart.FileRef) -> Unit) {
+    Surface(
+        color = fg.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.padding(vertical = 2.dp).clickable { onSave(part) },
+    ) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(fileIcon(part.mime), style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(8.dp))
+            Column {
+                Text(part.name, color = fg, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    (part.size?.let { humanSize(it) + " · " } ?: "") + "tap to save",
+                    color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+private fun fileIcon(mime: String?): String = when {
+    mime == null -> "📎"
+    mime.startsWith("image/") -> "🖼️"
+    mime.startsWith("audio/") -> "🎵"
+    mime.startsWith("video/") -> "🎬"
+    mime == "application/pdf" -> "📕"
+    mime.startsWith("text/") -> "📄"
+    mime.contains("zip") || mime.contains("compress") -> "🗜️"
+    else -> "📎"
+}
+
+private fun humanSize(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "%.0f KB".format(bytes / 1024.0)
+    else -> "%.1f MB".format(bytes / (1024.0 * 1024))
 }
 
 /** Process-lived cache of decoded agent images, so scrolling a LazyColumn doesn't refetch blobs. */

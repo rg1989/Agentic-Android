@@ -824,6 +824,21 @@ async function main() {
       })();
       return;
     }
+    if (req.method === "POST" && url.pathname === "/demo-file") {
+      // Test affordance for the Phase 6 file part: send a small file as an E2E blob + a file-ref part.
+      void (async () => {
+        try {
+          const body = Buffer.from("Hello from your agent.\nThis is a demo attachment.\n");
+          const { blob_id } = await bus.putBlob(new Uint8Array(body), "text/plain");
+          const parts: MsgPart[] = [{ kind: "file", blobId: blob_id, name: "notes.txt", mime: "text/plain", size: body.length }];
+          const text = "Here's a file.";
+          bus.event("assistant_message", { text, parts } as unknown as Record<string, unknown>);
+          addTurn("assistant", text, parts);
+          json({ ok: true, blob_id });
+        } catch (e) { json({ error: String(e) }, 500); }
+      })();
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/config") return json(readAgentCfg());
     if (req.method === "POST" && url.pathname === "/config") {
       let body = ""; req.on("data", (c) => (body += c));
