@@ -10,9 +10,9 @@ Worklist remaining:
 - [x] U3 File preview popup (text/code inline, Close/Download/Share); tap file = preview. Device-verified (notes.txt content shown).
 - [x] U4 Per-message menu: file chip ⋮ -> Preview/Download/Share; image fullscreen -> Download/Share; FileProvider for share. Text copy = long-press (kept). Device-verified.
 - [x] U5 Multi-session backend: per-session storage + index, legacy migration, auto-title from 1st user msg, wire (sessions event + new/select/delete_session). Migration + replay device-verified, no regression.
-- [ ] U6 Header redesign: agent name centered (2 rows: name + status dot/text); remove dropdown; hamburger left.
-- [ ] U7 Hamburger LEFT drawer: agents -> their sessions; new chat; open chat; delete chat; change agent.
-- [ ] U8 Chat actions wired: new chat / delete (clear) session; copy.
+- [x] U6 Header redesign: agent name centered + status dot/text underneath; hamburger left; mute+gear right. Device-verified.
+- [x] U7 Left hamburger drawer (ModalNavigationDrawer): agent switch + pair, New chat, session list, delete. Device-verified.
+- [x] U8 Chat actions: New chat (clears+new session), select session (restores history), delete session (2->1). Device-verified.
 Decisions: session title = first user message trimmed (~40 chars); reply emoji = keep (conversational, stripped from speech). Test agent = Claude (running) for round-trips; use /demo-file,/demo-image,/say for deterministic checks.
 
 

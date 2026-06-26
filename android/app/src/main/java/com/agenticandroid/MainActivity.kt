@@ -38,8 +38,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -89,8 +94,13 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.AudioFile
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BrokenImage
@@ -178,6 +188,8 @@ class MainActivity : ComponentActivity() {
                 val connectionEnabled by SettingsStore.connectionEnabled.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
+                val sessionList by PhoneAgentService.sessions.collectAsState()
+                val activeSessionId by PhoneAgentService.activeSessionId.collectAsState()
                 val paired = profiles.isNotEmpty()
                 var input by remember { mutableStateOf("") }
                 val listState = rememberLazyListState()
@@ -304,79 +316,66 @@ class MainActivity : ComponentActivity() {
                     WakeWordService.instance?.resume()
                 }
 
+                val drawerState = rememberDrawerState(DrawerValue.Closed)
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ChatDrawer(
+                            profiles = profiles, activeAgentId = activeId,
+                            sessions = sessionList, activeSessionId = activeSessionId,
+                            onSwitchAgent = { PhoneAgentService.instance?.switchAgent(it) },
+                            onPair = { startActivity(Intent(this@MainActivity, PairingActivity::class.java)) },
+                            onNewChat = { PhoneAgentService.instance?.newSession() },
+                            onSelectSession = { PhoneAgentService.instance?.selectSession(it) },
+                            onDeleteSession = { PhoneAgentService.instance?.deleteSession(it) },
+                            onClose = { scope.launch { drawerState.close() } },
+                        )
+                    },
+                ) {
                 Box(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-                    // thin header: who you're connected to
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val dotColor = if (!paired) Color(0xFF9AA0A6) else if (connected) Color(0xFF34C759) else Color(0xFFFFB020)
-                        Box(Modifier.size(9.dp).clip(CircleShape).background(dotColor))
-                        Spacer(Modifier.width(8.dp))
-                        Box(Modifier.weight(1f)) {
-                            var menuOpen by remember { mutableStateOf(false) }
-                            Row(
-                                Modifier.clickable(enabled = paired) { menuOpen = true },
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(who, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                                if (paired) Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Switch agent", tint = Color.Gray)
-                            }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                profiles.forEach { p ->
-                                    DropdownMenuItem(
-                                        text = { Text(p.name) },
-                                        leadingIcon = {
-                                            if (p.id == activeId) Icon(Icons.Rounded.Check, contentDescription = "Active", tint = MaterialTheme.colorScheme.primary)
-                                        },
-                                        onClick = { menuOpen = false; PhoneAgentService.instance?.switchAgent(p.id) },
-                                    )
-                                }
-                                if (paired) HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("Pair another agent…") },
-                                    leadingIcon = { Icon(Icons.Rounded.PersonAddAlt, contentDescription = null) },
-                                    onClick = { menuOpen = false; startActivity(Intent(this@MainActivity, PairingActivity::class.java)) },
+                    // header: ☰ menu (left) · agent name + status (centered) · mute + settings (right)
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 3.dp)) {
+                        IconButton(
+                            onClick = { scope.launch { drawerState.open() } },
+                            modifier = Modifier.align(Alignment.CenterStart),
+                        ) { Icon(Icons.Rounded.Menu, contentDescription = "Chats & agents") }
+
+                        Column(
+                            Modifier.align(Alignment.Center).padding(horizontal = 100.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(who, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val dotColor = if (!paired) Color(0xFF9AA0A6) else if (connected) Color(0xFF34C759) else Color(0xFFFFB020)
+                                Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    when {
+                                        !paired -> "not paired"
+                                        connected -> "connected"
+                                        !connectionEnabled -> "offline"
+                                        else -> "connecting…"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall, color = Color.Gray,
                                 )
                             }
                         }
-                        if (!paired) {
-                            TextButton(onClick = { startActivity(Intent(this@MainActivity, PairingActivity::class.java)) }) { Text("Pair") }
-                        } else {
-                            if (connected) {
-                                Text("connected", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                            } else if (!connectionEnabled) {
-                                Row(
-                                    Modifier.clickable { PhoneAgentService.instance?.setConnectionEnabled(true) }.padding(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(Icons.Rounded.CloudOff, contentDescription = "Reconnect",
-                                        tint = Color.Gray, modifier = Modifier.size(15.dp))
-                                    Spacer(Modifier.width(3.dp))
-                                    Text("offline", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                                }
+
+                        Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
+                            if (!paired) {
+                                TextButton(onClick = { startActivity(Intent(this@MainActivity, PairingActivity::class.java)) }) { Text("Pair") }
                             } else {
-                                Row(
-                                    Modifier.clickable { PhoneAgentService.instance?.reconnect() }.padding(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(Icons.Rounded.Refresh, contentDescription = "Reconnect",
-                                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
-                                    Spacer(Modifier.width(3.dp))
-                                    Text("connecting…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                IconButton(onClick = { SettingsStore.setVoiceReplies(!voiceReplies) }) {
+                                    Icon(
+                                        if (voiceReplies) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
+                                        contentDescription = if (voiceReplies) "Mute spoken replies" else "Unmute spoken replies",
+                                        tint = if (voiceReplies) MaterialTheme.colorScheme.primary else Color.Gray,
+                                    )
                                 }
-                            }
-                            // Quick mute for spoken replies (wake-word turns still speak — they're hands-free).
-                            IconButton(onClick = { SettingsStore.setVoiceReplies(!voiceReplies) }) {
-                                Icon(
-                                    if (voiceReplies) Icons.AutoMirrored.Rounded.VolumeUp else Icons.AutoMirrored.Rounded.VolumeOff,
-                                    contentDescription = if (voiceReplies) "Mute spoken replies" else "Unmute spoken replies",
-                                    tint = if (voiceReplies) MaterialTheme.colorScheme.primary else Color.Gray,
-                                )
-                            }
-                            IconButton(onClick = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }) {
-                                Icon(Icons.Rounded.Settings, contentDescription = "Settings")
+                                IconButton(onClick = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }) {
+                                    Icon(Icons.Rounded.Settings, contentDescription = "Settings")
+                                }
                             }
                         }
                     }
@@ -641,6 +640,67 @@ class MainActivity : ComponentActivity() {
                     val lockProgress = (-dragY / with(LocalDensity.current) { 72.dp.toPx() }).coerceIn(0f, 1f)
                     LockHintOverlay(lockProgress)
                 }
+                }
+                }
+            }
+        }
+    }
+}
+
+/** Left drawer: switch agent, start a new chat, and open / delete past chats. */
+@Composable
+private fun ChatDrawer(
+    profiles: List<AgentProfile>,
+    activeAgentId: String?,
+    sessions: List<SessionInfo>,
+    activeSessionId: String?,
+    onSwitchAgent: (String) -> Unit,
+    onPair: () -> Unit,
+    onNewChat: () -> Unit,
+    onSelectSession: (String) -> Unit,
+    onDeleteSession: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    ModalDrawerSheet(Modifier.fillMaxWidth(0.84f)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 6.dp)) {
+            Text("Agent", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
+            profiles.forEach { p ->
+                NavigationDrawerItem(
+                    label = { Text(p.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    selected = p.id == activeAgentId,
+                    icon = { Icon(Icons.Rounded.SmartToy, contentDescription = null) },
+                    onClick = { onSwitchAgent(p.id); onClose() },
+                )
+            }
+            NavigationDrawerItem(
+                label = { Text("Pair another agent") },
+                selected = false,
+                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                onClick = { onPair(); onClose() },
+            )
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            NavigationDrawerItem(
+                label = { Text("New chat") },
+                selected = false,
+                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                onClick = { onNewChat(); onClose() },
+            )
+            Text("Chats", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
+            LazyColumn(Modifier.weight(1f)) {
+                items(sessions) { s ->
+                    NavigationDrawerItem(
+                        label = { Text(s.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        selected = s.id == activeSessionId,
+                        icon = { Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = null) },
+                        badge = {
+                            IconButton(onClick = { onDeleteSession(s.id) }) {
+                                Icon(Icons.Rounded.Delete, contentDescription = "Delete chat", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        },
+                        onClick = { onSelectSession(s.id); onClose() },
+                    )
                 }
             }
         }

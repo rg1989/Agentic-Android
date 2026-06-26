@@ -26,6 +26,9 @@ data class ChatMsg(val role: String, val text: String, val imagePath: String? = 
 /** An agent currently connected to the hub (Phase 8 roster). `active` = the one this phone talks to. */
 data class RosterAgent(val id: String, val name: String, val active: Boolean)
 
+/** A chat session with the agent (Phase: multi-session). */
+data class SessionInfo(val id: String, val title: String, val ts: Long)
+
 /** A slash command/skill the connected agent exposes, shown in the phone's `/` menu. */
 data class SlashCommand(val invoke: String, val description: String, val hint: String?, val kind: String, val group: String)
 
@@ -203,9 +206,19 @@ class PhoneAgentService : Service() {
                             val parts = MsgPart.parse(o["parts"] as? JsonArray)
                             ChatMsg(role, (o["text"] as? JsonPrimitive)?.content ?: "", ts = ts, parts = parts)
                         }
-                        if (msgs.isNotEmpty()) chat.value = msgs
+                        chat.value = msgs // replace (empty too — switching to a fresh session clears the chat)
                         android.util.Log.i("AgentHistory", "replayed ${msgs.size} turns from hub")
                     }
+                }
+                "sessions" -> {
+                    // The hub's list of chat sessions for the active agent (Phase: multi-session).
+                    sessions.value = (ev.data["sessions"] as? JsonArray)?.mapNotNull { el ->
+                        val o = el as? JsonObject ?: return@mapNotNull null
+                        val id = (o["id"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                        SessionInfo(id, (o["title"] as? JsonPrimitive)?.content ?: "New chat",
+                            (o["ts"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L)
+                    }.orEmpty()
+                    activeSessionId.value = (ev.data["activeId"] as? JsonPrimitive)?.content
                 }
             }
         }
@@ -265,6 +278,11 @@ class PhoneAgentService : Service() {
     fun selectAgent(id: String) {
         bus?.event("select_agent", JsonObject(mapOf("id" to JsonPrimitive(id))))
     }
+
+    // ---- chat sessions (multi-session) ----
+    fun newSession() { bus?.event("new_session", JsonObject(emptyMap())) }
+    fun selectSession(id: String) { bus?.event("select_session", JsonObject(mapOf("id" to JsonPrimitive(id)))) }
+    fun deleteSession(id: String) { bus?.event("delete_session", JsonObject(mapOf("id" to JsonPrimitive(id)))) }
 
     /** Stop any in-progress spoken reply (used for tap-to-stop / barge-in). */
     fun stopSpeaking() {
@@ -331,6 +349,9 @@ class PhoneAgentService : Service() {
         val commands = MutableStateFlow<List<SlashCommand>>(emptyList())
         /** Agents currently connected to the hub (Phase 8) — for the live roster / switcher. */
         val roster = MutableStateFlow<List<RosterAgent>>(emptyList())
+        /** Chat sessions for the active agent + which one is open. */
+        val sessions = MutableStateFlow<List<SessionInfo>>(emptyList())
+        val activeSessionId = MutableStateFlow<String?>(null)
         /** True while a spoken reply is playing — the wake-word service ignores input meanwhile. */
         val speaking = MutableStateFlow(false)
         /** True while the user is recording voice (hold-to-talk or wake-word capture). The agent
