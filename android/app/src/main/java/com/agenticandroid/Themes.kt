@@ -6,29 +6,31 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
 /**
- * App color themes. Each theme is a cohesive palette with BOTH a light and a dark scheme, so the
- * "appearance" setting (system/light/dark) is orthogonal to the chosen theme. Pick one in Settings.
+ * App color themes. Each theme is a curated 3-color palette with BOTH a light and a dark scheme, so
+ * the "appearance" setting (system/light/dark) is orthogonal to the chosen theme.
  *
- * Each theme genuinely uses THREE colors, mapped to the three surfaces the chat actually paints:
- *   • primary            → the user's own bubbles + the send/mic button   (color #1)
- *   • secondaryContainer → the agent's reply bubbles                       (color #2)
- *   • tertiary           → links, inline code, accents inside replies      (color #3)
- * The swatch dots preview exactly those three. Backgrounds are tinted (not plain white) where the
- * theme calls for it. `mk` seeds a Material default scheme then overrides only the slots we use.
+ * The three palette colors map to the three surfaces the chat always paints — so all three are
+ * genuinely in use and the swatch dots preview exactly what you'll see:
+ *   • color 1 → primary             → your message bubbles
+ *   • color 2 → secondaryContainer  → the agent's reply bubbles
+ *   • color 3 → tertiary            → the send/mic button + links/code accents
+ * `mk` seeds a Material default scheme then overrides only the slots the UI uses. `onAccent` lets a
+ * light-colored button (gold, butter, …) get a dark icon instead of an unreadable white one.
  */
 data class AppTheme(val id: String, val label: String, val swatch: List<Color>, val light: ColorScheme, val dark: ColorScheme)
 
 private fun mk(
     dark: Boolean,
-    primary: Color, onPrimary: Color, primaryContainer: Color, onPrimaryContainer: Color,
-    agent: Color, onAgent: Color, accent: Color,
+    primary: Color, onPrimary: Color,
+    agent: Color, onAgent: Color,
+    accent: Color, onAccent: Color,
     bg: Color, onBg: Color, surface: Color, surfaceVar: Color, onSurfaceVar: Color, outline: Color,
 ): ColorScheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
     primary = primary, onPrimary = onPrimary,
-    primaryContainer = primaryContainer, onPrimaryContainer = onPrimaryContainer,
-    secondary = accent, onSecondary = onPrimary,
+    primaryContainer = primary, onPrimaryContainer = onPrimary,
+    secondary = accent, onSecondary = onAccent,
     secondaryContainer = agent, onSecondaryContainer = onAgent,   // agent reply bubbles
-    tertiary = accent, onTertiary = onPrimary,                    // links / code / accents
+    tertiary = accent, onTertiary = onAccent,                     // send button + links/code
     background = bg, onBackground = onBg,
     surface = surface, onSurface = onBg,
     surfaceVariant = surfaceVar, onSurfaceVariant = onSurfaceVar, outline = outline,
@@ -36,112 +38,99 @@ private fun mk(
 
 object Themes {
     val all: List<AppTheme> = listOf(
-        violet(), ocean(), sunset(), forest(), matrix(), vampire(), vibrant(), sakura(),
+        editorial(), coral(), linen(), lagoon(), terra(),   // row 1
+        slate(), noir(), pop(), grove(), harbor(),           // row 2
     )
-    val default = "violet"
+    val default = "editorial"
     fun byId(id: String): AppTheme = all.firstOrNull { it.id == id } ?: all.first()
 
-    // ---- Violet: refined purple, rose accent ----
-    private fun violet() = AppTheme(
-        "violet", "Violet", listOf(Color(0xFF6B4FB0), Color(0xFFB0436A), Color(0xFFE5DCF5)),
-        light = mk(false,
-            Color(0xFF6B4FB0), Color.White, Color(0xFFE9DDFF), Color(0xFF23005C),
-            Color(0xFFE7DCF7), Color(0xFF2A2440), Color(0xFFB0436A),
-            Color(0xFFFCF8FF), Color(0xFF1C1B1F), Color(0xFFFFFFFF), Color(0xFFECE3F5), Color(0xFF4A4458), Color(0xFF7A7589)),
-        dark = mk(true,
-            Color(0xFFC9B6FF), Color(0xFF2A1A4A), Color(0xFF4A357A), Color(0xFFE9DDFF),
-            Color(0xFF3A2F55), Color(0xFFE6DCFF), Color(0xFFF0B7C9),
-            Color(0xFF121016), Color(0xFFECE6F2), Color(0xFF1A1620), Color(0xFF2A2433), Color(0xFFC9C0D6), Color(0xFF8E84A0)),
+    // 1. Navy × Cream × Gold — classic editorial
+    private fun editorial() = AppTheme(
+        "editorial", "Editorial", listOf(Color(0xFF0D3B66), Color(0xFFFAF0CA), Color(0xFFF4D35E)),
+        light = mk(false, Color(0xFF0D3B66), Color(0xFFFFFFFF), Color(0xFFFAF0CA), Color(0xFF4A3F12), Color(0xFFF4D35E), Color(0xFF3D3000),
+            Color(0xFFFFFDF6), Color(0xFF1A2430), Color(0xFFFFFFFF), Color(0xFFEBE7D7), Color(0xFF595444), Color(0xFFB8B095)),
+        dark = mk(true, Color(0xFF9CC2E8), Color(0xFF062136), Color(0xFF20303F), Color(0xFFE7EEF5), Color(0xFFF4D35E), Color(0xFF3D3000),
+            Color(0xFF0D141C), Color(0xFFE6ECF2), Color(0xFF141C26), Color(0xFF243240), Color(0xFFAAB7C5), Color(0xFF45576A)),
     )
 
-    // ---- Ocean: azure blue, amber accent ----
-    private fun ocean() = AppTheme(
-        "ocean", "Ocean", listOf(Color(0xFF0A6CA8), Color(0xFFB5651D), Color(0xFFD2E7F7)),
-        light = mk(false,
-            Color(0xFF0A6CA8), Color.White, Color(0xFFCDE6FF), Color(0xFF001E30),
-            Color(0xFFD2E7F7), Color(0xFF0A2A3F), Color(0xFFB5651D),
-            Color(0xFFF1F8FF), Color(0xFF101418), Color(0xFFFFFFFF), Color(0xFFDCE7F0), Color(0xFF41484F), Color(0xFF71787E)),
-        dark = mk(true,
-            Color(0xFF7FC4FF), Color(0xFF00344F), Color(0xFF1C4A6B), Color(0xFFCDE6FF),
-            Color(0xFF1E3A50), Color(0xFFCDE6FF), Color(0xFFFFB870),
-            Color(0xFF0E1419), Color(0xFFE2EAF2), Color(0xFF141C24), Color(0xFF233039), Color(0xFFB9C6D2), Color(0xFF7F8C99)),
+    // 2. Ivory × Coral × Charcoal — bold contrast
+    private fun coral() = AppTheme(
+        "coral", "Coral", listOf(Color(0xFFE94F37), Color(0xFFF6F7EB), Color(0xFF393E41)),
+        light = mk(false, Color(0xFFE94F37), Color(0xFFFFFFFF), Color(0xFFF6F7EB), Color(0xFF393E41), Color(0xFF393E41), Color(0xFFFFFFFF),
+            Color(0xFFFCFCF6), Color(0xFF2A2E30), Color(0xFFFFFFFF), Color(0xFFE7E8DD), Color(0xFF565A5C), Color(0xFFB1B3A8)),
+        dark = mk(true, Color(0xFFFF8E79), Color(0xFF5A1404), Color(0xFF2C2F31), Color(0xFFECEDE4), Color(0xFFAEB4BA), Color(0xFF20242A),
+            Color(0xFF181A1B), Color(0xFFECEDE6), Color(0xFF202223), Color(0xFF2E3133), Color(0xFFB4B7B3), Color(0xFF53575A)),
     )
 
-    // ---- Sunset: coral primary, violet bubbles, gold accent ----
-    private fun sunset() = AppTheme(
-        "sunset", "Sunset", listOf(Color(0xFFC8431A), Color(0xFFB07900), Color(0xFFE7DFF7)),
-        light = mk(false,
-            Color(0xFFC8431A), Color.White, Color(0xFFFFDBCC), Color(0xFF3A0B00),
-            Color(0xFFE7DFF7), Color(0xFF2A2440), Color(0xFFB07900),
-            Color(0xFFFFF6F0), Color(0xFF201A17), Color(0xFFFFFFFF), Color(0xFFF2DFD5), Color(0xFF53433B), Color(0xFF85736A)),
-        dark = mk(true,
-            Color(0xFFFF9E80), Color(0xFF5A1A00), Color(0xFF7A2E14), Color(0xFFFFDBCC),
-            Color(0xFF3A2F55), Color(0xFFE6DCFF), Color(0xFFFFD18A),
-            Color(0xFF17120F), Color(0xFFF2E6DF), Color(0xFF211915), Color(0xFF34281F), Color(0xFFD6C4B8), Color(0xFF9E8B7E)),
+    // 3. Sage × Vanilla × Sand — minimalist warmth (all soft, low-contrast by design)
+    private fun linen() = AppTheme(
+        "linen", "Linen", listOf(Color(0xFFDCE0D9), Color(0xFFFBF6EF), Color(0xFFEAD7C3)),
+        light = mk(false, Color(0xFFDCE0D9), Color(0xFF353A33), Color(0xFFFBF6EF), Color(0xFF44392E), Color(0xFFEAD7C3), Color(0xFF4A3A28),
+            Color(0xFFFFFFFB), Color(0xFF3A3F38), Color(0xFFFFFFFF), Color(0xFFEAE9E1), Color(0xFF5A584F), Color(0xFFBCBAAE)),
+        dark = mk(true, Color(0xFFBFC7BC), Color(0xFF2A2F28), Color(0xFF2A2C28), Color(0xFFE6E8E0), Color(0xFFD8C4AE), Color(0xFF3A2C1C),
+            Color(0xFF131410), Color(0xFFE8E8E0), Color(0xFF1B1C17), Color(0xFF2A2B25), Color(0xFFB6B6AC), Color(0xFF565848)),
     )
 
-    // ---- Forest: emerald primary, mint bubbles, gold accent ----
-    private fun forest() = AppTheme(
-        "forest", "Forest", listOf(Color(0xFF1A6E45), Color(0xFF8A6A00), Color(0xFFCDEAD7)),
-        light = mk(false,
-            Color(0xFF1A6E45), Color.White, Color(0xFF9CF4B7), Color(0xFF00210F),
-            Color(0xFFCDEAD7), Color(0xFF06281A), Color(0xFF8A6A00),
-            Color(0xFFF3FBF5), Color(0xFF111511), Color(0xFFFFFFFF), Color(0xFFDBE6DC), Color(0xFF424942), Color(0xFF727970)),
-        dark = mk(true,
-            Color(0xFF7FD79C), Color(0xFF00391E), Color(0xFF1E5436), Color(0xFF9CF4B7),
-            Color(0xFF1E4233), Color(0xFFB8F0CB), Color(0xFFE6C770),
-            Color(0xFF0E140F), Color(0xFFE1EAE2), Color(0xFF141C16), Color(0xFF243029), Color(0xFFBAC9BD), Color(0xFF7E8C82)),
+    // 4. Teal × Mint × Ice — fresh & clean
+    private fun lagoon() = AppTheme(
+        "lagoon", "Lagoon", listOf(Color(0xFF006D77), Color(0xFFEDF6F9), Color(0xFF83C5BE)),
+        light = mk(false, Color(0xFF006D77), Color(0xFFFFFFFF), Color(0xFFEDF6F9), Color(0xFF0A3034), Color(0xFF83C5BE), Color(0xFF06302C),
+            Color(0xFFF5FBFC), Color(0xFF10282B), Color(0xFFFFFFFF), Color(0xFFDCE9EA), Color(0xFF46575A), Color(0xFF7C9296)),
+        dark = mk(true, Color(0xFF5BD0DA), Color(0xFF00363B), Color(0xFF142A2D), Color(0xFFDCEEF0), Color(0xFF83C5BE), Color(0xFF06302C),
+            Color(0xFF0B1416), Color(0xFFE0EEF0), Color(0xFF121E20), Color(0xFF1F3033), Color(0xFFA8BFC2), Color(0xFF3E5A5E)),
     )
 
-    // ---- Matrix: neon green on black (dark) / pale-green terminal (light) ----
-    private fun matrix() = AppTheme(
-        "matrix", "Matrix", listOf(Color(0xFF00E676), Color(0xFF00BFA5), Color(0xFF0C2A16)),
-        light = mk(false,
-            Color(0xFF1B7A3D), Color.White, Color(0xFFB9F5C9), Color(0xFF002912),
-            Color(0xFFD6F5DE), Color(0xFF052915), Color(0xFF00897B),
-            Color(0xFFECFBF0), Color(0xFF08120B), Color(0xFFF6FFF8), Color(0xFFD2EEDA), Color(0xFF2E4636), Color(0xFF5E8C6E)),
-        dark = mk(true,
-            Color(0xFF00E676), Color(0xFF00210E), Color(0xFF0F4023), Color(0xFF76FF9C),
-            Color(0xFF0C2A16), Color(0xFF76FF9C), Color(0xFF69F0AE),
-            Color(0xFF000000), Color(0xFF8BFFB0), Color(0xFF0A140D), Color(0xFF14241A), Color(0xFF8FC9A3), Color(0xFF2E6B45)),
+    // 5. Terracotta × Butter × Seafoam — retro soft
+    private fun terra() = AppTheme(
+        "terra", "Terra", listOf(Color(0xFFED6A5A), Color(0xFFF4F1BB), Color(0xFF9BC1BC)),
+        light = mk(false, Color(0xFFED6A5A), Color(0xFFFFFFFF), Color(0xFFF4F1BB), Color(0xFF4A4516), Color(0xFF9BC1BC), Color(0xFF0E3531),
+            Color(0xFFFFFBF5), Color(0xFF3A2420), Color(0xFFFFFFFF), Color(0xFFEFE7DC), Color(0xFF5C5147), Color(0xFFBBAEA0)),
+        dark = mk(true, Color(0xFFFF9183), Color(0xFF5A1A10), Color(0xFF2E2C1C), Color(0xFFEFEDC8), Color(0xFF9BC1BC), Color(0xFF0E3531),
+            Color(0xFF18120F), Color(0xFFF0E6DE), Color(0xFF211915), Color(0xFF322820), Color(0xFFD2C4B6), Color(0xFF5A4A3E)),
     )
 
-    // ---- Vampire: blood crimson + dark maroon bubbles + tarnished gold ----
-    private fun vampire() = AppTheme(
-        "vampire", "Vampire", listOf(Color(0xFFB0151D), Color(0xFFE0B450), Color(0xFF2A1418)),
-        light = mk(false,
-            Color(0xFFB0151D), Color.White, Color(0xFFFFDAD6), Color(0xFF410002),
-            Color(0xFFF0DAD2), Color(0xFF3A1212), Color(0xFF8A6D00),
-            Color(0xFFFBF2F0), Color(0xFF1A1011), Color(0xFFFFFFFF), Color(0xFFECD9D6), Color(0xFF524240), Color(0xFF8A6F6C)),
-        dark = mk(true,
-            Color(0xFFFF5366), Color(0xFF5A0010), Color(0xFF7A1520), Color(0xFFFFDAD6),
-            Color(0xFF2A1418), Color(0xFFFFD9D0), Color(0xFFE0B450),
-            Color(0xFF0E0608), Color(0xFFF0DADA), Color(0xFF1A0E10), Color(0xFF2E1A1C), Color(0xFFD6B8B6), Color(0xFF7A4A4E)),
+    // 6. Dark Slate × Blue Gray × Snow — corporate cool
+    private fun slate() = AppTheme(
+        "slate", "Slate", listOf(Color(0xFF2B2D42), Color(0xFFEDF2F4), Color(0xFF8D99AE)),
+        light = mk(false, Color(0xFF2B2D42), Color(0xFFFFFFFF), Color(0xFFEDF2F4), Color(0xFF2B2D42), Color(0xFF8D99AE), Color(0xFF15203A),
+            Color(0xFFFAFBFC), Color(0xFF23252E), Color(0xFFFFFFFF), Color(0xFFE2E6EA), Color(0xFF4F545E), Color(0xFFAEB4BE)),
+        dark = mk(true, Color(0xFFAEB7CC), Color(0xFF1B1D2E), Color(0xFF25283A), Color(0xFFE4E8F0), Color(0xFF8D99AE), Color(0xFF15203A),
+            Color(0xFF131420), Color(0xFFE4E7EE), Color(0xFF1B1D2B), Color(0xFF2A2D3E), Color(0xFFAAB0BE), Color(0xFF474C5E)),
     )
 
-    // ---- Vibrant: hot magenta + cyan bubbles + golden yellow ----
-    private fun vibrant() = AppTheme(
-        "vibrant", "Vibrant", listOf(Color(0xFFD6008C), Color(0xFFFFD54F), Color(0xFF00BFA5)),
-        light = mk(false,
-            Color(0xFFD6008C), Color.White, Color(0xFFFFD8EC), Color(0xFF3A0027),
-            Color(0xFFCFF5F2), Color(0xFF003733), Color(0xFFB58A00),
-            Color(0xFFFFF4FB), Color(0xFF1A1018), Color(0xFFFFFFFF), Color(0xFFF2DDEC), Color(0xFF534350), Color(0xFF8A6F86)),
-        dark = mk(true,
-            Color(0xFFFF5FC4), Color(0xFF5A0040), Color(0xFF7A1A5E), Color(0xFFFFD8EC),
-            Color(0xFF0E3D3A), Color(0xFF7FF0E8), Color(0xFFFFD54F),
-            Color(0xFF14101A), Color(0xFFF2E2EE), Color(0xFF1E1424), Color(0xFF2E2333), Color(0xFFD6C0D0), Color(0xFF8A6F96)),
+    // 7. Espresso × Crimson × Porcelain — dramatic
+    private fun noir() = AppTheme(
+        "noir", "Noir", listOf(Color(0xFF92140C), Color(0xFFFFF8F0), Color(0xFF1E1E24)),
+        light = mk(false, Color(0xFF92140C), Color(0xFFFFFFFF), Color(0xFFFFF8F0), Color(0xFF2A1410), Color(0xFF1E1E24), Color(0xFFFFFFFF),
+            Color(0xFFFFFCF8), Color(0xFF241410), Color(0xFFFFFFFF), Color(0xFFEFE3DC), Color(0xFF5C4A44), Color(0xFFBCA8A0)),
+        dark = mk(true, Color(0xFFFF5A4E), Color(0xFF5A0500), Color(0xFF241416), Color(0xFFF4DAD6), Color(0xFFC9C5CE), Color(0xFF1E1E24),
+            Color(0xFF141014), Color(0xFFF0E2DE), Color(0xFF1C161A), Color(0xFF2C2228), Color(0xFFC6B2AE), Color(0xFF5A4A4E)),
     )
 
-    // ---- Sakura: soft rose + mint bubbles + lavender accent (tinted light) ----
-    private fun sakura() = AppTheme(
-        "sakura", "Sakura", listOf(Color(0xFFD6457A), Color(0xFF7C4DBF), Color(0xFFD6F2E2)),
-        light = mk(false,
-            Color(0xFFD6457A), Color.White, Color(0xFFFFD9E3), Color(0xFF3E001D),
-            Color(0xFFD6F2E2), Color(0xFF0A2E1E), Color(0xFF7C4DBF),
-            Color(0xFFFFF3F7), Color(0xFF1F141A), Color(0xFFFFFFFF), Color(0xFFF2DEE6), Color(0xFF534349), Color(0xFF8A6F7C)),
-        dark = mk(true,
-            Color(0xFFFFA8C8), Color(0xFF5A0A2A), Color(0xFF7A2848), Color(0xFFFFD9E3),
-            Color(0xFF1E3D30), Color(0xFFA8F0CC), Color(0xFFC9A8F0),
-            Color(0xFF1A1016), Color(0xFFF2E2EA), Color(0xFF241620), Color(0xFF33232B), Color(0xFFD6C0CA), Color(0xFF9A7F8C)),
+    // 8. Magenta × Gold × Sky — vibrant pop
+    private fun pop() = AppTheme(
+        "pop", "Pop", listOf(Color(0xFFFE218B), Color(0xFF21B0FE), Color(0xFFFED700)),
+        light = mk(false, Color(0xFFFE218B), Color(0xFFFFFFFF), Color(0xFF21B0FE), Color(0xFF062A40), Color(0xFFFED700), Color(0xFF3D3100),
+            Color(0xFFFFF7FB), Color(0xFF2A1020), Color(0xFFFFFFFF), Color(0xFFF1E0EA), Color(0xFF5E4654), Color(0xFFC79FB4)),
+        dark = mk(true, Color(0xFFFF5FAE), Color(0xFF5A0030), Color(0xFF0E3A52), Color(0xFFBFE6FF), Color(0xFFFED700), Color(0xFF3D3100),
+            Color(0xFF16101A), Color(0xFFF2E2EC), Color(0xFF1E1622), Color(0xFF2E2233), Color(0xFFD6C0D0), Color(0xFF6A4A60)),
+    )
+
+    // 9. Olive × Forest × Cream — earthy & natural
+    private fun grove() = AppTheme(
+        "grove", "Grove", listOf(Color(0xFF606C38), Color(0xFFFEFAE0), Color(0xFF283618)),
+        light = mk(false, Color(0xFF606C38), Color(0xFFFFFFFF), Color(0xFFFEFAE0), Color(0xFF2C3416), Color(0xFF283618), Color(0xFFFFFFFF),
+            Color(0xFFFFFEF6), Color(0xFF2A2E1C), Color(0xFFFFFFFF), Color(0xFFE8E8D4), Color(0xFF555844), Color(0xFFB6B79E)),
+        dark = mk(true, Color(0xFFAEBE7E), Color(0xFF2A3210), Color(0xFF232818), Color(0xFFE8EAD2), Color(0xFF8FA85E), Color(0xFF18220E),
+            Color(0xFF12140C), Color(0xFFE8EAD6), Color(0xFF1A1C12), Color(0xFF282B1C), Color(0xFFB8BBA2), Color(0xFF565940)),
+    )
+
+    // 10. Ocean × Steel × Frost — tech / professional
+    private fun harbor() = AppTheme(
+        "harbor", "Harbor", listOf(Color(0xFF064789), Color(0xFFEBF2FA), Color(0xFF427AA1)),
+        light = mk(false, Color(0xFF064789), Color(0xFFFFFFFF), Color(0xFFEBF2FA), Color(0xFF0A2A45), Color(0xFF427AA1), Color(0xFFFFFFFF),
+            Color(0xFFF7FAFD), Color(0xFF14283C), Color(0xFFFFFFFF), Color(0xFFDEE7F0), Color(0xFF46535F), Color(0xFF9FB1C4)),
+        dark = mk(true, Color(0xFF7FB2E4), Color(0xFF06243F), Color(0xFF16293A), Color(0xFFDCEAF6), Color(0xFF6CA3C9), Color(0xFF06243A),
+            Color(0xFF0C141C), Color(0xFFE2ECF5), Color(0xFF131D27), Color(0xFF213140), Color(0xFFA8B9C8), Color(0xFF3E5870)),
     )
 }
