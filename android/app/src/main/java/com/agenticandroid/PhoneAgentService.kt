@@ -24,7 +24,7 @@ import kotlinx.serialization.json.JsonPrimitive
 data class ChatMsg(val role: String, val text: String, val imagePath: String? = null, val ts: Long = System.currentTimeMillis(), val parts: List<MsgPart> = emptyList())
 
 /** An agent currently connected to the hub (Phase 8 roster). `active` = the one this phone talks to. */
-data class RosterAgent(val id: String, val name: String, val active: Boolean)
+data class RosterAgent(val id: String, val name: String, val active: Boolean, val external: Boolean = false)
 
 /** A chat session with the agent (Phase: multi-session). */
 data class SessionInfo(val id: String, val title: String, val ts: Long)
@@ -199,6 +199,7 @@ class PhoneAgentService : Service() {
                             id = id,
                             name = (o["name"] as? JsonPrimitive)?.content ?: "agent",
                             active = (o["active"] as? JsonPrimitive)?.content == "true",
+                            external = (o["external"] as? JsonPrimitive)?.content == "true",
                         )
                     }.orEmpty()
                     roster.value = list

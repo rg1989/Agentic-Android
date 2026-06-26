@@ -183,10 +183,10 @@ class SettingsActivity : ComponentActivity() {
                     LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                         item {
                             if (tab == 0) {
-                            SectionLabel("Agents")
+                            SectionLabel("Hubs")
                             if (profiles.isEmpty()) {
                                 Text(
-                                    "No agents paired yet.",
+                                    "No hubs paired yet.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                 )
@@ -228,7 +228,7 @@ class SettingsActivity : ComponentActivity() {
                             ) {
                                 Icon(Icons.Rounded.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Pair another agent", color = MaterialTheme.colorScheme.primary)
+                                Text("Pair another hub", color = MaterialTheme.colorScheme.primary)
                             }
                             if (roster.size > 1) {
                                 HorizontalDivider()

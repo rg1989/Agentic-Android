@@ -199,10 +199,10 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string | Ass
     await call("ui.global", { action: "home" });
     return `🏠 Went to the home screen.`;
   }
-  // default: introduce myself + what I can do (no API key required to use the system —
-  // connect your own agent for a real brain; this built-in one is just a keyword fallback).
-  return `Hi — I'm the built-in basic agent (keywords, no AI model). For a real brain, connect your ` +
-    `own agent on your machine (e.g. your Claude — your subscription, no API key needed). ` +
+  // default: introduce myself + what I can do (connect a real agent for a brain; this built-in
+  // one is just a keyword fallback).
+  return `Hi — I'm the built-in basic agent (keywords, no AI model). For a real brain, connect an ` +
+    `agent on your machine (e.g. the \`claude\` or \`omp\` CLI). ` +
     `Meanwhile I can: "take a photo", "battery?", "flashlight on", "ring my phone", "screenshot", "where am I". ` +
     `(${deps.getCaps().length} phone tools.)`;
 }

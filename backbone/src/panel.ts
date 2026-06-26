@@ -36,6 +36,7 @@ interface LogEvent { id: number; ts: number; type: EventType; summary: string; d
 const AGENT_PRESETS: Record<string, string> = {
   claude: 'claude -p "{prompt}"',
   codex: 'codex exec "{prompt}"',
+  omp: 'omp -p "{prompt}"',
   custom: "",
 };
 const ALL_TYPES: EventType[] = ["user_message", "assistant_message", "llm", "tool", "request", "response", "error", "phone_event", "agent_run", "connection", "config"];
@@ -427,7 +428,7 @@ const SETUP_PAGE = `<!doctype html>
 </style></head>
 <body><div class="wrap">
   <h1>Agentic Android</h1>
-  <p class="sub">This is the hub on your computer — the glue between your phone and your agent. No API key needed here.</p>
+  <p class="sub">This is the hub on your computer — the glue between your phone and your agent.</p>
 
   <div class="status">
     <div class="pill"><span id="ad" class="dot"></span><div><div class="t">Agent</div><div id="av" class="v">checking…</div></div></div>
@@ -441,16 +442,23 @@ const SETUP_PAGE = `<!doctype html>
     <div class="addbox">
       <div class="addlabel">Add an agent</div>
       <div class="cards">
-        <div class="card2 sel" data-type="claude"><div class="ct">Your Claude</div><div class="cd">Uses your Claude subscription. No API key.</div></div>
+        <div class="card2 sel" data-type="claude"><div class="ct">Claude</div><div class="cd">Runs the <code>claude</code> CLI on this computer.</div></div>
+        <div class="card2" data-type="omp"><div class="ct">omp (Oh My Pi)</div><div class="cd">Open-source coding agent. Full phone control via MCP.</div></div>
         <div class="card2" data-type="basic"><div class="ct">Built-in helper</div><div class="cd">No setup, no login. Basic replies — good for a first test.</div></div>
-        <div class="card2" data-type="other"><div class="ct">Other agent</div><div class="cd">Hermes, Pi, Cursor, opencode… any CLI you run.</div></div>
+        <div class="card2" data-type="other"><div class="ct">Other local agent</div><div class="cd">Hermes, Pi, Cursor, Codex… any CLI on this computer.</div></div>
+        <div class="card2" data-type="remote"><div class="ct">Remote / cloud agent</div><div class="cd">A Hermes (or anything) running elsewhere that connects to this hub itself.</div></div>
       </div>
       <div id="otherform" style="display:none;margin-top:10px;">
         <input id="oname" placeholder="Name (e.g. Hermes)" style="width:100%;margin:0 0 8px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;" />
         <input id="ocmd" placeholder="command to run (e.g. hermes, pi, cursor-agent)" style="width:100%;margin:0 0 8px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
         <label class="phonechk"><input type="checkbox" id="ophone" checked /><span>Can control the phone <span class="hint" style="margin:0;">— for Claude Code-compatible CLIs (Claude, Cursor, Hermes, Pi). Off = chat only.</span></span></label>
       </div>
-      <div class="cmdrow" style="margin-top:14px;"><button id="connect">Add agent</button><span id="astate" class="hint" style="margin:0;"></span></div>
+      <div id="remoteinfo" style="display:none;margin-top:10px;">
+        <p style="color:#b5b5bd;font-size:13.5px;margin:0 0 8px;"><b>No “Add” button — a remote agent connects itself.</b> Send the prompt below to your cloud agent; it spells out exactly how to reach this hub and reply. (Keep the address on your tailnet — the port is unauthenticated by design.)</p>
+        <pre id="remoteprompt" style="background:#0f1014;border:1px solid #2a2c34;border-radius:8px;padding:11px 12px;font-size:12px;line-height:1.5;color:#cfd3da;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin:0;">loading…</pre>
+        <div class="cmdrow" style="margin-top:8px;"><button id="copyprompt">Copy prompt</button><span class="hint" id="remotewait" style="margin:0;">⏳ Waiting for a remote agent to connect…</span></div>
+      </div>
+      <div class="cmdrow" id="addrow" style="margin-top:14px;"><button id="connect">Add agent</button><span id="astate" class="hint" style="margin:0;"></span></div>
       <div id="alog" class="callout" style="display:none;"></div>
     </div>
   </div>
@@ -494,7 +502,16 @@ const SETUP_PAGE = `<!doctype html>
 <script>
   let curType='claude';
   const cards=[...document.querySelectorAll('.card2')];
-  cards.forEach(c=>c.onclick=()=>{ cards.forEach(x=>x.classList.toggle('sel',x===c)); curType=c.dataset.type; document.getElementById('otherform').style.display = curType==='other' ? 'block' : 'none'; });
+  cards.forEach(c=>c.onclick=()=>{ cards.forEach(x=>x.classList.toggle('sel',x===c)); curType=c.dataset.type;
+    document.getElementById('otherform').style.display = curType==='other' ? 'block' : 'none';
+    document.getElementById('remoteinfo').style.display = curType==='remote' ? 'block' : 'none';
+    document.getElementById('addrow').style.display = curType==='remote' ? 'none' : 'flex';
+    if(curType==='remote') loadRemotePrompt(); });
+  let _promptLoaded=false;
+  async function loadRemotePrompt(){ if(_promptLoaded) return; _promptLoaded=true;
+    try{ const t=await (await fetch('/remote-prompt')).text(); document.getElementById('remoteprompt').textContent=t; }
+    catch(e){ document.getElementById('remoteprompt').textContent='(could not load the prompt — is the hub running?)'; _promptLoaded=false; } }
+  document.getElementById('copyprompt').onclick=()=>{ const a=document.getElementById('remoteprompt').textContent; if(navigator.clipboard) navigator.clipboard.writeText(a); const b=document.getElementById('copyprompt'); const t=b.textContent; b.textContent='Copied'; setTimeout(()=>{b.textContent=t;},1200); };
   function showCallout(error,command){
     const lg=document.getElementById('alog'); lg.innerHTML='';
     const p=document.createElement('div'); p.textContent=error; lg.appendChild(p);
@@ -509,21 +526,43 @@ const SETUP_PAGE = `<!doctype html>
     }
     lg.style.display='block';
   }
+  // Optimistic "starting…" row so the list shows the agent the instant you click — the /agent/start
+  // sign-in probe (Claude) can take a few seconds before the real row arrives, and a dead screen reads
+  // as "nothing happened". The next /status poll replaces this with the real (managed) row.
+  function pendingRow(type){
+    const host=document.getElementById('agentlist');
+    const empty=host.querySelector('.empty'); if(empty) empty.remove();
+    let row=document.getElementById('pendingrow');
+    if(!row){ row=document.createElement('div'); row.className='agentrow'; row.id='pendingrow';
+      const dot=document.createElement('span'); dot.className='dot wait'; row.appendChild(dot);
+      const nm=document.createElement('div'); nm.className='nm'; row.appendChild(nm);
+      const b=document.createElement('span'); b.className='badge'; b.textContent='starting…'; row.appendChild(b);
+      host.insertBefore(row, host.firstChild); }
+    const names={omp:'omp', claude:'Claude', basic:'Built-in helper'};
+    row.querySelector('.nm').textContent = type==='other' ? (document.getElementById('oname').value.trim()||'agent') : (names[type]||type);
+  }
+  function clearPending(){ const pr=document.getElementById('pendingrow'); if(pr) pr.remove(); }
   document.getElementById('connect').onclick=async()=>{
-    const st=document.getElementById('astate');
+    const btn=document.getElementById('connect'); const st=document.getElementById('astate');
     let body;
     if(curType==='other'){
       const command=document.getElementById('ocmd').value.trim();
       if(!command){ st.textContent='enter a command'; document.getElementById('ocmd').focus(); return; }
       body={type:'other', name:document.getElementById('oname').value.trim(), command, phone:document.getElementById('ophone').checked};
-    } else { body={type:curType}; }
-    st.textContent='adding…'; document.getElementById('alog').style.display='none';
+    } else if(curType==='remote'){ return; }   // remote agents connect themselves — nothing to start
+    else { body={type:curType}; }
+    // Instant feedback: busy button + the optimistic row, so the wait is never a blank screen.
+    btn.disabled=true; const lbl=btn.textContent; btn.textContent='Adding…';
+    st.textContent=''; document.getElementById('alog').style.display='none';
+    pendingRow(curType);
     try{
       const r=await (await fetch('/agent/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})).json();
-      if(!r.ok){ st.textContent=''; showCallout(r.error||'Could not start the agent.', r.command); }
-      else { st.textContent='starting…'; document.getElementById('oname').value=''; document.getElementById('ocmd').value=''; }
-    }catch(e){ st.textContent=''; showCallout(String(e)); }
-    poll();
+      if(!r.ok){ clearPending(); showCallout(r.error||'Could not start the agent.', r.command); }
+      else { document.getElementById('oname').value=''; document.getElementById('ocmd').value=''; }
+    }catch(e){ clearPending(); showCallout(String(e)); }
+    btn.disabled=false; btn.textContent=lbl;
+    // Poll briskly for a few seconds so "starting…" flips to Active without waiting on the 2s tick.
+    poll(); for(let i=1;i<=8;i++) setTimeout(poll, i*600);
   };
   function set(dot,val,on,wait,txt){ const d=document.getElementById(dot); d.className='dot'+(on?' on':wait?' wait':''); document.getElementById(val).textContent=txt; }
   async function setActive(id){ try{ await fetch('/agent/select',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); }catch(e){} poll(); }
@@ -533,11 +572,11 @@ const SETUP_PAGE = `<!doctype html>
     const dot=document.createElement('span');
     dot.className='dot '+(!a.connected?'wait':(a.active?(a.ready===false?'bad':'on'):'lit'));
     row.appendChild(dot);
+    if(a.connected && !a.managed){ const c=document.createElement('span'); c.textContent='☁'; c.title='Cloud / external agent — it connected to this hub on its own (a remote brain or a hand-started CLI), not launched here.'; c.style.cssText='margin:0 4px 0 0;font-size:14px;cursor:help;'; row.appendChild(c); }
     const nm=document.createElement('div'); nm.className='nm'; nm.textContent=a.name; row.appendChild(nm);
     if(!a.connected){ const b=document.createElement('span'); b.className='badge'; b.textContent='starting…'; row.appendChild(b); }
     else if(a.active){ const b=document.createElement('span'); b.className='badge act'; b.textContent='Active'; row.appendChild(b); }
     else { const btn=document.createElement('button'); btn.className='ghost'; btn.textContent='Set active'; btn.onclick=()=>setActive(a.id); row.appendChild(btn); }
-    if(a.connected && !a.managed){ const b=document.createElement('span'); b.className='badge'; b.textContent='external'; row.appendChild(b); }
     if(a.managed){ const btn=document.createElement('button'); btn.className='ghost'; btn.textContent='Stop'; btn.onclick=()=>stopAgent(a.id); row.appendChild(btn); }
     return row;
   }
@@ -563,6 +602,10 @@ const SETUP_PAGE = `<!doctype html>
     document.getElementById('step1').classList.toggle('done',aOk);
     document.getElementById('step2').classList.toggle('done',s.phone.connected);
     if(s.phoneRelay){ const pr=document.getElementById('prelay'); if(pr) pr.textContent=s.phoneRelay; }
+    const ext=(s.agents||[]).filter(a=>a.connected && !a.managed); const rw=document.getElementById('remotewait');
+    if(rw) rw.textContent = ext.length
+      ? ('✓ '+ext.length+' remote/external agent'+(ext.length>1?'s':'')+' connected — pick one in the list above to make it active.')
+      : '⏳ Waiting for a remote agent to connect… it appears in the list above the moment it does. The port is unauthenticated by design — keep it on your tailnet only.';
     // Reflect the SAVED relay choice in the picker on first load (so Tailscale shows selected, not Wi-Fi).
     if(!window._relaySynced && s.relayChoice){ window._relaySynced=true;
       const opt=document.querySelector('[data-relay="'+s.relayChoice+'"]');
@@ -626,8 +669,61 @@ async function main() {
   // behavior is unchanged); this roster tracks everyone connected so the phone can see + switch them.
   const agents = new Map<string, { ws: WebSocket; name: string }>();
   let activeAgentId: string | null = null;
-  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, active: id === activeAgentId }));
+  // `external` = the agent dialed in on its own (a remote/cloud brain or a hand-started CLI), i.e. the
+  // hub didn't spawn it. The phone + web show a cloud icon for these.
+  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, active: id === activeAgentId, external: !managed.has(id) }));
   const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
+
+  /** Where a remote/cloud agent dials in: same host the phone reaches, on the agent port. */
+  const agentWsUrl = () => { try { const u = new URL(phoneRelayUrl(cfg.relayUrl)); return `ws://${u.hostname}:${AGENT_PORT}`; } catch { return `ws://127.0.0.1:${AGENT_PORT}`; } };
+  /** A copy-paste prompt the user hands to a remote/cloud agent so it connects + actually replies.
+   *  Built here (not in the page template) so the protocol text isn't mangled by template escaping. */
+  const remoteAgentPrompt = () => {
+    const ws = agentWsUrl();
+    return [
+      `You are being connected as the "brain" for an Agentic-Android hub — a self-hosted bridge that lets you see and control the user's Android phone (camera, screen read/tap, location, SMS, notifications, apps, and more). Open ONE persistent WebSocket to the hub, then answer the user's chat messages and drive the phone with tool calls. Implement exactly this protocol.`,
+      ``,
+      `ENDPOINT`,
+      `  ${ws}`,
+      `  Plain WebSocket — no TLS, no auth. You must be able to reach this host (it's on the user's Tailscale/LAN). Open ONE connection and KEEP IT OPEN across messages — do NOT reconnect per message (that spawns duplicate ghost agents). If it drops, reconnect with backoff, one connection at a time.`,
+      ``,
+      `HANDSHAKE`,
+      `  1. On open, send:  {"t":"hello","name":"<your name, e.g. Hermes>"}`,
+      `  2. The hub sends your tool catalog:  {"t":"ready","catalog":[ {"method":"...","summary":"..."}, ... ]}  (may be re-sent as {"t":"catalog",...}). These are the phone capabilities you can call.`,
+      ``,
+      `WHEN THE USER SENDS A MESSAGE  (the step most clients miss — without it the user sees "sending…" forever)`,
+      `  The hub pushes:  {"t":"user","text":"<what the user typed>","files":[{"name","mime","path"}]?}`,
+      `  You MUST handle it and reply:`,
+      `    a. (optional) signal progress:  {"t":"event","topic":"agent_status","data":{"label":"Thinking…"}}`,
+      `    b. think; call phone tools if useful (below);`,
+      `    c. ALWAYS finish by sending your reply as an EVENT (this is what appears in the chat):`,
+      `         {"t":"event","topic":"assistant_message","data":{"text":"<your reply>"}}`,
+      `    d. (optional) {"t":"event","topic":"agent_status","data":{"label":"Ready","ready":true}}`,
+      ``,
+      `CALLING A PHONE TOOL`,
+      `  Send:    {"t":"tool","id":"<unique-id>","method":"<catalog method, e.g. device.info>","params":{...}}`,
+      `  Reply:   {"t":"result","id":"<same id>","status":"ok"|"error","result":<any>,"error":<any>}`,
+      `  Correlate by id. Calls can take a few seconds (the phone may prompt for consent). Chain as many as you need, THEN send your assistant_message.`,
+      ``,
+      `FRAMING RULES (strict)`,
+      `  - Every frame is one JSON text message keyed by "t" (both directions).`,
+      `  - To speak to the user you MUST wrap it: {"t":"event","topic":"assistant_message","data":{"text":"..."}}. A bare {"text":...} or {"type":...} is ignored.`,
+      `  - Ignore frames whose "t" you don't recognise.`,
+      ``,
+      `REFERENCE LOOP (pseudocode)`,
+      `  ws = connect("${ws}")`,
+      `  onopen:    send {t:"hello", name:"Hermes"}`,
+      `  onmessage(m):`,
+      `    if m.t == "ready" or "catalog":  catalog = m.catalog`,
+      `    elif m.t == "result":            resolve the pending tool call m.id`,
+      `    elif m.t == "user":`,
+      `        send {t:"event", topic:"agent_status", data:{label:"Thinking…"}}`,
+      `        reply = think(m.text, catalog, callTool)   # callTool sends {t:"tool",...}, awaits {t:"result",...}`,
+      `        send {t:"event", topic:"assistant_message", data:{text: reply}}`,
+      ``,
+      `Confirm you can (1) hold one open socket, (2) receive {t:"user"} frames, and (3) reply with the assistant_message event — then tell the user you're connected and ready.`,
+    ].join("\n");
+  };
 
   // ---- managed agent processes: start/stop brains from the setup UI (no terminal). SEVERAL at once. ----
   // Each managed child is keyed by an instanceId we pass in via env; the agent echoes it in its hello so
@@ -657,6 +753,7 @@ async function main() {
     let script = "src/agent.ts";                                  // basic (keyword) agent
     let baseName = "Built-in helper";
     if (kind === "claude") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); baseName = "Claude"; }            // your Claude
+    else if (kind === "omp") { script = "src/agent-omp.ts"; baseName = "omp"; }                                     // Oh My Pi — keeps its own env (provider keys / OAuth)
     else if (kind === "other" || kind === "custom") {
       baseName = opts.name?.trim() || command || "agent";
       if (opts.phone === false) { script = "src/agent-text.ts"; env.AGENT_CMD = command || ""; }                    // chat-only: any CLI
@@ -697,8 +794,8 @@ async function main() {
           const j = JSON.parse(out);
           if (j.is_error && /401|auth|login|credential|unauthor/i.test(String(j.result))) {
             const signedIn = cli === "claude" ? await authLoggedIn(cli) : false;
-            if (signedIn) return resolve({ ok: false, message: "You're signed in, but the agent runs Claude headlessly, which needs a one-time token here. In a terminal run the command below (uses your subscription — no API key), then press Connect again.", command: "claude setup-token" });
-            return resolve({ ok: false, message: "Your Claude isn't signed in on this computer. In a terminal run the command below, then press Connect again. (No API key needed.)", command: cli === "claude" ? "claude auth login" : undefined });
+            if (signedIn) return resolve({ ok: false, message: "You're signed in, but the agent runs Claude headlessly, which needs a one-time token here. In a terminal run the command below, then press Connect again.", command: "claude setup-token" });
+            return resolve({ ok: false, message: "Claude isn't signed in on this computer. In a terminal run the command below, then press Connect again.", command: cli === "claude" ? "claude auth login" : undefined });
           }
         } catch { /* */ }
         resolve({ ok: true });
@@ -997,8 +1094,16 @@ async function main() {
         paired: !!cfg.peerEdPub,
         relayUrl: cfg.relayUrl,
         phoneRelay: phoneRelayUrl(cfg.relayUrl),
+        // Where a REMOTE agent (cloud box, another machine) dials in — same host the phone reaches, agent port.
+        agentWs: agentWsUrl(),
         relayChoice: (() => { try { const v = loadCfg().phoneRelayUrl; return typeof v === "string" && v.trim() ? (v === "usb" ? "usb" : "anywhere") : "auto"; } catch { return "auto"; } })(),
       });
+    }
+    if (req.method === "GET" && url.pathname === "/remote-prompt") {
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.setHeader("cache-control", "no-store");
+      res.end(remoteAgentPrompt());
+      return;
     }
     if (req.method === "POST" && url.pathname === "/agent/start") {
       let body = ""; req.on("data", (c) => (body += c));

@@ -112,6 +112,8 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BrokenImage
@@ -201,6 +203,7 @@ class MainActivity : ComponentActivity() {
                 val connectionEnabled by SettingsStore.connectionEnabled.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
+                val roster by PhoneAgentService.roster.collectAsState() // agents on the active hub (switch w/o reconnect)
                 val sessionList by PhoneAgentService.sessions.collectAsState()
                 val activeSessionId by PhoneAgentService.activeSessionId.collectAsState()
                 val paired = profiles.isNotEmpty()
@@ -350,9 +353,9 @@ class MainActivity : ComponentActivity() {
                     drawerState = drawerState,
                     drawerContent = {
                         ChatDrawer(
-                            profiles = profiles, activeAgentId = activeId,
+                            hubs = profiles, activeHubId = activeId,
                             sessions = sessionList, activeSessionId = activeSessionId,
-                            onSwitchAgent = { PhoneAgentService.instance?.switchAgent(it) },
+                            onSwitchHub = { PhoneAgentService.instance?.switchAgent(it) },
                             onPair = { startActivity(Intent(this@MainActivity, PairingActivity::class.java)) },
                             onNewChat = { PhoneAgentService.instance?.newSession() },
                             onSelectSession = { PhoneAgentService.instance?.selectSession(it) },
@@ -370,24 +373,53 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.align(Alignment.CenterStart),
                         ) { Icon(Icons.Rounded.Menu, contentDescription = "Chats & agents") }
 
-                        Column(
-                            Modifier.align(Alignment.Center).padding(horizontal = 100.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(shortWho, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                val dotColor = if (!paired) Color(0xFF9AA0A6) else if (connected) Color(0xFF34C759) else Color(0xFFFFB020)
-                                Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
-                                Spacer(Modifier.width(5.dp))
-                                Text(
-                                    when {
-                                        !paired -> "not paired"
-                                        connected -> "connected"
-                                        !connectionEnabled -> "offline"
-                                        else -> "connecting…"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall, color = Color.Gray,
-                                )
+                        // Agent name = a tab. Chevron + dropdown to switch agents on this hub (only if >1).
+                        Box(Modifier.align(Alignment.Center).padding(horizontal = 100.dp)) {
+                            var agentMenu by remember { mutableStateOf(false) }
+                            val canSwitch = roster.size > 1
+                            Column(
+                                Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .then(if (canSwitch) Modifier.clickable { agentMenu = true } else Modifier)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(shortWho, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (canSwitch) Icon(
+                                        Icons.Rounded.ArrowDropDown, contentDescription = "Switch agent",
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val dotColor = if (!paired) Color(0xFF9AA0A6) else if (connected) Color(0xFF34C759) else Color(0xFFFFB020)
+                                    Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text(
+                                        when {
+                                            !paired -> "not paired"
+                                            connected -> "connected"
+                                            !connectionEnabled -> "offline"
+                                            else -> "connecting…"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall, color = Color.Gray,
+                                    )
+                                }
+                            }
+                            DropdownMenu(expanded = agentMenu, onDismissRequest = { agentMenu = false }) {
+                                roster.forEach { a ->
+                                    DropdownMenuItem(
+                                        text = { Text(a.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        leadingIcon = {
+                                            Icon(
+                                                if (a.external) Icons.Rounded.Cloud else Icons.Rounded.SmartToy,
+                                                contentDescription = if (a.external) "Cloud agent — connects from elsewhere" else "Local agent",
+                                            )
+                                        },
+                                        trailingIcon = { if (a.active) Icon(Icons.Rounded.Check, contentDescription = "active") },
+                                        onClick = { PhoneAgentService.instance?.selectAgent(a.id); agentMenu = false },
+                                    )
+                                }
                             }
                         }
 
@@ -729,14 +761,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** Left drawer: switch agent, start a new chat, and open / delete past chats. */
+/** Left drawer: switch hubs, start a new chat, and open / delete past chats. (Agents switch in the header.) */
 @Composable
 private fun ChatDrawer(
-    profiles: List<AgentProfile>,
-    activeAgentId: String?,
+    hubs: List<AgentProfile>,
+    activeHubId: String?,
     sessions: List<SessionInfo>,
     activeSessionId: String?,
-    onSwitchAgent: (String) -> Unit,
+    onSwitchHub: (String) -> Unit,
     onPair: () -> Unit,
     onNewChat: () -> Unit,
     onSelectSession: (String) -> Unit,
@@ -745,18 +777,20 @@ private fun ChatDrawer(
 ) {
     ModalDrawerSheet(Modifier.fillMaxWidth(0.84f)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 6.dp)) {
-            Text("Agent", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+            // Hubs — each pairing is a hub (its own agents); switching reconnects the bus to it.
+            // (Switching agents *within* a hub happens in the header dropdown.)
+            Text("Hubs", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
-            profiles.forEach { p ->
+            hubs.forEach { h ->
                 NavigationDrawerItem(
-                    label = { Text(p.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    selected = p.id == activeAgentId,
-                    icon = { Icon(Icons.Rounded.SmartToy, contentDescription = null) },
-                    onClick = { onSwitchAgent(p.id); onClose() },
+                    label = { Text(h.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    selected = h.id == activeHubId,
+                    icon = { Icon(Icons.Rounded.Hub, contentDescription = null) },
+                    onClick = { onSwitchHub(h.id); onClose() },
                 )
             }
             NavigationDrawerItem(
-                label = { Text("Pair another agent") },
+                label = { Text("Pair another hub") },
                 selected = false,
                 icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
                 onClick = { onPair(); onClose() },
