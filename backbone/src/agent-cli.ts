@@ -13,7 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
-import { WebSocket } from "ws";
+import { runAgent, type AgentAdapter } from "./agent-runner.ts";
+export { buildPrompt } from "./agent-runner.ts"; // shared with the other agents (and unit-tested here)
 
 /** The headless token saved via the setup UI (~/.agentic-android/agent.json brain.oauthToken). */
 function savedToken(): string | undefined {
@@ -28,7 +29,6 @@ function savedToken(): string | undefined {
 }
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const HUB_WS = process.env.HUB_URL ?? `ws://127.0.0.1:${process.env.AGENT_PORT ?? 8124}`;
 const HUB_HTTP = process.env.HUB_HTTP ?? "http://127.0.0.1:8123";
 const CLI = process.env.AGENT_CLI ?? "claude";
 
@@ -155,7 +155,7 @@ const NEEDS_LOGIN = /401|authenticate|credential|unauthor|login/i;
 const LOGIN_HELP =
   "I'm connected to your phone, but Claude isn't signed in on the computer running the hub. On that " +
   "computer, run `claude setup-token` and paste the token on the setup page (or just run `claude` once " +
-  "and sign in), then try again — it uses your subscription, no API key needed.";
+  "and sign in), then try again.";
 
 /** One-time startup check: can `claude -p` actually answer here? Returns remediation if not. */
 function probeAuth(): Promise<{ ok: boolean; command?: string }> {
@@ -183,19 +183,6 @@ function probeAuth(): Promise<{ ok: boolean; command?: string }> {
 let sessionId: string | undefined;
 /** Start a fresh conversation (e.g. on /clear or /reset). */
 function resetSession() { sessionId = undefined; }
-
-/** Attached files (saved on this machine by the hub) → a note the agent can act on by reading the path. */
-type AttachedFile = { path: string; name: string; mime?: string; size?: number };
-function fileNote(files: AttachedFile[]): string {
-  return files.map((f) => `[Attached file: ${f.name}${f.mime ? ` (${f.mime})` : ""} saved at ${f.path}]`).join("\n");
-}
-/** Fold the user's text and any attached files into one non-empty prompt for `claude -p`. */
-export function buildPrompt(text: string, files: AttachedFile[]): string {
-  const note = files.length ? fileNote(files) : "";
-  if (text.trim() && note) return `${text}\n\n${note}`;
-  if (note) return `The user sent you ${files.length === 1 ? "a file" : `${files.length} files`} with no message.\n${note}\nOpen it and respond.`;
-  return text;
-}
 
 /** Run one turn through the user's CLI agent. Defaults assume `claude -p` JSON output. */
 function runTurn(text: string): Promise<string> {
@@ -229,68 +216,38 @@ function runTurn(text: string): Promise<string> {
   });
 }
 
-async function main() {
-  const ws = new WebSocket(HUB_WS);
-  ws.on("open", () => {
-    // AGENT_NAME lets the hub label several agents distinctly; AGENT_INSTANCE_ID lets it match this
-    // process to its roster entry (so the UI can stop exactly this one).
-    ws.send(JSON.stringify({ t: "hello", name: process.env.AGENT_NAME ?? "Claude (your subscription)", id: process.env.AGENT_INSTANCE_ID }));
-    console.error(`agent-cli connected to hub ${HUB_WS}; CLI = "${CLI}"`);
-    // Publish the slash command/skill catalog so the phone's `/` menu mirrors what this agent can run.
-    if (path.basename(CLI).includes("claude")) {
-      try {
-        const commands = discoverSlash();
-        ws.send(JSON.stringify({ t: "event", topic: "agent_commands", data: { commands } }));
-        console.error(`published ${commands.length} slash commands/skills to the phone`);
-      } catch (e) { console.error("slash discovery failed:", String(e)); }
-    }
-    // Don't claim "ready" on the WS link alone — actually verify Claude can authenticate here, so the
-    // phone/web show the truth (and the exact fix) instead of "connected" followed by a 401 on first message.
-    void probeAuth().then((p) => {
-      if (p.ok) { ws.send(JSON.stringify({ t: "event", topic: "agent_status", data: { label: "Ready", ready: true } })); return; }
-      ws.send(JSON.stringify({ t: "event", topic: "agent_status", data: { label: "⚠ Sign in to Claude on your computer", ready: false, command: p.command } }));
-      console.error("\n" + "─".repeat(64) + "\n" +
-        "  Claude isn't signed in for headless use on THIS computer.\n" +
-        `  Fix:  ${p.command ?? "claude setup-token"}\n` +
-        "  then paste the token on the setup page (it reconnects automatically).\n" +
-        "  Uses your subscription — no API key needed.\n" +
-        "─".repeat(64) + "\n");
-    });
-  });
-  ws.on("message", (raw) => {
-    let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
-    if (m.t === "user") {
-      const text = String(m.text ?? "");
-      const files: AttachedFile[] = Array.isArray(m.files) ? m.files : [];
-      // Let the user start a fresh conversation (these TUI commands are no-ops through `claude -p`).
-      if (!files.length && /^\/(clear|reset|new)\s*$/i.test(text.trim())) {
-        resetSession();
-        ws.send(JSON.stringify({ t: "event", topic: "assistant_message", data: { text: "Started a fresh conversation — earlier messages are forgotten." } }));
-        return;
-      }
-      const prompt = buildPrompt(text, files);
-      if (!prompt.trim()) return; // nothing to act on (e.g. empty event) — don't poke the CLI with an empty prompt
-      ws.send(JSON.stringify({ t: "event", topic: "agent_status", data: { label: "Thinking…" } }));
-      void runTurn(prompt).then((reply) => {
-        // Self-heal readiness from the REAL result: a fresh token starting to work (or breaking) flips
-        // the phone/web state on the next message — no restart needed after saving a token.
-        const authFailed = reply === LOGIN_HELP;
-        ws.send(JSON.stringify({ t: "event", topic: "agent_status",
-          data: authFailed ? { label: "⚠ Sign in to Claude on your computer", ready: false, command: "claude setup-token" } : { label: "Ready", ready: true } }));
-        ws.send(JSON.stringify({ t: "event", topic: "assistant_message", data: { text: reply } }));
-      });
-    }
-    // {t:ready|catalog}: phone-mcp fetches tools from /catalog itself, so nothing to wire here.
-  });
-  ws.on("close", () => { console.error("hub connection closed — exiting"); process.exit(1); });
-  ws.on("error", (e) => console.error("hub ws error:", String(e)));
-}
+/** The Claude brain as a thin adapter for the shared hub harness (agent-runner). */
+const adapter: AgentAdapter = {
+  // AGENT_NAME (set by the hub) overrides this so several agents get distinct roster labels.
+  name: process.env.AGENT_NAME ?? "Claude",
+  // Verify Claude can actually authenticate here, so the phone/web show the truth (and the exact fix)
+  // instead of "connected" followed by a 401 on the first message.
+  probe: () => probeAuth().then((p) => {
+    if (p.ok) return { ok: true };
+    console.error("\n" + "─".repeat(64) + "\n" +
+      "  Claude isn't signed in for headless use on THIS computer.\n" +
+      `  Fix:  ${p.command ?? "claude setup-token"}\n` +
+      "  then paste the token on the setup page (it reconnects automatically).\n" +
+      "─".repeat(64) + "\n");
+    return { ok: false, label: "⚠ Sign in to Claude on your computer", command: p.command };
+  }),
+  runTurn,
+  reset: resetSession,
+  // Mirror the Claude TUI's `/` menu on the phone — only for an actual `claude` binary.
+  onConnect: (emit) => {
+    if (!path.basename(CLI).includes("claude")) return;
+    try { const commands = discoverSlash(); emit("agent_commands", { commands }); console.error(`published ${commands.length} slash commands/skills to the phone`); }
+    catch (e) { console.error("slash discovery failed:", String(e)); }
+  },
+  // A fresh token starting to work (or breaking) flips the phone/web state on the next message.
+  authFailed: (reply) => (reply === LOGIN_HELP ? { label: "⚠ Sign in to Claude on your computer", command: "claude setup-token" } : null),
+};
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv.includes("--list-commands")) {
     const c = discoverSlash();
     console.log(`${c.length} slash commands/skills:\n` + c.map((x) => `  /${x.invoke}  [${x.kind}]  ${x.description.slice(0, 60)}`).join("\n"));
   } else {
-    await main();
+    await runAgent(adapter);
   }
 }

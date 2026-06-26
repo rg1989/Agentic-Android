@@ -12,6 +12,7 @@
     "panel": "tsx src/panel.ts",
     "agent": "tsx src/agent.ts",
     "agent:claude": "tsx src/agent-cli.ts",
+    "agent:omp": "tsx src/agent-omp.ts",
     "mcp:phone": "tsx src/phone-mcp.ts",
     "typecheck": "tsc --noEmit"
   },
