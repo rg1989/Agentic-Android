@@ -63,7 +63,10 @@ Make a single exchange feel alive. No new dependencies.
       on a playing reply; it instead pauses during TTS (see the coexistence item in Phase 3).
       Device-verified: long-pressed the mic mid-reply (during the TTS speech window) → red "Listening…"
       bar active, TTS halted via `setRecording`→`stopSpeaking`, wake-word mic held by [rec] until done.
-- [ ] Settings: pick TTS voice/locale, speech rate. (later)
+- [x] Settings: **speech rate + voice pitch** sliders (0.5–2.0×, 0.1 steps), persisted and applied
+      fresh on each utterance so changes take effect immediately. Device-verified: slider→prefs
+      round-trip (1.9→1.0). Engine follows the system locale; a full *named-voice* enumeration picker
+      is deliberately skipped (YAGNI — audible-only, low value vs. rate/pitch).
 - [x] **Smart speech for machine-junk** (extends `SpeechText.forSpeech()`): UUIDs → "a UUID",
       16+ hex blobs (md5/sha/git) → "a hash", 20+ opaque tokens w/ letter+digit (api keys/base64) →
       "an ID", file paths (unix/win) → "a file path", 7+ digit runs → "ending in NNNN". Chat keeps the
@@ -216,7 +219,7 @@ never by the ephemeral agent turn or a per-process timer.
 | Actions the agent can use (per-capability on/off) | 0 | [x] |
 | Chimes on/off | 1 | [x] |
 | Speak replies (TTS) on/off | 2 | [x] |
-| TTS voice / rate | 2 | [ ] |
+| TTS speech rate + voice pitch | 2 | [x] |
 | Wake word on/off | 3 | [x] |
 | Wake phrase | 3 | [x] |
 | Wake sensitivity / listen timeout / per-state chime | 3 | [ ] |

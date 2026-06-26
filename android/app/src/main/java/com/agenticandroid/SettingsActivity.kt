@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,6 +65,8 @@ class SettingsActivity : ComponentActivity() {
                 val voiceReplies by SettingsStore.voiceReplies.collectAsState()
                 val wakeWord by SettingsStore.wakeWord.collectAsState()
                 val wakePhrase by SettingsStore.wakePhrase.collectAsState()
+                val ttsRate by SettingsStore.ttsRate.collectAsState()
+                val ttsPitch by SettingsStore.ttsPitch.collectAsState()
                 val caps by PhoneAgentService.capabilities.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
@@ -196,6 +199,10 @@ class SettingsActivity : ComponentActivity() {
                                 }
                                 Switch(checked = voiceReplies, onCheckedChange = { SettingsStore.setVoiceReplies(it) })
                             }
+                            if (voiceReplies) {
+                                SliderRow("Speech rate", ttsRate, 0.5f..2.0f) { SettingsStore.setTtsRate(it) }
+                                SliderRow("Voice pitch", ttsPitch, 0.5f..2.0f) { SettingsStore.setTtsPitch(it) }
+                            }
                             Row(
                                 Modifier.fillMaxWidth().clickable { SettingsStore.setChimes(!chimes) }
                                     .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -303,6 +310,23 @@ class SettingsActivity : ComponentActivity() {
                 }
             }
         }
+    }
+}
+
+/** A labelled slider showing its current multiplier (e.g. "Speech rate   1.2×"). */
+@Composable
+private fun SliderRow(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                String.format(java.util.Locale.US, "%.1f×", value),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // 0.5..2.0 in 0.1 steps → 15 discrete stops.
+        Slider(value = value, onValueChange = onChange, valueRange = range, steps = 14)
     }
 }
 

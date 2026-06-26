@@ -70,7 +70,7 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W3  Smart-speech junk filter (UUID/hash/ID/path/long-digits) + 12/12 unit tests, no speak regression. commit pending below.
 - [x] W4  Chat polish: timestamps under bubbles (hub replay carries ts) + state-change haptics; typing dots already existed. Screenshot-verified. commit pending.
 - [x] W5  Distinct wake-flow chimes (wakeHeard=double-beep, wakeDone=prompt) wired in WakeWordService. Compile-verified; audible=user. commit pending.
-- [ ] W6  Phase 2 Settings: TTS voice/locale + speech rate (persist; audible = user).
+- [x] W6  TTS speech rate + voice pitch sliders (persist+apply). Device-verified prefs round-trip 1.9->1.0. Named-voice catalog skipped (YAGNI). commit pending.
 - [ ] W7  Phase 3 Settings: wake sensitivity / listen-timeout knobs + boot restart of WakeWordService.
 - [ ] W8  Phase 5 per-state custom chime sounds + wake-word DND windows.
 - [ ] W9  Phase 6 wire shape: extend assistant_message with typed parts (text/markdown/image-ref/file-ref/table), back-compat.

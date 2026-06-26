@@ -19,6 +19,8 @@ object SettingsStore {
     private const val KEY_WAKE = "wake_word"
     private const val KEY_WAKE_PHRASE = "wake_phrase"
     private const val KEY_CONNECTION = "connection_enabled"
+    private const val KEY_TTS_RATE = "tts_rate"
+    private const val KEY_TTS_PITCH = "tts_pitch"
 
     val theme = MutableStateFlow("system")
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
@@ -27,6 +29,8 @@ object SettingsStore {
     val wakeWord = MutableStateFlow(false)    // default off — an always-on mic is opt-in
     val wakePhrase = MutableStateFlow("hey agent")
     val connectionEnabled = MutableStateFlow(true) // master on/off for the hub connection (pairing is kept either way)
+    val ttsRate = MutableStateFlow(1.0f)  // speech speed multiplier (0.5–2.0); 1.0 = engine default
+    val ttsPitch = MutableStateFlow(1.0f) // voice pitch multiplier (0.5–2.0); 1.0 = engine default
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -41,6 +45,18 @@ object SettingsStore {
         wakeWord.value = p.getBoolean(KEY_WAKE, false)
         wakePhrase.value = p.getString(KEY_WAKE_PHRASE, "hey agent") ?: "hey agent"
         connectionEnabled.value = p.getBoolean(KEY_CONNECTION, true)
+        ttsRate.value = p.getFloat(KEY_TTS_RATE, 1.0f)
+        ttsPitch.value = p.getFloat(KEY_TTS_PITCH, 1.0f)
+    }
+
+    fun setTtsRate(v: Float) {
+        ttsRate.value = v
+        prefs?.edit()?.putFloat(KEY_TTS_RATE, v)?.apply()
+    }
+
+    fun setTtsPitch(v: Float) {
+        ttsPitch.value = v
+        prefs?.edit()?.putFloat(KEY_TTS_PITCH, v)?.apply()
     }
 
     fun setConnectionEnabled(on: Boolean) {

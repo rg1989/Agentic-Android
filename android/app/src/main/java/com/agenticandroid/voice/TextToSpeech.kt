@@ -62,6 +62,10 @@ class PlatformTtsBackend : TextToSpeech.Backend {
         val engine = tts ?: run { onDone(); return }
         if (!ready) { onDone(); return }
 
+        // Apply the user's rate/pitch fresh each time, so a change in Settings takes effect immediately.
+        engine.setSpeechRate(com.agenticandroid.SettingsStore.ttsRate.value)
+        engine.setPitch(com.agenticandroid.SettingsStore.ttsPitch.value)
+
         val utteranceId = "utt_${System.currentTimeMillis()}"
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String) {}
