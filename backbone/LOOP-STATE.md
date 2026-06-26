@@ -82,7 +82,7 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W14 Send files phone->agent: attach->SAF->blob->user_message file part; hub persists to media/files; agent gets path+mime. Device-verified log_list.json round-trip. commit pending.
 - [x] W15 Hub scheduler (scheduler.ts + 5 tests): persist/rearm/fire/recurrence; WS tools + HTTP + phone-mcp. Device-verified schedule->fire->chat + rearm across restart. commit pending.
 - [x] W16 Multi-agent hub (SAFE, additive): roster Map + select_agent routing; agentSock=active preserved (no regression). VERIFIED with 2 stub agents Ada/Bob (select Bob -> reply switches to Bob). commit pending.
-- [ ] W17 Phase H write+test launchd plist (load/unload), do NOT auto-install — leave for user.
+- [~] W17 launchd plist + service-run.sh + README written; load/unload lifecycle verified; NOT installed (per decision). TCC blocks ~/Documents for launchd — documented (move checkout or grant FDA). Plist correct. commit pending.
 
 ## Log
 - init: Bluetooth icon = PhoneAgentService.kt:146 `stat_sys_data_bluetooth`. No launcher icon / no

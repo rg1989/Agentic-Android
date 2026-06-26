@@ -121,8 +121,13 @@ The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
 - [x] **Hub owns state**: config, event log, **media**, and now **conversation history**
       (`conversation.jsonl`, per agent) under `~/.agentic-android/`. The hub replays history to the
       phone on connect (`whoami` → `history` event); the phone renders it. Device-verified.
-- [ ] **Run as a managed service** on the machine (launchd/systemd): auto-start, restart on crash,
-      relay folded in or beneath the hub. (The *phone* now auto-reconnects with backoff.)
+- [~] **Run as a managed service** (launchd): wrote [com.agenticandroid.hub.plist](launchd/com.agenticandroid.hub.plist)
+      (RunAtLoad + KeepAlive=restart-on-crash) + [service-run.sh](backbone/service-run.sh) (starts relay,
+      execs hub; bare-env PATH set) + [install README](launchd/README.md). `launchctl load`/`unload`
+      lifecycle verified. **Not auto-installed (per overnight decision — left for user).** Test surfaced
+      a macOS **TCC** caveat: launchd can't read this checkout under `~/Documents` ("Operation not
+      permitted") — fix is to move the checkout out of a protected folder or grant Full Disk Access
+      (documented in the README). Plist/script are otherwise correct.
 - [ ] Multiple agents connectable at once; route/select. → **moved to Phase 8.**
 
 ## Phase 5 — Polish

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runs the Agentic Android glue (relay + hub) as a managed user service: auto-starts at login and
+  restarts on crash. This is NOT installed automatically — see launchd/README.md to install.
+
+  Paths are absolute (launchd requires it) and assume the repo at the path below. Edit both the
+  service-run.sh path and the log paths if your checkout lives elsewhere.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.agenticandroid.hub</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/rgv250cc/Documents/Projects/Agentic-Android/backbone/service-run.sh</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/rgv250cc/Documents/Projects/Agentic-Android/backbone</string>
+    <key>StandardOutPath</key>
+    <string>/Users/rgv250cc/Documents/Projects/Agentic-Android/.logs/service.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/rgv250cc/Documents/Projects/Agentic-Android/.logs/service.err.log</string>
+</dict>
+</plist>
