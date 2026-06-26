@@ -58,6 +58,12 @@ Make a single exchange feel alive. No new dependencies.
       shortens long numbers for the *ear only* (chat keeps full text). Unit-tested.
 - [x] "🔊 Speaking…" status + tap-to-stop; barge-in stops TTS when a new turn starts.
 - [ ] Settings: pick TTS voice/locale, speech rate. (later)
+- [ ] **Smart speech for machine-junk** (extends `SpeechText.forSpeech()`): a human shouldn't hear
+      UUIDs, hashes, long hex/IDs, file paths, or long digit runs read out character-by-character —
+      they flood the speech and add nothing. Detect these tokens and either drop them, collapse to a
+      short spoken stand-in ("a UUID", "an ID", "a long number"), or speak only a useful summary
+      (e.g. "ends in 4271"). Chat keeps the full text; only the *ear* is filtered. Unit-test the
+      classifier on real agent replies. (later)
 
 ## Phase 3 — Always-on wake word  ← **DONE (Vosk; listen path device-verified)**
 Engine: **Vosk** (offline, on-device, no key) — user-chosen. Vosk does both hotword spotting and
@@ -78,8 +84,7 @@ command capture in one continuous stream (no mic handoff).
 - [x] **Switch**: header picker (tap the agent name) + Settings → Agents. Switching rebuilds the
       `BusEndpoint` (fresh registry) and reconnects; the agent's announced name is saved on the profile.
 - [x] **Manage**: Forget an agent; the active profile shows the live connection state.
-- [ ] (Later) keep several connected at once and route per message. Two-distinct-agent switching
-      reuses the verified connect path but needs a second paired hub to exercise live.
+- [ ] (Later) keep several connected at once and route per message. → **moved to Phase 8.**
 
 ## Phase H — Make the hub a real, separate service (architectural)
 The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
@@ -95,13 +100,94 @@ The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
       phone on connect (`whoami` → `history` event); the phone renders it. Device-verified.
 - [ ] **Run as a managed service** on the machine (launchd/systemd): auto-start, restart on crash,
       relay folded in or beneath the hub. (The *phone* now auto-reconnects with backoff.)
-- [ ] Multiple agents connectable at once; route/select per the multi-agent work (Phase 4).
+- [ ] Multiple agents connectable at once; route/select. → **moved to Phase 8.**
 
 ## Phase 5 — Polish
 - [x] Tap-to-stop spoken replies; long-press a message to copy.
 - [x] Durable connection: auto-reconnect with exponential backoff on a dropped link.
 - [ ] Animated typing dots, haptics on state changes, message timestamps.
 - [ ] Per-state custom chime sounds; "do not disturb" windows for the wake word.
+
+## Phase 6 — Rich responses (eye vs ear)  ← **not started**
+The two channels carry different loads: the **ear** gets a clean spoken summary (Phase 2 smart
+speech), the **eye** gets the full rich render in chat. Agent replies are more than plain text.
+- [ ] **Markdown rendering** in chat bubbles: headings, bold/italic, lists, links, inline `code`
+      and fenced code blocks (monospace, scrollable). Pick a Compose markdown lib or render a
+      minimal subset by hand. The TTS pass keeps stripping all of this for the ear.
+- [ ] **Images**: the agent can attach/return an image (already have the media/blob path via the
+      hub) → render inline in the bubble, tap to fullscreen. Spoken: just "(an image)".
+- [ ] **Charts/tables**: structured data (a table or a simple chart spec) rendered visually; spoken
+      as a one-line summary, not cell-by-cell. Define a small reply-content type the agent emits.
+- [ ] **Receive files from the agent**: agent sends an arbitrary file (PDF, doc, zip, audio…), the
+      phone shows it as a chat attachment (name + size + type icon) with **save to device** / share.
+      Reuse the existing hub blob+media path (same one photos use) — generalize it to any mime type,
+      don't build a new transport. New wire part `file-ref {blobId, name, mime, size}`. Spoken: just
+      "(a file: <name>)". Mind Android scoped storage (SAF / MediaStore) for the save step.
+- [ ] Decide the **wire shape**: extend `assistant_message` with optional typed parts
+      (text / markdown / image-ref / file-ref / table / chart) so the phone knows how to render each
+      and the speech sanitizer knows what to skip. Backwards-compatible (plain text still works).
+
+## Phase 7 — Send files from the phone (phone → agent)  ← **not started**
+The mirror of Phase 6's "receive files": let the user attach a file from the phone and drop it into
+the conversation for the agent to use. Reuses the same hub blob/media path.
+- [ ] Phone: attach button → Android file picker (SAF / `ACTION_GET_CONTENT`); show the attachment
+      in the chat bubble (name, size, thumbnail for images).
+- [ ] Wire: stream the file to the hub as a blob (reuse the photo blob upload); cap size, show
+      progress. Reuse the `file-ref {blobId, name, mime, size}` part from Phase 6, phone→hub direction.
+- [ ] Hub: persist the blob + record it on the conversation turn; expose its path/handle to the
+      agent so the brain can read or act on it.
+- [ ] Agent side: surface the attachment to the brain (path + mime) like a captured photo today.
+- Open Qs: max size / allowed types; binary vs text; agent gets bytes inline or a path it opens.
+
+## Phase 8 — Multiple agents at the hub (the core-glue redesign)  ← **not started**
+**This is the consolidated home for "many agents at once."** Today the whole stack is single-agent:
+the hub holds one agent connection (`agentSock`), and config/history/routing are all keyed to that
+one. It must be **redesigned to hold N agents** so one hub (one machine) can run several brains and
+the phone picks among them live. Supersedes the scattered notes: Phase 4 "(later) keep several
+connected", Phase H "multiple agents connectable", and LOOP-STATE "Feature B — concierge".
+- [ ] **Hub holds many**: `agentSock` → `agents: Map<id, {ws, name, …}>`. Per-agent conversation
+      history + media (already per-agent on disk; make the in-memory routing per-agent too). One agent
+      = identical behavior to today (no regression).
+- [ ] **Phone sees the roster**: hub announces the connected-agents list (and changes) to the phone;
+      the picker shows who's actually online *now*, not just paired profiles. Reuses the Phase 4
+      Agents UI (list / switch); add a live online/offline marker per agent.
+- [ ] **Switch routes at the hub**: phone selects an agent → hub routes that phone's `user_message`
+      to the chosen agent and streams only that agent's replies/status back. Switching is instant,
+      no re-pair, no reconnect.
+- [ ] **Redesign smartly, not per-feature**: pick the routing model once — phone↔agent is a
+      selected 1:1 at a time (simplest) vs. concierge "main" agent that can `ask_agent(name,…)` the
+      others (LOOP-STATE Feature B). Decide before coding; the data model should not preclude
+      concierge later.
+- [ ] **State stays hub-owned**: swapping/forgetting an agent loses nothing; each agent's history
+      replays correctly on (re)connect. Verify with ≥2 real brains (sandbox can run only one).
+- Open Qs: 1:1-selected vs concierge-routed (or both, staged); how the phone shows multi-agent
+      activity (badge unread per agent?); auth/identity when several agents share one hub.
+
+## Phase 9 — Hub-owned scheduler (deferred & timed actions)  ← **not started**
+**Found via a live test:** "wait 30s, then take a photo, then another" silently did nothing. Root
+cause is architectural, not a one-off: a delayed action was held as a `setTimeout` inside an
+**ephemeral** process; when that process was torn down during the wait, the timer died and nothing
+fired. The product has the *same* flaw baked in — the only `schedule` tool is the orphaned in-memory
+one in `bridge.ts` (old single-process design); the live hub (`panel.ts`) and the key-free agent
+path (`agent-cli.ts`/`phone-mcp.ts`) have **no scheduler at all**.
+**Principle:** a delayed/recurring action must be owned by the **always-on component (the hub)**,
+never by the ephemeral agent turn or a per-process timer.
+- [ ] **Move scheduling into the hub** (`panel.ts`), the always-on glue. Retire/replace the
+      `bridge.ts` in-memory scheduler. The agent *requests* a schedule; the hub *holds* it.
+- [ ] **Persist to disk** (`~/.agentic-android/schedule.jsonl`): each task `{id, fire_at, kind,
+      method, args, agentId, recurrence?}`. On hub startup, load + re-arm everything still pending —
+      otherwise a hub restart loses timers (the same bug one level up).
+- [ ] **On fire, the hub acts + wakes the agent**: run the phone action itself, then deliver a
+      `task.result` to the owning agent (spawn `claude -p --resume` in the key-free path, or push to
+      the connected WS agent). Works even if the agent that scheduled it has since disconnected.
+- [ ] **Tool surface**: `schedule(when, method, args)` accepting a delay *or* an absolute time, plus
+      `list_scheduled()` and `cancel(id)`. Expose to WS agents and via phone-mcp.
+- [ ] **Recurrence (cron)**: optional repeating tasks ("every morning…"). Ties into the
+      assistant/concierge feel; one-shot first, recurring behind the same store.
+- Open Qs: timezone/DST for absolute times; max in-flight tasks; per-agent vs hub-global ownership
+      when an agent is forgotten (Phase 8); does a fired task also surface in the phone chat log.
+- Note: mirrors the harness lesson — for *my own* multi-step waits use a scheduled wake-up, not a
+      background `sleep`, for the same reason.
 
 ---
 
