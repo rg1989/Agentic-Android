@@ -159,7 +159,10 @@ class PhoneAgentService : Service() {
                     }
                 }
                 "agent_status" -> {
-                    status.value = (ev.data["label"] as? JsonPrimitive)?.content
+                    // `ready: true` is a steady "idle/ready" signal, not a transient action — clear the
+                    // strip instead of showing "Ready …". Only transient labels / warnings are displayed.
+                    val ready = (ev.data["ready"] as? JsonPrimitive)?.content == "true"
+                    status.value = if (ready) null else (ev.data["label"] as? JsonPrimitive)?.content
                 }
                 "agent_commands" -> {
                     val list = (ev.data["commands"] as? JsonArray)?.mapNotNull { el ->
