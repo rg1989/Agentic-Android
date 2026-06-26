@@ -2,6 +2,8 @@ package com.agenticandroid
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -9,7 +11,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,11 +38,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +55,6 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,7 +70,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -97,6 +105,8 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Delete
@@ -181,6 +191,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             AgentTheme {
                 val messages by PhoneAgentService.chat.collectAsState()
+                val uploads by PhoneAgentService.uploads.collectAsState()
                 val connected by PhoneAgentService.connected.collectAsState()
                 val agentName by PhoneAgentService.agentName.collectAsState()
                 val voiceReplies by SettingsStore.voiceReplies.collectAsState()
@@ -199,10 +210,17 @@ class MainActivity : ComponentActivity() {
                 val clipboard = LocalClipboardManager.current
                 val scope = rememberCoroutineScope()
                 LaunchedEffect(messages.size) {
-                    if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+                    // big scrollOffset overshoots → clamps to the true bottom (past the last bubble + bottom padding)
+                    if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex, scrollOffset = 100_000)
                 }
                 val active = profiles.firstOrNull { it.id == activeId }
                 val who = agentName ?: active?.name ?: if (paired) "your agent" else "no agent"
+                // Compact name for the header + placeholder: drop a "(your subscription)"-style qualifier
+                // (the agent names itself in agent-cli.ts; the full name still shows in Settings → Agents).
+                val shortWho = who.substringBefore(" (").trim().ifBlank { who }
+                var attachOpen by remember { mutableStateOf(false) }  // `+` attach panel open?
+                // Typing anything (incl. "/") collapses the attach panel, so the two palettes never stack.
+                LaunchedEffect(input) { if (input.isNotEmpty()) attachOpen = false }
 
                 // hold-to-talk voice → transcript fills the field live, sends on release; chimes per state
                 val chimes = remember { Chimes() }
@@ -248,29 +266,51 @@ class MainActivity : ComponentActivity() {
                 val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
 
-                // Attach a file from the phone and send it to the agent: pick → upload blob → user_message w/ file part.
-                val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-                    if (uri != null) scope.launch(Dispatchers.IO) {
-                        runCatching {
-                            val cr = context.contentResolver
+                // Attach files and send them to the agent: pick (gallery / docs / downloads / any) → upload
+                // each blob with a progress chip → one user_message carrying all the file parts.
+                fun uploadUris(uris: List<Uri>) {
+                    if (uris.isEmpty()) return
+                    scope.launch(Dispatchers.IO) {
+                        val cr = context.contentResolver
+                        val done = mutableListOf<UploadedFile>()
+                        for (uri in uris) runCatching {
                             val mime = cr.getType(uri)
                             var name = "file"
                             cr.query(uri, null, null, null, null)?.use { c ->
                                 val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                                 if (c.moveToFirst() && ni >= 0) c.getString(ni)?.let { name = it }
                             }
-                            val bytes = cr.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
-                            val id = PhoneAgentService.instance?.putBlob(bytes) ?: return@launch
-                            val partsJson = buildJsonArray {
-                                addJsonObject {
-                                    put("kind", "file"); put("blobId", id); put("name", name)
-                                    mime?.let { put("mime", it) }; put("size", bytes.size)
+                            val bytes = cr.openInputStream(uri)?.use { it.readBytes() } ?: return@runCatching
+                            val uid = java.util.UUID.randomUUID().toString()
+                            PhoneAgentService.uploads.value = PhoneAgentService.uploads.value +
+                                PendingUpload(uid, name, mime, bytes.size, 0)
+                            val id = PhoneAgentService.instance?.putBlob(bytes) { sent, _ ->
+                                PhoneAgentService.uploads.value = PhoneAgentService.uploads.value.map {
+                                    if (it.id == uid) it.copy(sent = sent) else it
                                 }
                             }
-                            withContext(Dispatchers.Main) { PhoneAgentService.instance?.sendUserMessage("", partsJson) }
+                            PhoneAgentService.uploads.value = PhoneAgentService.uploads.value.filterNot { it.id == uid }
+                            if (id != null) done.add(UploadedFile(id, name, mime, bytes.size))
                         }
+                        if (done.isEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(context, "Couldn't send file", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            return@launch
+                        }
+                        val partsJson = buildJsonArray {
+                            for (f in done) addJsonObject {
+                                put("kind", "file"); put("blobId", f.blobId); put("name", f.name)
+                                f.mime?.let { put("mime", it) }; put("size", f.size)
+                            }
+                        }
+                        withContext(Dispatchers.Main) { PhoneAgentService.instance?.sendUserMessage("", partsJson) }
                     }
                 }
+                val pickImages = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uploadUris(it) }
+                val pickDocs = rememberLauncherForActivityResult(OpenDocsFrom(DOCUMENTS_URI)) { uploadUris(it) }
+                val pickDownloads = rememberLauncherForActivityResult(OpenDocsFrom(DOWNLOADS_URI)) { uploadUris(it) }
+                val pickFiles = rememberLauncherForActivityResult(OpenDocsFrom(null)) { uploadUris(it) }
 
                 // --- combined hold-to-talk / tap-to-send button: gesture helpers ---
                 fun sendText() {
@@ -334,7 +374,7 @@ class MainActivity : ComponentActivity() {
                             Modifier.align(Alignment.Center).padding(horizontal = 100.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Text(who, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(shortWho, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 val dotColor = if (!paired) Color(0xFF9AA0A6) else if (connected) Color(0xFF34C759) else Color(0xFFFFB020)
                                 Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
@@ -419,7 +459,7 @@ class MainActivity : ComponentActivity() {
                                 Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
                                 Surface(
                                     modifier = Modifier.widthIn(max = 300.dp),
-                                    color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
                                     shape = RoundedCornerShape(16.dp),
                                 ) {
                                     if (m.imagePath != null) {
@@ -442,7 +482,7 @@ class MainActivity : ComponentActivity() {
                                             m.parts.forEach { PartView(it, isUser) }
                                         }
                                     } else {
-                                        val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
                                         val mod = Modifier
                                             .pointerInput(m.text) {
                                                 detectTapGestures(onLongPress = {
@@ -465,6 +505,15 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
+                        items(uploads, key = { it.id }) { up ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.End) {
+                                Surface(
+                                    modifier = Modifier.widthIn(max = 300.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = RoundedCornerShape(16.dp),
+                                ) { UploadChip(up, MaterialTheme.colorScheme.onPrimary) }
+                            }
+                        }
                     }
                     // floating "scroll to latest" button, centered at the bottom of the transcript;
                     // pops in only when scrolled up (canScrollForward = there's content below).
@@ -480,13 +529,22 @@ class MainActivity : ComponentActivity() {
                                 .size(40.dp)
                                 .graphicsLayer { alpha = sdAlpha; scaleX = 0.7f + 0.3f * sdAlpha; scaleY = 0.7f + 0.3f * sdAlpha }
                                 .clickable(enabled = showScrollDown) {
-                                    scope.launch { listState.animateScrollToItem(messages.lastIndex.coerceAtLeast(0)) }
+                                    scope.launch {
+                                        val last = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                                        listState.animateScrollToItem(last, scrollOffset = 100_000)
+                                    }
                                 },
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Scroll to latest", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
+                    }
+                    // tap anywhere over the transcript to dismiss the attach panel (click-away)
+                    if (attachOpen) {
+                        Box(Modifier.matchParentSize().pointerInput(Unit) {
+                            detectTapGestures { attachOpen = false }
+                        })
                     }
                     } // end transcript Box
 
@@ -509,20 +567,39 @@ class MainActivity : ComponentActivity() {
 
                     // input bar: morphs between a text field and a live recording bar; ONE combined
                     // button — tap to send, hold to talk, slide up to lock hands-free, slide left to cancel.
-                    Row(
-                        Modifier.fillMaxWidth().padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    // composer: one rounded pill — [+ attach] · [text / live recording] · [send/mic].
+                    // `+` opens a floating attach panel (like the `/` palette); the button taps to send,
+                    // holds to talk, slides up to lock hands-free, slides left to cancel.
+                    AnimatedVisibility(
+                        visible = attachOpen && paired && !recording,
+                        enter = fadeIn(tween(140)) + expandVertically(tween(180)),
+                        exit = fadeOut(tween(120)) + shrinkVertically(tween(160)),
                     ) {
+                        AttachPalette(
+                            onPhotos = { attachOpen = false; pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            onDocuments = { attachOpen = false; pickDocs.launch(arrayOf("*/*")) },
+                            onDownloads = { attachOpen = false; pickDownloads.launch(arrayOf("*/*")) },
+                            onFiles = { attachOpen = false; pickFiles.launch(arrayOf("*/*")) },
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(26.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    ) {
+                      Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (paired && !recording) {
-                            IconButton(onClick = { pickFile.launch(arrayOf("*/*")) }) {
+                            val plusRot by animateFloatAsState(if (attachOpen) 45f else 0f, label = "plusRot")
+                            IconButton(onClick = { attachOpen = !attachOpen }) {
                                 Icon(
-                                    Icons.Rounded.AttachFile,
-                                    contentDescription = "Attach a file",
+                                    Icons.Rounded.Add, contentDescription = "Add attachment",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.rotate(plusRot),
                                 )
                             }
                         }
-                        Box(Modifier.weight(1f)) {
+                        Box(Modifier.weight(1f).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
                             if (recording) {
                                 RecordingBar(
                                     locked = locked,
@@ -531,17 +608,30 @@ class MainActivity : ComponentActivity() {
                                     onCancel = { cancelRecording() },
                                 )
                             } else {
-                                OutlinedTextField(
+                                BasicTextField(
                                     value = input,
                                     onValueChange = { input = it },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    placeholder = { Text(if (paired) "Message $who…" else "Pair an agent first") },
-                                    maxLines = 4,
+                                    enabled = paired,
+                                    // focusing the field (tapping it) collapses the attach panel
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                                        .onFocusChanged { if (it.isFocused) attachOpen = false },
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    maxLines = 5,
+                                    decorationBox = { inner ->
+                                        if (input.isEmpty()) Text(
+                                            if (paired) "Message $shortWho…" else "Pair an agent first",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        inner()
+                                    },
                                 )
                             }
                         }
                         if (paired) {
-                            Spacer(Modifier.width(8.dp))
                             val canSend = input.isNotBlank() && !recording
                             val showSend = canSend || locked || !voice.available
                             val scale by animateFloatAsState(
@@ -549,8 +639,10 @@ class MainActivity : ComponentActivity() {
                                 spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "btnScale",
                             )
                             Box(
-                                Modifier.size(52.dp).scale(scale).clip(CircleShape)
-                                    .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                                Modifier.size(44.dp).scale(scale).clip(CircleShape)
+                                    // tertiary = the theme's 3rd (middle-swatch) color; the always-on send/mic
+                                    // button is its home, so every theme shows all three colors at once.
+                                    .background(if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary)
                                     // Stable key: we mutate recording/locked DURING the gesture, so keying on
                                     // them would restart the handler mid-gesture and kill the drag loop.
                                     .pointerInput(Unit) {
@@ -605,12 +697,13 @@ class MainActivity : ComponentActivity() {
                                     Icon(
                                         imageVector = if (send) Icons.AutoMirrored.Rounded.Send else Icons.Rounded.Mic,
                                         contentDescription = if (send) "Send" else "Hold to talk",
-                                        tint = if (recording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(24.dp),
+                                        tint = if (recording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onTertiary,
+                                        modifier = Modifier.size(22.dp),
                                     )
                                 }
                             }
                         }
+                      }
                     }
                 }
                 // Listening glow around the screen edges while recording or wake-listening.
@@ -740,7 +833,8 @@ private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> 
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(16.dp)),
     ) {
         LazyColumn {
-            items(matches) { c ->
+            itemsIndexed(matches) { i, c ->
+                if (i > 0) PaletteDivider()
                 Row(
                     Modifier.fillMaxWidth().clickable { onPick(c) }.padding(horizontal = 14.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -770,13 +864,61 @@ private fun SlashPalette(matches: List<SlashCommand>, onPick: (SlashCommand) -> 
     }
 }
 
+/** The `+` attach menu: a floating card (same style as the `/` palette) with the four sources. */
+@Composable
+private fun AttachPalette(onPhotos: () -> Unit, onDocuments: () -> Unit, onDownloads: () -> Unit, onFiles: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 3.dp,
+        shadowElevation = 10.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 8.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(16.dp)),
+    ) {
+        Column {
+            AttachRow(Icons.Rounded.Image, "Photos", "Pick from your gallery", onPhotos)
+            PaletteDivider()
+            AttachRow(Icons.Rounded.Folder, "Documents", "Browse your documents", onDocuments)
+            PaletteDivider()
+            AttachRow(Icons.Rounded.Download, "Downloads", "Browse your downloads", onDownloads)
+            PaletteDivider()
+            AttachRow(Icons.AutoMirrored.Rounded.InsertDriveFile, "Files", "Any file type", onFiles)
+        }
+    }
+}
+
+/** A subtle inset divider between palette rows — visible but light, premium. */
+@Composable
+private fun PaletteDivider() = HorizontalDivider(
+    Modifier.padding(horizontal = 12.dp),
+    thickness = 1.dp,
+    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+)
+
+@Composable
+private fun AttachRow(icon: ImageVector, label: String, hint: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 /**
  * Renders one typed part of a rich reply (Phase 6). Text parts show as text (markdown styling lands
  * in a later item); image / file / table show a compact stand-in until their own renderers arrive.
  */
 @Composable
 private fun PartView(part: MsgPart, isUser: Boolean) {
-    val fg = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    val fg = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
     when (part) {
         is MsgPart.Text -> if (part.markdown) MarkdownText(part.text, fg) else Text(part.text, color = fg, style = MaterialTheme.typography.bodyMedium)
         is MsgPart.Table -> TableView(part, fg)
@@ -830,6 +972,21 @@ private fun openDownloaded(context: android.content.Context, uri: String) {
 /** A blob the agent sent that we can download/share (file or image). */
 data class BlobRef(val blobId: String, val name: String, val mime: String?)
 
+/** A file the user just uploaded to the agent, ready to ride as a file-ref part. */
+private data class UploadedFile(val blobId: String, val name: String, val mime: String?, val size: Int)
+
+/** SAF "open documents" (multi-select) that opens in a given folder (Documents / Downloads) when supported. */
+private class OpenDocsFrom(private val initial: Uri?) : ActivityResultContracts.OpenMultipleDocuments() {
+    override fun createIntent(context: android.content.Context, input: Array<String>): Intent {
+        val i = super.createIntent(context, input)
+        if (initial != null) i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial)
+        return i
+    }
+}
+// Start-folder hints for the docs/downloads pickers (EXTRA_INITIAL_URI is advisory — falls back if unknown).
+private val DOCUMENTS_URI: Uri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADocuments")
+private val DOWNLOADS_URI: Uri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
+
 /** Share an agent-sent blob via the system share sheet (writes a temp copy under cache/shared). */
 private fun shareBlob(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, ref: BlobRef) {
     scope.launch(Dispatchers.IO) {
@@ -849,18 +1006,30 @@ private fun shareBlob(context: android.content.Context, scope: kotlinx.coroutine
     }
 }
 
-/** Can we show this file's contents as text? (text mimes + common code/data extensions) */
-private fun previewableText(mime: String?, name: String): Boolean {
-    if (mime?.startsWith("text/") == true) return true
-    return name.substringAfterLast('.', "").lowercase() in setOf(
-        "txt", "md", "markdown", "csv", "tsv", "log", "json", "xml", "yml", "yaml", "html", "htm",
-        "css", "js", "ts", "kt", "java", "py", "sh", "bash", "c", "h", "cpp", "go", "rs", "rb",
-        "toml", "ini", "gradle", "properties", "sql", "conf",
-    )
+/** A file being uploaded to the agent: type icon + name + a determinate progress bar. Replaced by a
+ *  normal sent bubble once the upload completes. */
+@Composable
+private fun UploadChip(up: PendingUpload, fg: Color) {
+    val frac = if (up.size > 0) (up.sent.toFloat() / up.size).coerceIn(0f, 1f) else 0f
+    Row(Modifier.width(260.dp).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(fileIcon(up.mime), contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(up.name, color = fg, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(5.dp))
+            LinearProgressIndicator(
+                progress = { frac },
+                modifier = Modifier.fillMaxWidth().height(3.dp),
+                color = fg, trackColor = fg.copy(alpha = 0.25f),
+            )
+            Spacer(Modifier.height(3.dp))
+            Text("uploading… ${(frac * 100).toInt()}%", color = fg.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }
 
-/** A file the agent sent: type icon + name + size. Tap to preview; the ⋮ menu has Preview/Open or
- *  Download/Share. Shows a spinner while saving and a "Saved" mark once it's on the phone. */
+/** A file the agent sent: type icon (or thumbnail for images) + name + size. Tap to preview; the ⋮ menu
+ *  has Preview/Open or Download/Share. Shows a spinner while saving and a "Saved" mark once on the phone. */
 @Composable
 private fun FilePart(part: MsgPart.FileRef, fg: Color) {
     val context = LocalContext.current
@@ -872,13 +1041,31 @@ private fun FilePart(part: MsgPart.FileRef, fg: Color) {
     val savedUri = downloaded[part.blobId]
     var menu by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf(false) }
+    // images get a real thumbnail (decoded once, cached) instead of the generic file icon
+    val isImage = part.mime?.startsWith("image/") == true
+    val thumb by produceState(BlobImages.cache[part.blobId], part.blobId, isImage) {
+        if (isImage && value == null) {
+            val decoded = withContext(Dispatchers.IO) {
+                PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { b ->
+                    BitmapFactory.decodeByteArray(b, 0, b.size)?.asImageBitmap()
+                }
+            }
+            if (decoded != null) { BlobImages.cache[part.blobId] = decoded; value = decoded }
+        }
+    }
     Surface(
         color = fg.copy(alpha = 0.10f),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier.padding(vertical = 2.dp).clickable { preview = true },
     ) {
         Row(Modifier.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(fileIcon(part.mime), contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
+            val t = thumb
+            if (isImage && t != null) {
+                Image(bitmap = t, contentDescription = part.name, contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)))
+            } else {
+                Icon(fileIcon(part.mime), contentDescription = null, tint = fg, modifier = Modifier.size(28.dp))
+            }
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f, fill = false)) {
                 Text(part.name, color = fg, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -926,21 +1113,13 @@ private fun FilePart(part: MsgPart.FileRef, fg: Color) {
     }
 }
 
-/** A pop-up preview of a file: shows text/code inline (capped), or "no preview"; with Open/Download + Share. */
+/** A pop-up preview: images render inline; markdown is styled; JSON/XML/code are syntax-highlighted;
+ *  plain text is monospace; unknown types say so. Footer has Open/Download + Share. */
 @Composable
 private fun FilePreviewDialog(part: MsgPart.FileRef, downloaded: Boolean, onClose: () -> Unit, onDownload: () -> Unit, onOpen: () -> Unit, onShare: () -> Unit) {
-    val canPreview = remember(part.blobId) { previewableText(part.mime, part.name) }
-    val content by produceState<String?>(if (canPreview) null else "", part.blobId) {
-        if (canPreview) {
-            value = withContext(Dispatchers.IO) {
-                PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { b ->
-                    String(b.copyOf(minOf(b.size, 256 * 1024)), Charsets.UTF_8)
-                } ?: "(couldn't load this file)"
-            }
-        }
-    }
+    val kind = remember(part.blobId) { previewKind(part.mime, part.name) }
     Dialog(onDismissRequest = onClose) {
-        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth().heightIn(max = 540.dp)) {
+        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
             Column {
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(fileIcon(part.mime), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
@@ -949,11 +1128,13 @@ private fun FilePreviewDialog(part: MsgPart.FileRef, downloaded: Boolean, onClos
                     IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = "Close") }
                 }
                 HorizontalDivider()
-                Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState())) {
-                    when {
-                        !canPreview -> Text("No preview available for this file type.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        content == null -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        else -> Text(content!!, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (kind) {
+                        PreviewKind.IMAGE -> ImagePreview(part)
+                        PreviewKind.NONE -> Box(Modifier.padding(16.dp)) {
+                            Text("No preview available for this file type.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        else -> TextPreview(part, kind)
                     }
                 }
                 HorizontalDivider()
@@ -965,6 +1146,52 @@ private fun FilePreviewDialog(part: MsgPart.FileRef, downloaded: Boolean, onClos
                         TextButton(onClick = onDownload) { Text("Download") }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Decode + show an image blob, fitted to width and scrollable if tall. */
+@Composable
+private fun ImagePreview(part: MsgPart.FileRef) {
+    var done by remember(part.blobId) { mutableStateOf(BlobImages.cache[part.blobId] != null) }
+    val bmp by produceState(BlobImages.cache[part.blobId], part.blobId) {
+        if (value == null) {
+            value = withContext(Dispatchers.IO) {
+                PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
+            }?.also { BlobImages.cache[part.blobId] = it }
+            done = true
+        }
+    }
+    val b = bmp
+    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp), contentAlignment = Alignment.TopCenter) {
+        when {
+            b != null -> Image(bitmap = b, contentDescription = part.name, contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().aspectRatio(b.width.toFloat() / b.height))
+            !done -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(8.dp))
+            else -> UnavailableMedia("Image unavailable", MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Load + render a text-ish blob: markdown styled, JSON/XML/code highlighted, plain text monospace. */
+@Composable
+private fun TextPreview(part: MsgPart.FileRef, kind: PreviewKind) {
+    val content by produceState<String?>(null, part.blobId) {
+        value = withContext(Dispatchers.IO) {
+            PhoneAgentService.instance?.fetchBlob(part.blobId)?.let { String(it.copyOf(minOf(it.size, 256 * 1024)), Charsets.UTF_8) }
+                ?: "(couldn't load this file)"
+        }
+    }
+    val c = content
+    Box(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+        when {
+            c == null -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            kind == PreviewKind.MARKDOWN -> MarkdownText(c, MaterialTheme.colorScheme.onSurface)
+            kind == PreviewKind.TEXT -> Text(c, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface)
+            else -> {
+                val colors = rememberTokenColors()
+                Text(highlighted(c, kind, colors), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = colors.base)
             }
         }
     }
@@ -1085,7 +1312,8 @@ private fun AgentImage(part: MsgPart.ImageRef, fg: Color) {
 /** Renders a markdown subset (headings/bold/italic/code/bullets/links) into a styled Text. */
 @Composable
 private fun MarkdownText(md: String, color: Color, modifier: Modifier = Modifier) {
-    val accent = MaterialTheme.colorScheme.primary
+    // tertiary = the theme's 3rd color; this is what surfaces it (code + links inside agent replies)
+    val accent = MaterialTheme.colorScheme.tertiary
     Text(
         Markdown.toAnnotated(md, codeColor = accent, linkColor = accent),
         color = color,

@@ -31,7 +31,7 @@ object SettingsStore {
     private const val KEY_DND_END = "wake_dnd_end"
 
     val theme = MutableStateFlow("system")     // appearance: system | light | dark
-    val palette = MutableStateFlow("violet")   // color theme id (see Themes.kt)
+    val palette = MutableStateFlow("editorial")   // color theme id (see Themes.kt)
     val downloadedBlobs = MutableStateFlow<Map<String, String>>(emptyMap()) // blobId -> saved content uri
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
     val chimes = MutableStateFlow(true)
@@ -55,7 +55,7 @@ object SettingsStore {
         val p = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
         theme.value = p.getString(KEY_THEME, "system") ?: "system"
-        palette.value = p.getString(KEY_PALETTE, "violet") ?: "violet"
+        palette.value = p.getString(KEY_PALETTE, "editorial") ?: "editorial"
         downloadedBlobs.value = (p.getStringSet(KEY_DOWNLOADS, emptySet()) ?: emptySet())
             .mapNotNull { it.split("\t", limit = 2).let { kv -> if (kv.size == 2) kv[0] to kv[1] else null } }.toMap()
         disabledCaps.value = p.getStringSet(KEY_DISABLED, emptySet())?.toSet() ?: emptySet()

@@ -80,6 +80,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.agenticandroid.pairing.PairingActivity
 import kotlin.math.roundToInt
@@ -253,12 +254,20 @@ class SettingsActivity : ComponentActivity() {
                             }
                             if (tab == 1) {
                             SectionLabel("Theme")
-                            Row(
-                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            Column(
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                Themes.all.forEach { t -> ThemeSwatch(t, selected = palette == t.id) { SettingsStore.setPalette(t.id) } }
+                                Themes.all.chunked(5).forEach { rowThemes ->
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        rowThemes.forEach { t ->
+                                            Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
+                                                ThemeSwatch(t, selected = palette == t.id) { SettingsStore.setPalette(t.id) }
+                                            }
+                                        }
+                                        repeat(5 - rowThemes.size) { Spacer(Modifier.weight(1f)) }
+                                    }
+                                }
                             }
                             SectionLabel("Appearance")
                             listOf("system" to "System default", "light" to "Light", "dark" to "Dark").forEach { (key, label) ->
@@ -533,7 +542,7 @@ private fun ThemeSwatch(theme: AppTheme, selected: Boolean, onClick: () -> Unit)
         modifier = Modifier.clickable(onClick = onClick).padding(vertical = 4.dp),
     ) {
         Box(
-            Modifier.size(56.dp).clip(CircleShape)
+            Modifier.size(50.dp).clip(CircleShape)
                 .border(
                     width = if (selected) 3.dp else 1.dp,
                     color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
@@ -547,7 +556,9 @@ private fun ThemeSwatch(theme: AppTheme, selected: Boolean, onClick: () -> Unit)
         Spacer(Modifier.height(4.dp))
         Text(
             theme.label,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
