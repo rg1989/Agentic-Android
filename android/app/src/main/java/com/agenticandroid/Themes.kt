@@ -38,8 +38,8 @@ private fun mk(
 
 object Themes {
     val all: List<AppTheme> = listOf(
-        editorial(), coral(), linen(), lagoon(), terra(),   // row 1
-        slate(), noir(), pop(), grove(), harbor(),           // row 2
+        editorial(), coral(), bauhaus(), lagoon(), terra(),   // row 1
+        wisteria(), noir(), pop(), grove(), harbor(),         // row 2
     )
     val default = "editorial"
     fun byId(id: String): AppTheme = all.firstOrNull { it.id == id } ?: all.first()
@@ -62,13 +62,13 @@ object Themes {
             Color(0xFF181A1B), Color(0xFFECEDE6), Color(0xFF202223), Color(0xFF2E3133), Color(0xFFB4B7B3), Color(0xFF53575A)),
     )
 
-    // 3. Sage × Vanilla × Sand — minimalist warmth (all soft, low-contrast by design)
-    private fun linen() = AppTheme(
-        "linen", "Linen", listOf(Color(0xFFDCE0D9), Color(0xFFFBF6EF), Color(0xFFEAD7C3)),
-        light = mk(false, Color(0xFFDCE0D9), Color(0xFF353A33), Color(0xFFFBF6EF), Color(0xFF44392E), Color(0xFFEAD7C3), Color(0xFF4A3A28),
-            Color(0xFFFFFFFB), Color(0xFF3A3F38), Color(0xFFFFFFFF), Color(0xFFEAE9E1), Color(0xFF5A584F), Color(0xFFBCBAAE)),
-        dark = mk(true, Color(0xFFBFC7BC), Color(0xFF2A2F28), Color(0xFF2A2C28), Color(0xFFE6E8E0), Color(0xFFD8C4AE), Color(0xFF3A2C1C),
-            Color(0xFF131410), Color(0xFFE8E8E0), Color(0xFF1B1C17), Color(0xFF2A2B25), Color(0xFFB6B6AC), Color(0xFF565848)),
+    // 3. Teal × Cream × Red — Swiss / Bauhaus poster
+    private fun bauhaus() = AppTheme(
+        "bauhaus", "Bauhaus", listOf(Color(0xFF9DBDB8), Color(0xFFF0E7D6), Color(0xFFEA2E00)),
+        light = mk(false, Color(0xFF9DBDB8), Color(0xFF0E2E2A), Color(0xFFF0E7D6), Color(0xFF46402F), Color(0xFFEA2E00), Color(0xFFFFFFFF),
+            Color(0xFFFBF8F0), Color(0xFF20302D), Color(0xFFFFFFFF), Color(0xFFE4E0D2), Color(0xFF58544A), Color(0xFFBCB6A4)),
+        dark = mk(true, Color(0xFF9DBDB8), Color(0xFF06231F), Color(0xFF1F2D2A), Color(0xFFDCEAE6), Color(0xFFFF5230), Color(0xFFFFFFFF),
+            Color(0xFF0E1513), Color(0xFFE4ECE8), Color(0xFF141B19), Color(0xFF2A3A36), Color(0xFFAEC0BB), Color(0xFF3E524E)),
     )
 
     // 4. Teal × Mint × Ice — fresh & clean
@@ -89,13 +89,13 @@ object Themes {
             Color(0xFF18120F), Color(0xFFF0E6DE), Color(0xFF211915), Color(0xFF322820), Color(0xFFD2C4B6), Color(0xFF5A4A3E)),
     )
 
-    // 6. Dark Slate × Blue Gray × Snow — corporate cool
-    private fun slate() = AppTheme(
-        "slate", "Slate", listOf(Color(0xFF2B2D42), Color(0xFFEDF2F4), Color(0xFF8D99AE)),
-        light = mk(false, Color(0xFF2B2D42), Color(0xFFFFFFFF), Color(0xFFEDF2F4), Color(0xFF2B2D42), Color(0xFF8D99AE), Color(0xFF15203A),
-            Color(0xFFFAFBFC), Color(0xFF23252E), Color(0xFFFFFFFF), Color(0xFFE2E6EA), Color(0xFF4F545E), Color(0xFFAEB4BE)),
-        dark = mk(true, Color(0xFFAEB7CC), Color(0xFF1B1D2E), Color(0xFF25283A), Color(0xFFE4E8F0), Color(0xFF8D99AE), Color(0xFF15203A),
-            Color(0xFF131420), Color(0xFFE4E7EE), Color(0xFF1B1D2B), Color(0xFF2A2D3E), Color(0xFFAAB0BE), Color(0xFF474C5E)),
+    // 6. Indigo × Beige × Celery — wisteria garden
+    private fun wisteria() = AppTheme(
+        "wisteria", "Wisteria", listOf(Color(0xFFA88AED), Color(0xFFF4F0DD), Color(0xFFA6C261)),
+        light = mk(false, Color(0xFFA88AED), Color(0xFFFFFFFF), Color(0xFFF4F0DD), Color(0xFF3C3A28), Color(0xFFA6C261), Color(0xFF1F2B0C),
+            Color(0xFFFBFAF2), Color(0xFF2A2832), Color(0xFFFFFFFF), Color(0xFFE9E6D8), Color(0xFF555246), Color(0xFFBEB9A6)),
+        dark = mk(true, Color(0xFFA88AED), Color(0xFFFFFFFF), Color(0xFF2A2A1E), Color(0xFFECEAD6), Color(0xFFB9D274), Color(0xFF1F2B0C),
+            Color(0xFF15131A), Color(0xFFECEAF0), Color(0xFF1E1C24), Color(0xFF2C2A33), Color(0xFFC8C2D2), Color(0xFF4A4658)),
     )
 
     // 7. Espresso × Crimson × Porcelain — dramatic
