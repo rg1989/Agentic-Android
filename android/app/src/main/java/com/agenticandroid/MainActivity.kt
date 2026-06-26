@@ -1128,12 +1128,16 @@ private fun FilePreviewDialog(part: MsgPart.FileRef, downloaded: Boolean, onClos
                     IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = "Close") }
                 }
                 HorizontalDivider()
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                // The body sizes to its content between a sensible min and the dialog max: short files
+                // get a short dialog, long ones cap out and scroll inside. Images center in any leftover.
+                val scroll = rememberScrollState()
+                Box(
+                    Modifier.weight(1f, fill = false).fillMaxWidth().heightIn(min = 180.dp).verticalScroll(scroll),
+                    contentAlignment = if (kind == PreviewKind.IMAGE) Alignment.Center else Alignment.TopStart,
+                ) {
                     when (kind) {
                         PreviewKind.IMAGE -> ImagePreview(part)
-                        PreviewKind.NONE -> Box(Modifier.padding(16.dp)) {
-                            Text("No preview available for this file type.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        PreviewKind.NONE -> Text("No preview available for this file type.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                         else -> TextPreview(part, kind)
                     }
                 }
@@ -1164,13 +1168,13 @@ private fun ImagePreview(part: MsgPart.FileRef) {
         }
     }
     val b = bmp
-    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp), contentAlignment = Alignment.TopCenter) {
-        when {
-            b != null -> Image(bitmap = b, contentDescription = part.name, contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth().aspectRatio(b.width.toFloat() / b.height))
-            !done -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(8.dp))
-            else -> UnavailableMedia("Image unavailable", MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+    // No fillMaxSize/scroll here — the parent box wraps to this height (so a short image → short dialog)
+    // and centers it; the parent's scroll handles a very tall image.
+    when {
+        b != null -> Image(bitmap = b, contentDescription = part.name, contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxWidth().aspectRatio(b.width.toFloat() / b.height).padding(8.dp))
+        !done -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+        else -> UnavailableMedia("Image unavailable", MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1184,15 +1188,14 @@ private fun TextPreview(part: MsgPart.FileRef, kind: PreviewKind) {
         }
     }
     val c = content
-    Box(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        when {
-            c == null -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            kind == PreviewKind.MARKDOWN -> MarkdownText(c, MaterialTheme.colorScheme.onSurface)
-            kind == PreviewKind.TEXT -> Text(c, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface)
-            else -> {
-                val colors = rememberTokenColors()
-                Text(highlighted(c, kind, colors), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = colors.base)
-            }
+    // No fillMaxSize/scroll here — the parent box provides the min height + scroll.
+    when {
+        c == null -> Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+        kind == PreviewKind.MARKDOWN -> MarkdownText(c, MaterialTheme.colorScheme.onSurface, Modifier.padding(16.dp))
+        kind == PreviewKind.TEXT -> Text(c, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(16.dp))
+        else -> {
+            val colors = rememberTokenColors()
+            Text(highlighted(c, kind, colors), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = colors.base, modifier = Modifier.padding(16.dp))
         }
     }
 }
