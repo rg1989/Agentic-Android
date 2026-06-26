@@ -235,9 +235,17 @@ class PhoneAgentService : Service() {
         if (status.value == "🔊 Speaking…") status.value = null
     }
 
+    /** Mark whether the user is recording. Turning it on stops any in-progress reply (the agent
+     *  must never talk over the mic); [speak] won't start a new one until it's off again. */
+    fun setRecording(on: Boolean) {
+        recording.value = on
+        if (on) stopSpeaking()
+    }
+
     /** Speak [raw] aloud, cleaned for listening, if the user enabled spoken replies. */
     private fun speak(raw: String) {
         if (!SettingsStore.voiceReplies.value) return
+        if (recording.value) return // never start reading while the user is recording
         val say = SpeechText.forSpeech(raw)
         if (say.isBlank()) return
         android.util.Log.i("AgentTTS", "speaking: ${say.take(80)}")
@@ -276,6 +284,9 @@ class PhoneAgentService : Service() {
         val commands = MutableStateFlow<List<SlashCommand>>(emptyList())
         /** True while a spoken reply is playing — the wake-word service ignores input meanwhile. */
         val speaking = MutableStateFlow(false)
+        /** True while the user is recording voice (hold-to-talk or wake-word capture). The agent
+         *  never starts speaking while this is set, and any in-progress speech is stopped. */
+        val recording = MutableStateFlow(false)
     }
 
     private fun buildNotification(): Notification {

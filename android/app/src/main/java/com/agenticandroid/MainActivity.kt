@@ -174,6 +174,7 @@ class MainActivity : ComponentActivity() {
                         onPartial = { input = it },
                         onFinal = { t ->
                             recording = false; locked = false
+                            PhoneAgentService.instance?.setRecording(false)
                             val s = t.trim()
                             if (s.isNotEmpty()) {
                                 chimes.sent(); PhoneAgentService.instance?.sendUserMessage(s); input = ""
@@ -181,7 +182,7 @@ class MainActivity : ComponentActivity() {
                                 chimes.error(); PhoneAgentService.instance?.setStatus(null)
                             }
                         },
-                        onError = { recording = false; locked = false; chimes.error(); PhoneAgentService.instance?.setStatus(null) },
+                        onError = { recording = false; locked = false; PhoneAgentService.instance?.setRecording(false); chimes.error(); PhoneAgentService.instance?.setStatus(null) },
                     )
                 }
                 DisposableEffect(Unit) { onDispose { voice.destroy() } }
@@ -197,6 +198,7 @@ class MainActivity : ComponentActivity() {
                     val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                     if (!granted) { micPermission.launch(Manifest.permission.RECORD_AUDIO); return false }
                     WakeWordService.instance?.pause() // free the mic for hold-to-talk
+                    PhoneAgentService.instance?.setRecording(true) // stop any reply; don't start one
                     chimes.listening(); haptics.start()
                     recording = true; locked = false; aboutToCancel = false; dragY = 0f; input = ""
                     voice.start()
@@ -205,6 +207,7 @@ class MainActivity : ComponentActivity() {
                 fun finishRecording() {
                     if (!recording) return
                     recording = false; locked = false
+                    PhoneAgentService.instance?.setRecording(false)
                     haptics.confirm()
                     PhoneAgentService.instance?.setStatus("Transcribing…")
                     voice.finish() // onFinal sends the full accumulated transcript
@@ -212,6 +215,7 @@ class MainActivity : ComponentActivity() {
                 }
                 fun cancelRecording() {
                     recording = false; locked = false; input = ""
+                    PhoneAgentService.instance?.setRecording(false)
                     voice.cancel(); chimes.error(); haptics.cancel()
                     PhoneAgentService.instance?.setStatus(null)
                     WakeWordService.instance?.resume()
