@@ -25,10 +25,31 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.CloudQueue
+import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.FlashlightOn
+import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Screenshot
+import androidx.compose.material.icons.rounded.Sms
+import androidx.compose.material.icons.rounded.Swipe
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.Vibration
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -160,8 +181,9 @@ class SettingsActivity : ComponentActivity() {
                                     Spacer(Modifier.width(8.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(p.name, style = MaterialTheme.typography.titleSmall)
+                                        // Friendly status instead of the raw relay URL/IP.
                                         Text(
-                                            p.relayUrl,
+                                            if (p.id == activeId) (if (connected) "Connected" else "Connecting…") else "Paired",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1,
@@ -371,8 +393,10 @@ class SettingsActivity : ComponentActivity() {
                                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                Icon(capIcon(c.method), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(24.dp))
+                                Spacer(Modifier.width(14.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(c.method, style = MaterialTheme.typography.titleSmall)
+                                    Text(capLabel(c.method), style = MaterialTheme.typography.titleSmall)
                                     Text(
                                         c.summary,
                                         style = MaterialTheme.typography.bodySmall,
@@ -411,6 +435,59 @@ private fun SliderRow(
         }
         Slider(value = value, onValueChange = onChange, valueRange = range, steps = steps)
     }
+}
+
+/** Human-friendly name for a capability method id (raw ids never shown to the user). */
+private fun capLabel(method: String): String = when (method) {
+    "phone.ring" -> "Ring the phone"
+    "phone.stop_ring" -> "Stop ringing"
+    "camera.capture" -> "Take a photo"
+    "camera.state" -> "Camera status"
+    "camera.release" -> "Release camera"
+    "location.get" -> "Location"
+    "sms.send" -> "Send SMS"
+    "notification.listen" -> "Read notifications"
+    "device.info" -> "Device info"
+    "torch.set" -> "Flashlight"
+    "vibrate" -> "Vibrate"
+    "volume.get" -> "Get volume"
+    "volume.set" -> "Set volume"
+    "app.launch" -> "Open an app"
+    "apps.list" -> "List apps"
+    "url.open" -> "Open a link"
+    "notify.post" -> "Post a notification"
+    "clipboard.set" -> "Set clipboard"
+    "ui.tap" -> "Tap the screen"
+    "ui.swipe" -> "Swipe the screen"
+    "ui.text" -> "Type text"
+    "ui.global" -> "Navigation"
+    "ui.read" -> "Read the screen"
+    "ui.screenshot" -> "Screenshot"
+    else -> method.substringAfterLast('.').replace('_', ' ').replaceFirstChar { it.uppercase() }
+}
+
+/** A Material icon per capability (category-mapped); unknown -> a generic extension icon. */
+private fun capIcon(method: String): ImageVector = when {
+    method == "phone.ring" -> Icons.Rounded.NotificationsActive
+    method == "phone.stop_ring" -> Icons.Rounded.NotificationsOff
+    method.startsWith("camera") -> Icons.Rounded.PhotoCamera
+    method.startsWith("location") -> Icons.Rounded.LocationOn
+    method == "sms.send" -> Icons.Rounded.Sms
+    method.startsWith("notif") -> Icons.Rounded.Notifications
+    method == "device.info" -> Icons.Rounded.PhoneAndroid
+    method.startsWith("torch") -> Icons.Rounded.FlashlightOn
+    method == "vibrate" -> Icons.Rounded.Vibration
+    method.startsWith("volume") -> Icons.AutoMirrored.Rounded.VolumeUp
+    method.startsWith("app") -> Icons.Rounded.Apps
+    method == "url.open" -> Icons.Rounded.Link
+    method == "clipboard.set" -> Icons.Rounded.ContentPaste
+    method == "ui.tap" -> Icons.Rounded.TouchApp
+    method == "ui.swipe" -> Icons.Rounded.Swipe
+    method == "ui.text" -> Icons.Rounded.Keyboard
+    method == "ui.global" -> Icons.Rounded.Navigation
+    method == "ui.read" -> Icons.Rounded.Visibility
+    method == "ui.screenshot" -> Icons.Rounded.Screenshot
+    else -> Icons.Rounded.Extension
 }
 
 @Composable
