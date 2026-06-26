@@ -1,6 +1,6 @@
 # LOOP-STATE — Agentic Android
 
-## Run 5 — UI/UX overhaul "finish everything" (in progress)
+## Run 5 — UI/UX overhaul "finish everything" — COMPLETE (all U1-U8 done, device-verified)
 Build+install+device-verify+commit per item. Done so far (committed): Material-icon passes (1-3),
 status-strip emoji decouple, chat/voice fixes (file readout natural name+type, in-chat mute w/ wake
 override), 4-theme system (light+dark each).
