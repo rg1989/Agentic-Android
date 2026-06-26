@@ -230,48 +230,155 @@ const PAGE = (caps: Cap[], relayUrl: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agentic Android — Control Panel</title>
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: dark;
+    --bg: #0a0b10;
+    --surface: #14161e;
+    --surface-2: #1a1d27;
+    --surface-3: #21242f;
+    --border: rgba(255,255,255,0.07);
+    --border-strong: rgba(255,255,255,0.13);
+    --text: #eceef4;
+    --text-dim: #9b9eab;
+    --text-faint: #62656f;
+    --accent: #6366f1;
+    --accent-hi: #818cf8;
+    --accent-soft: rgba(99,102,241,0.16);
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --radius: 14px;
+    --radius-sm: 10px;
+    --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
   * { box-sizing: border-box; }
-  body { font: 14px/1.5 -apple-system,system-ui,sans-serif; margin:0; background:#14151a; color:#e7e7ea; }
-  header { padding:14px 22px; border-bottom:1px solid #2a2c34; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
-  h1 { font-size:17px; margin:0; } .sub { color:#888; font-size:12px; }
-  .agentbar { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .agentbar label { font-size:12px; color:#9a9aa3; }
-  select, input { background:#0f1014; border:1px solid #2a2c34; color:#e7e7ea; border-radius:7px; padding:7px 9px; font-size:13px; }
-  input.cmd { width:240px; font-family:ui-monospace,Menlo,monospace; } input.search { width:100%; }
-  button { background:#3b5bdb; color:#fff; border:0; border-radius:8px; padding:8px 13px; font-size:13px; cursor:pointer; }
-  button:hover { background:#4c6ef5; } button.stop { background:#b02a37; } button.ghost { background:#272a33; }
-  button.ghost:hover { background:#323641; }
-  .wrap { display:grid; grid-template-columns: 1fr 1.1fr; height: calc(100vh - 56px); }
-  .caps { padding:14px 22px; overflow:auto; } .card { background:#1c1e26; border:1px solid #2a2c34; border-radius:12px; padding:12px 15px; margin-bottom:11px; }
-  .card h3 { margin:0 0 2px; font-size:14px; } .card .s { color:#8a8a93; font-size:12px; margin-bottom:9px; }
-  .tag { font-size:10px; padding:2px 7px; border-radius:99px; margin-left:8px; vertical-align:middle; }
-  .allow { background:#15351f; color:#5ad17f; } .ask { background:#3a2f12; color:#e3b341; }
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; } input.num { width:80px; } input.wide { width:160px; }
-  .logpane { border-left:1px solid #2a2c34; background:#101117; display:flex; flex-direction:column; min-height:0; }
-  .logctl { padding:10px 16px; border-bottom:1px solid #2a2c34; display:flex; flex-direction:column; gap:8px; }
-  .chips { display:flex; gap:6px; flex-wrap:wrap; }
-  .chip { font-size:11px; padding:3px 9px; border-radius:99px; border:1px solid #2a2c34; cursor:pointer; user-select:none; background:#1a1c23; color:#888; }
-  .chip.on { color:#fff; } .chip.on[data-t=request]{background:#23314f;border-color:#3b5bdb}
-  .chip.on[data-t=response]{background:#15351f;border-color:#2f7d4a} .chip.on[data-t=error]{background:#3a1416;border-color:#b02a37}
-  .chip.on[data-t=phone_event]{background:#2c2350;border-color:#6c4ad1} .chip.on[data-t=agent_run]{background:#2f2a12;border-color:#e3b341}
-  .chip.on[data-t=connection]{background:#10303a;border-color:#2a86a6} .chip.on[data-t=config]{background:#2a2c34;border-color:#555}
-  .log { overflow:auto; padding:6px 12px; flex:1; }
-  .entry { font:12px/1.45 ui-monospace,Menlo,monospace; border-bottom:1px solid #1f2128; padding:7px 4px; cursor:pointer; }
-  .entry .t { color:#666; } .entry .b { font-size:10px; padding:1px 6px; border-radius:5px; margin:0 6px; }
-  .b.request{background:#23314f;color:#9ab0ff} .b.response{background:#15351f;color:#5ad17f} .b.error{background:#3a1416;color:#ff8a8a}
-  .b.phone_event{background:#2c2350;color:#b6a0ff} .b.agent_run{background:#2f2a12;color:#e3b341} .b.connection{background:#10303a;color:#7bd3ee} .b.config{background:#2a2c34;color:#aaa}
-  .detail { display:none; white-space:pre-wrap; word-break:break-word; color:#9a9aa3; margin-top:4px; }
-  .entry.open .detail { display:block; }
-  .count { color:#666; font-size:11px; }
+  html, body { height: 100%; }
+  body {
+    font: 14px/1.5 var(--sans); margin: 0; color: var(--text); background: var(--bg);
+    background-image: radial-gradient(1100px 560px at 78% -12%, rgba(99,102,241,0.10), transparent 62%);
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10; padding: 14px 24px; min-height: 56px;
+    border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    background: rgba(10,11,16,0.72);
+    backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .mark {
+    width: 30px; height: 30px; border-radius: 9px; flex: none; position: relative;
+    background:
+      radial-gradient(circle at 30% 28%, #a5b4fc, transparent 46%),
+      linear-gradient(145deg, #6366f1, #4f46e5 55%, #7c3aed);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.10) inset, 0 6px 18px rgba(79,70,229,0.40);
+  }
+  .mark::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: radial-gradient(circle at 72% 78%, rgba(255,255,255,0.22), transparent 40%); }
+  h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  .sub { color: var(--text-dim); font-size: 12px; margin-top: 1px; }
+  .sub .mono { font-family: var(--mono); color: var(--text); opacity: 0.85; }
+  .agentbar { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .agentbar label { font-size: 12px; color: var(--text-dim); }
+  select, input {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  select:hover, input:hover { border-color: var(--border-strong); }
+  select:focus, input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  input.cmd { width: 250px; font-family: var(--mono); font-size: 12.5px; }
+  input.search { width: 100%; }
+  input.num { width: 84px; }
+  input.wide { width: 170px; }
+  .switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .switch input { width: auto; }
+  button {
+    background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: #fff; border: 0;
+    border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 560; cursor: pointer; letter-spacing: 0.01em;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.16) inset, 0 6px 16px rgba(79,70,229,0.32);
+    transition: filter .15s, transform .04s;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: translateY(1px); }
+  button.ghost { background: var(--surface-2); color: var(--text); box-shadow: none; border: 1px solid var(--border); }
+  button.ghost:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  button.stop {
+    background: linear-gradient(180deg, #f87171, #ef4444);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.16) inset, 0 6px 16px rgba(239,68,68,0.30);
+  }
+  .wrap { display: grid; grid-template-columns: 1fr 1.1fr; height: calc(100vh - 56px); min-height: 0; }
+  .caps { padding: 18px 24px; overflow: auto; }
+  .caps::-webkit-scrollbar, .log::-webkit-scrollbar { width: 10px; }
+  .caps::-webkit-scrollbar-thumb, .log::-webkit-scrollbar-thumb {
+    background: var(--surface-3); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
+  .card {
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset;
+    transition: border-color .15s, box-shadow .15s, transform .15s;
+  }
+  .card:hover { border-color: var(--border-strong); box-shadow: 0 10px 26px rgba(0,0,0,0.34); }
+  .card h3 { margin: 0 0 2px; font-size: 14px; font-weight: 620; letter-spacing: -0.005em; }
+  .card .s { color: var(--text-dim); font-size: 12px; margin-bottom: 10px; }
+  .tag { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 99px; margin-left: 8px; vertical-align: middle; }
+  .allow { background: rgba(52,211,153,0.14); color: var(--ok); }
+  .ask { background: rgba(251,191,36,0.14); color: var(--warn); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .logpane { border-left: 1px solid var(--border); background: rgba(8,9,13,0.6);
+    display: flex; flex-direction: column; min-height: 0; }
+  .logctl { padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 9px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 11px; font-weight: 540; padding: 4px 10px; border-radius: 99px;
+    border: 1px solid var(--border); cursor: pointer; user-select: none;
+    background: var(--surface); color: var(--text-faint);
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .chip:hover { color: var(--text-dim); border-color: var(--border-strong); }
+  .chip.on { color: #fff; }
+  .chip.on[data-t=request]{ background: rgba(99,102,241,0.20); border-color: rgba(129,140,248,0.55); }
+  .chip.on[data-t=response]{ background: rgba(52,211,153,0.18); border-color: rgba(52,211,153,0.55); }
+  .chip.on[data-t=error]{ background: rgba(248,113,113,0.18); border-color: rgba(248,113,113,0.55); }
+  .chip.on[data-t=phone_event]{ background: rgba(167,139,250,0.18); border-color: rgba(167,139,250,0.55); }
+  .chip.on[data-t=agent_run]{ background: rgba(251,191,36,0.16); border-color: rgba(251,191,36,0.5); }
+  .chip.on[data-t=connection]{ background: rgba(34,211,238,0.16); border-color: rgba(34,211,238,0.5); }
+  .chip.on[data-t=config]{ background: rgba(148,163,184,0.16); border-color: rgba(148,163,184,0.45); }
+  .log { overflow: auto; padding: 6px 14px; flex: 1; }
+  .entry {
+    font: 12px/1.5 var(--mono); border-bottom: 1px solid rgba(255,255,255,0.04);
+    padding: 8px 4px; cursor: pointer; border-radius: 6px; transition: background .12s;
+  }
+  .entry:hover { background: rgba(255,255,255,0.025); }
+  .entry .t { color: var(--text-faint); }
+  .entry .b { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 6px; margin: 0 7px; }
+  .b.request{ background: rgba(99,102,241,0.18); color: #a5b4fc; }
+  .b.response{ background: rgba(52,211,153,0.16); color: #6ee7b7; }
+  .b.error{ background: rgba(248,113,113,0.16); color: #fca5a5; }
+  .b.phone_event{ background: rgba(167,139,250,0.16); color: #c4b5fd; }
+  .b.agent_run{ background: rgba(251,191,36,0.14); color: #fcd34d; }
+  .b.connection{ background: rgba(34,211,238,0.14); color: #67e8f9; }
+  .b.config{ background: rgba(148,163,184,0.14); color: #cbd5e1; }
+  .detail { display: none; white-space: pre-wrap; word-break: break-word; color: var(--text-dim);
+    margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.06); }
+  .entry.open .detail { display: block; }
+  .count { color: var(--text-faint); font-size: 11px; }
 </style></head><body>
 <header>
-  <div><h1>🤖📱 Control Panel</h1><div class="sub">agent → relay (${relayUrl}) → phone · ${caps.length} capabilities</div></div>
+  <div class="brand">
+    <div class="mark" aria-hidden="true"></div>
+    <div>
+      <h1>Control Panel</h1>
+      <div class="sub">agent → relay <span class="mono">${relayUrl}</span> → phone · ${caps.length} capabilities</div>
+    </div>
+  </div>
   <div class="agentbar">
     <label>Agent</label>
     <select id="preset"></select>
     <input class="cmd" id="cmd" placeholder='command with {prompt}'>
-    <label><input type="checkbox" id="aen"> on inbound</label>
+    <label class="switch"><input type="checkbox" id="aen"> on inbound</label>
     <button id="savecfg" class="ghost">Save</button>
   </div>
 </header>
@@ -376,58 +483,169 @@ const SETUP_PAGE = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agentic Android — Setup</title>
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: dark;
+    --bg: #0a0b10;
+    --surface: #14161e;
+    --surface-2: #1a1d27;
+    --surface-3: #21242f;
+    --border: rgba(255,255,255,0.07);
+    --border-strong: rgba(255,255,255,0.13);
+    --text: #eceef4;
+    --text-dim: #9b9eab;
+    --text-faint: #62656f;
+    --accent: #6366f1;
+    --accent-hi: #818cf8;
+    --accent-soft: rgba(99,102,241,0.16);
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --radius: 16px;
+    --radius-sm: 11px;
+    --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
   * { box-sizing: border-box; }
-  body { font: 15px/1.6 -apple-system,system-ui,sans-serif; margin:0; background:#14151a; color:#e7e7ea; }
-  .wrap { max-width: 680px; margin: 0 auto; padding: 28px 20px 60px; }
-  h1 { font-size: 22px; margin: 0 0 4px; } .sub { color:#9a9aa3; margin:0 0 22px; font-size:13px; }
-  .status { display:flex; gap:12px; margin-bottom:26px; flex-wrap:wrap; }
-  .pill { display:flex; align-items:center; gap:9px; background:#1c1e26; border:1px solid #2a2c34; border-radius:11px; padding:11px 15px; flex:1; min-width:200px; }
-  .dot { width:11px; height:11px; border-radius:99px; background:#555; flex:none; }
-  .dot.on { background:#3fb950; } .dot.wait { background:#d29922; }
-  .pill .t { font-size:12px; color:#8a8a93; } .pill .v { font-size:14px; }
-  .step { background:#1c1e26; border:1px solid #2a2c34; border-radius:14px; padding:18px 20px; margin-bottom:16px; }
-  .step.done { border-color:#264d33; }
-  .step h2 { font-size:16px; margin:0 0 4px; display:flex; align-items:center; gap:9px; }
-  .num { width:24px; height:24px; border-radius:99px; background:#2a2c34; color:#cdd; font-size:13px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
-  .step.done .num { background:#2ea043; color:#fff; }
-  .step p { color:#b5b5bd; font-size:13.5px; margin:6px 0; }
-  .opts { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 8px; }
-  .opt { background:#272a33; border:1px solid #2a2c34; border-radius:9px; padding:8px 13px; cursor:pointer; font-size:13px; }
-  .opt.sel { background:#1f3a5f; border-color:#3b5bdb; }
-  code, .cmd { font-family: ui-monospace,Menlo,monospace; font-size:13px; }
-  .cmdrow { display:flex; gap:8px; align-items:center; margin-top:8px; }
-  .cmd { background:#0f1014; border:1px solid #2a2c34; border-radius:8px; padding:10px 12px; flex:1; overflow:auto; white-space:nowrap; }
-  button { background:#3b5bdb; color:#fff; border:0; border-radius:8px; padding:9px 14px; font-size:13px; cursor:pointer; }
-  button:hover { background:#4c6ef5; } button.ghost { background:#272a33; }
-  .hint { color:#8a8a93; font-size:12.5px; margin-top:8px; }
-  .qrbox { display:flex; gap:18px; align-items:center; flex-wrap:wrap; margin-top:12px; }
-  .qr { background:#fff; border-radius:12px; padding:10px; width:200px; height:200px; flex:none; }
-  ol { margin:6px 0 0; padding-left:20px; } ol li { margin:3px 0; font-size:13.5px; color:#b5b5bd; }
-  a { color:#6b8afd; } .foot { margin-top:24px; font-size:13px; }
-  .cards { display:flex; gap:12px; flex-wrap:wrap; margin:14px 0 6px; }
-  .card2 { flex:1; min-width:210px; background:#272a33; border:2px solid #2a2c34; border-radius:11px; padding:13px 15px; cursor:pointer; }
-  .card2.sel { border-color:#3b5bdb; background:#1b2740; }
-  .card2 .ct { font-size:15px; } .card2 .cd { font-size:12.5px; color:#9a9aa3; margin-top:3px; }
-  .adv { color:#6b8afd; font-size:13px; cursor:pointer; display:inline-block; margin:8px 0 2px; user-select:none; }
-  .callout { background:#3a2f12; border:1px solid #6b551f; border-radius:9px; padding:13px 15px; margin-top:12px; font-size:13.5px; color:#e7d9ad; }
-  .callout code { background:#0f1014; color:#fff; padding:5px 10px; border-radius:6px; display:inline-block; margin-top:8px; font-size:13px; }
-  .agentlist { display:flex; flex-direction:column; gap:8px; margin:8px 0 16px; }
-  .agentrow { display:flex; align-items:center; gap:11px; background:#1c1e26; border:1px solid #2a2c34; border-radius:11px; padding:11px 14px; }
-  .agentrow.active { border-color:#2ea043; background:#16241b; }
-  .agentrow .nm { font-size:14px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .agentrow .badge { font-size:11px; padding:2px 9px; border-radius:99px; background:#2a2c34; color:#9a9aa3; flex:none; }
-  .agentrow .badge.act { background:#2ea043; color:#fff; }
-  .agentrow button { padding:6px 11px; font-size:12px; flex:none; }
-  .dot.lit { background:#3b82f6; } .dot.bad { background:#d29922; }
-  .addbox { border-top:1px dashed #2a2c34; padding-top:14px; }
-  .addlabel { font-size:13px; color:#9a9aa3; margin-bottom:6px; }
-  .phonechk { display:flex; align-items:flex-start; gap:8px; font-size:13px; color:#cdd; cursor:pointer; }
-  .phonechk input { margin-top:3px; flex:none; }
-  .empty { color:#8a8a93; font-size:13px; padding:8px 2px; }
+  html, body { height: 100%; }
+  body {
+    font: 15px/1.6 var(--sans); margin: 0; color: var(--text); background: var(--bg);
+    background-image:
+      radial-gradient(900px 480px at 80% -8%, rgba(99,102,241,0.12), transparent 62%),
+      radial-gradient(700px 420px at 8% 4%, rgba(124,58,237,0.08), transparent 60%);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 40px 22px 64px; }
+  .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; }
+  .mark {
+    width: 40px; height: 40px; border-radius: 12px; flex: none; position: relative;
+    background:
+      radial-gradient(circle at 30% 28%, #a5b4fc, transparent 46%),
+      linear-gradient(145deg, #6366f1, #4f46e5 55%, #7c3aed);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.10) inset, 0 8px 22px rgba(79,70,229,0.40);
+  }
+  .mark::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: radial-gradient(circle at 72% 78%, rgba(255,255,255,0.22), transparent 40%); }
+  h1 { font-size: 26px; margin: 0; font-weight: 700; letter-spacing: -0.02em; }
+  .sub { color: var(--text-dim); margin: 2px 0 26px; font-size: 14px; }
+  .status { display: flex; gap: 12px; margin-bottom: 26px; flex-wrap: wrap; }
+  .pill {
+    display: flex; align-items: center; gap: 11px;
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--border); border-radius: 13px; padding: 13px 16px;
+    flex: 1; min-width: 210px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .pill:hover { border-color: var(--border-strong); box-shadow: 0 8px 22px rgba(0,0,0,0.30); }
+  .dot {
+    width: 11px; height: 11px; border-radius: 99px; background: var(--text-faint); flex: none;
+    box-shadow: 0 0 0 0 rgba(63,185,80,0); transition: box-shadow .3s;
+  }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 4px rgba(52,211,153,0.16); }
+  .dot.wait { background: var(--warn); box-shadow: 0 0 0 4px rgba(251,191,36,0.14); }
+  .dot.lit { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+  .dot.bad { background: var(--warn); }
+  .pill .t { font-size: 12px; color: var(--text-dim); }
+  .pill .v { font-size: 14px; font-weight: 560; }
+  .step {
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 16px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 12px 30px rgba(0,0,0,0.22);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .step.done {
+    border-color: rgba(52,211,153,0.42);
+    box-shadow: 0 0 0 1px rgba(52,211,153,0.10), 0 12px 30px rgba(0,0,0,0.22);
+  }
+  .step h2 { font-size: 17px; margin: 0 0 4px; display: flex; align-items: center; gap: 11px; font-weight: 650; letter-spacing: -0.01em; }
+  .num {
+    width: 26px; height: 26px; border-radius: 99px;
+    background: var(--surface-3); color: var(--text-dim); font-size: 13px; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    border: 1px solid var(--border);
+    transition: background .2s, color .2s, border-color .2s;
+  }
+  .step.done .num { background: var(--ok); color: #04130c; border-color: transparent; }
+  .step p { color: var(--text-dim); font-size: 13.5px; margin: 8px 0 4px; }
+  .opts { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 8px; }
+  .opt {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 14px; cursor: pointer; font-size: 13px; color: var(--text-dim);
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .opt:hover { border-color: var(--border-strong); color: var(--text); }
+  .opt.sel { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  code, .cmd { font-family: var(--mono); font-size: 13px; }
+  .cmdrow { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .cmd { background: rgba(8,9,13,0.6); border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; flex: 1; overflow: auto; white-space: nowrap; color: var(--text); }
+  button {
+    background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: #fff; border: 0;
+    border-radius: 10px; padding: 10px 16px; font-size: 13px; font-weight: 580; cursor: pointer;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.16) inset, 0 6px 16px rgba(79,70,229,0.32);
+    transition: filter .15s, transform .04s;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: translateY(1px); }
+  button.ghost { background: var(--surface-2); color: var(--text); box-shadow: none; border: 1px solid var(--border); }
+  button.ghost:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  .hint { color: var(--text-dim); font-size: 12.5px; margin-top: 8px; }
+  .qrbox { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  .qr { background: #fff; border-radius: 14px; padding: 12px; width: 204px; height: 204px; flex: none; box-shadow: 0 12px 30px rgba(0,0,0,0.40); }
+  ol { margin: 6px 0 0; padding-left: 20px; } ol li { margin: 4px 0; font-size: 13.5px; color: var(--text-dim); }
+  a { color: var(--accent-hi); } .foot { margin-top: 28px; font-size: 13px; color: var(--text-dim); }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0 6px; }
+  .card2 {
+    flex: 1; min-width: 215px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 13px; padding: 14px 16px; cursor: pointer;
+    transition: border-color .15s, background .15s, box-shadow .15s, transform .12s;
+  }
+  .card2:hover { border-color: var(--border-strong); box-shadow: 0 8px 20px rgba(0,0,0,0.28); }
+  .card2.sel { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .card2 .ct { font-size: 15px; font-weight: 600; } .card2 .cd { font-size: 12.5px; color: var(--text-dim); margin-top: 4px; }
+  .adv { color: var(--accent-hi); font-size: 13px; cursor: pointer; display: inline-block; margin: 8px 0 2px; user-select: none; }
+  .callout {
+    background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.30); border-radius: 11px;
+    padding: 14px 16px; margin-top: 12px; font-size: 13.5px; color: #fde68a;
+  }
+  .callout code { background: rgba(8,9,13,0.6); color: #fff; padding: 5px 10px; border-radius: 7px; display: inline-block; margin-top: 8px; font-size: 13px; }
+  .agentlist { display: flex; flex-direction: column; gap: 9px; margin: 10px 0 16px; }
+  .agentrow {
+    display: flex; align-items: center; gap: 12px;
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 15px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .agentrow:hover { border-color: var(--border-strong); }
+  .agentrow.active {
+    border-color: rgba(52,211,153,0.42);
+    background: linear-gradient(180deg, rgba(52,211,153,0.10), rgba(52,211,153,0.04));
+    box-shadow: 0 0 0 1px rgba(52,211,153,0.08);
+  }
+  .agentrow .nm { font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 540; }
+  .agentrow .badge { font-size: 11px; font-weight: 560; padding: 3px 10px; border-radius: 99px; background: var(--surface-3); color: var(--text-dim); flex: none; }
+  .agentrow .badge.act { background: var(--ok); color: #04130c; }
+  .agentrow button { padding: 6px 12px; font-size: 12px; flex: none; }
+  .addbox { border-top: 1px dashed var(--border-strong); padding-top: 16px; margin-top: 12px; }
+  .addlabel { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; font-weight: 540; }
+  .phonechk { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; color: var(--text); cursor: pointer; }
+  .phonechk input { margin-top: 3px; flex: none; }
+  .empty { color: var(--text-faint); font-size: 13px; padding: 10px 4px; }
+  input, select {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    border-radius: var(--radius-sm); padding: 9px 12px; font-size: 13px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:hover { border-color: var(--border-strong); }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  pre { background: rgba(8,9,13,0.6); border: 1px solid var(--border); border-radius: 10px; }
+  summary { color: var(--accent-hi); font-size: 13px; }
+  details[open] summary { margin-bottom: 6px; }
 </style></head>
 <body><div class="wrap">
-  <h1>Agentic Android</h1>
+  <div class="hero">
+    <div class="mark" aria-hidden="true"></div>
+    <h1>Agentic Android</h1>
+  </div>
   <p class="sub">This is the hub on your computer — the glue between your phone and your agent.</p>
 
   <div class="status">
@@ -449,13 +667,13 @@ const SETUP_PAGE = `<!doctype html>
         <div class="card2" data-type="remote"><div class="ct">Remote / cloud agent</div><div class="cd">A Hermes (or anything) running elsewhere that connects to this hub itself.</div></div>
       </div>
       <div id="otherform" style="display:none;margin-top:10px;">
-        <input id="oname" placeholder="Name (e.g. Hermes)" style="width:100%;margin:0 0 8px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;" />
-        <input id="ocmd" placeholder="command to run (e.g. hermes, pi, cursor-agent)" style="width:100%;margin:0 0 8px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
+        <input id="oname" placeholder="Name (e.g. Hermes)" style="width:100%;margin:0 0 8px;" />
+        <input id="ocmd" placeholder="command to run (e.g. hermes, pi, cursor-agent)" style="width:100%;margin:0 0 8px;font-family:var(--mono);" />
         <label class="phonechk"><input type="checkbox" id="ophone" checked /><span>Can control the phone <span class="hint" style="margin:0;">— for Claude Code-compatible CLIs (Claude, Cursor, Hermes, Pi). Off = chat only.</span></span></label>
       </div>
       <div id="remoteinfo" style="display:none;margin-top:10px;">
-        <p style="color:#b5b5bd;font-size:13.5px;margin:0 0 8px;"><b>No “Add” button — a remote agent connects itself.</b> Send the prompt below to your cloud agent; it spells out exactly how to reach this hub and reply. (Keep the address on your tailnet — the port is unauthenticated by design.)</p>
-        <pre id="remoteprompt" style="background:#0f1014;border:1px solid #2a2c34;border-radius:8px;padding:11px 12px;font-size:12px;line-height:1.5;color:#cfd3da;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin:0;">loading…</pre>
+        <p class="step-p">No “Add” button — a remote agent connects itself. Send the prompt below to your cloud agent; it spells out exactly how to reach this hub and reply. (Keep the address on your tailnet — the port is unauthenticated by design.)</p>
+        <pre id="remoteprompt" style="padding:12px 13px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin:0;">loading…</pre>
         <div class="cmdrow" style="margin-top:8px;"><button id="copyprompt">Copy prompt</button><span class="hint" id="remotewait" style="margin:0;">⏳ Waiting for a remote agent to connect…</span></div>
       </div>
       <div class="cmdrow" id="addrow" style="margin-top:14px;"><button id="connect">Add agent</button><span id="astate" class="hint" style="margin:0;"></span></div>
@@ -482,13 +700,13 @@ const SETUP_PAGE = `<!doctype html>
         <div class="opt" data-relay="usb">USB cable</div>
       </div>
       <div id="relayrow" style="display:none;gap:8px;margin:8px 0;">
-        <input id="relayinput" placeholder="your Mac's Tailscale IP, e.g. 100.x.x.x" style="flex:1;min-width:0;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;" />
+        <input id="relayinput" placeholder="your Mac's Tailscale IP, e.g. 100.x.x.x" style="flex:1;min-width:0;" />
         <button id="relayapply" style="white-space:nowrap;">Apply</button>
       </div>
       <span id="relaystate" class="hint"></span>
     </div>
-    <details style="margin-top:14px;"><summary style="cursor:pointer;color:#6b8afd;font-size:13px;">Phone won't connect?</summary>
-      <ul style="font-size:13px;color:#b5b5bd;margin:8px 0 0;padding-left:18px;">
+    <details style="margin-top:14px;"><summary style="cursor:pointer;font-size:13px;">Phone won't connect?</summary>
+      <ul style="font-size:13px;margin:8px 0 0;padding-left:18px;">
         <li><b>Same Wi-Fi:</b> the phone and this Mac must be on the same network — or use Tailscale to skip that.</li>
         <li><b>Firewall:</b> if macOS asks to allow <code>node</code> to accept incoming connections, click Allow (System Settings, Network, Firewall).</li>
         <li><b>Any network:</b> install Tailscale on both, pick "Anywhere" above, paste your Mac's Tailscale IP, then re-pair.</li>
@@ -518,11 +736,11 @@ const SETUP_PAGE = `<!doctype html>
     if(command){ const code=document.createElement('code'); code.textContent=command; lg.appendChild(code); }
     if(command==='claude setup-token'){
       const row=document.createElement('div'); row.style.cssText='margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;';
-      const inp=document.createElement('input'); inp.placeholder='paste the token it prints (sk-ant-oat...)'; inp.style.cssText='flex:1;min-width:200px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;';
+      const inp=document.createElement('input'); inp.placeholder='paste the token it prints (sk-ant-oat...)'; inp.style.cssText='flex:1;min-width:200px;';
       const btn=document.createElement('button'); btn.textContent='Save token';
       btn.onclick=async()=>{ try{ const r=await (await fetch('/agent/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:inp.value})})).json(); btn.textContent=r.ok?'Saved — now press Connect':'Save failed'; }catch(e){ btn.textContent='Save failed'; } };
       row.appendChild(inp); row.appendChild(btn); lg.appendChild(row);
-      const hint=document.createElement('div'); hint.style.cssText='margin-top:8px;font-size:12.5px;color:#9a9aa3;'; hint.textContent='The token is printed in the terminal where you ran the command (not the browser). Paste it here, Save, then press Connect.'; lg.appendChild(hint);
+      const hint=document.createElement('div'); hint.style.cssText='margin-top:8px;font-size:12.5px;color:var(--text-dim);'; hint.textContent='The token is printed in the terminal where you ran the command (not the browser). Paste it here, Save, then press Connect.'; lg.appendChild(hint);
     }
     lg.style.display='block';
   }
