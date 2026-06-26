@@ -71,7 +71,7 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W4  Chat polish: timestamps under bubbles (hub replay carries ts) + state-change haptics; typing dots already existed. Screenshot-verified. commit pending.
 - [x] W5  Distinct wake-flow chimes (wakeHeard=double-beep, wakeDone=prompt) wired in WakeWordService. Compile-verified; audible=user. commit pending.
 - [x] W6  TTS speech rate + voice pitch sliders (persist+apply). Device-verified prefs round-trip 1.9->1.0. Named-voice catalog skipped (YAGNI). commit pending.
-- [ ] W7  Phase 3 Settings: wake sensitivity / listen-timeout knobs + boot restart of WakeWordService.
+- [x] W7  Wake sensitivity (fuzzy match, unit-tested) + listen-timeout slider (persist 14->8) + BootReceiver (registered; reboot-test deferred to loop end). commit pending.
 - [ ] W8  Phase 5 per-state custom chime sounds + wake-word DND windows.
 - [ ] W9  Phase 6 wire shape: extend assistant_message with typed parts (text/markdown/image-ref/file-ref/table), back-compat.
 - [ ] W10 Phase 6 markdown rendering in chat bubbles (headings/bold/lists/links/inline+fenced code); TTS still strips it.

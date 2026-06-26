@@ -78,6 +78,15 @@
             android:foregroundServiceType="microphone"
             android:exported="false" />
 
+        <!-- Restart the wake word after a reboot (if enabled + mic granted). -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <!-- FCM doorbell receiver. -->
         <service
             android:name=".WakeMessagingService"

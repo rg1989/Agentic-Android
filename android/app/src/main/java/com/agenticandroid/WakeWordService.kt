@@ -95,13 +95,13 @@ class WakeWordService : Service(), RecognitionListener {
         if (PhoneAgentService.instance?.micMuted == true) return // hard mute
 
         val now = System.currentTimeMillis()
-        if (awaitingCommand && now - lastWakeAt < CAPTURE_WINDOW_MS) {
+        if (awaitingCommand && now - lastWakeAt < SettingsStore.wakeTimeoutSec.value * 1000L) {
             awaitingCommand = false
             dispatch(text) // a follow-up utterance after a bare wake phrase
             return
         }
 
-        val cmd = WakePhrase.extract(text, SettingsStore.wakePhrase.value) ?: return
+        val cmd = WakePhrase.extract(text, SettingsStore.wakePhrase.value, SettingsStore.wakeSensitivity.value) ?: return
         if (cmd.isNotBlank()) {
             dispatch(cmd) // "hey agent <command>" in one breath
         } else {
@@ -161,7 +161,6 @@ class WakeWordService : Service(), RecognitionListener {
         private const val TAG = "WakeWord"
         private const val NOTIF_ID = 2
         const val MODEL_ASSET = "vosk-model-small-en-us-0.15"
-        private const val CAPTURE_WINDOW_MS = 8000L
         const val REC = "rec" // hold-to-talk button owns the mic
         const val TTS = "tts" // a spoken reply is playing — don't let the agent hear itself
         @Volatile var instance: WakeWordService? = null

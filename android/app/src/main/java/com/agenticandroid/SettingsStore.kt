@@ -21,6 +21,8 @@ object SettingsStore {
     private const val KEY_CONNECTION = "connection_enabled"
     private const val KEY_TTS_RATE = "tts_rate"
     private const val KEY_TTS_PITCH = "tts_pitch"
+    private const val KEY_WAKE_TIMEOUT = "wake_timeout_sec"
+    private const val KEY_WAKE_SENS = "wake_sensitivity"
 
     val theme = MutableStateFlow("system")
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
@@ -31,6 +33,8 @@ object SettingsStore {
     val connectionEnabled = MutableStateFlow(true) // master on/off for the hub connection (pairing is kept either way)
     val ttsRate = MutableStateFlow(1.0f)  // speech speed multiplier (0.5–2.0); 1.0 = engine default
     val ttsPitch = MutableStateFlow(1.0f) // voice pitch multiplier (0.5–2.0); 1.0 = engine default
+    val wakeTimeoutSec = MutableStateFlow(8)     // how long to wait for the command after a bare wake phrase
+    val wakeSensitivity = MutableStateFlow(0.5f) // 0 = exact phrase only; higher tolerates Vosk mishears
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -47,6 +51,8 @@ object SettingsStore {
         connectionEnabled.value = p.getBoolean(KEY_CONNECTION, true)
         ttsRate.value = p.getFloat(KEY_TTS_RATE, 1.0f)
         ttsPitch.value = p.getFloat(KEY_TTS_PITCH, 1.0f)
+        wakeTimeoutSec.value = p.getInt(KEY_WAKE_TIMEOUT, 8)
+        wakeSensitivity.value = p.getFloat(KEY_WAKE_SENS, 0.5f)
     }
 
     fun setTtsRate(v: Float) {
@@ -57,6 +63,16 @@ object SettingsStore {
     fun setTtsPitch(v: Float) {
         ttsPitch.value = v
         prefs?.edit()?.putFloat(KEY_TTS_PITCH, v)?.apply()
+    }
+
+    fun setWakeTimeoutSec(v: Int) {
+        wakeTimeoutSec.value = v
+        prefs?.edit()?.putInt(KEY_WAKE_TIMEOUT, v)?.apply()
+    }
+
+    fun setWakeSensitivity(v: Float) {
+        wakeSensitivity.value = v
+        prefs?.edit()?.putFloat(KEY_WAKE_SENS, v)?.apply()
     }
 
     fun setConnectionEnabled(on: Boolean) {

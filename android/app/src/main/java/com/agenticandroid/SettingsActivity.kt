@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.agenticandroid.pairing.PairingActivity
+import kotlin.math.roundToInt
 
 /** Proper settings page: agents, theme (system/light/dark), voice, and which actions are allowed. */
 class SettingsActivity : ComponentActivity() {
@@ -67,6 +68,8 @@ class SettingsActivity : ComponentActivity() {
                 val wakePhrase by SettingsStore.wakePhrase.collectAsState()
                 val ttsRate by SettingsStore.ttsRate.collectAsState()
                 val ttsPitch by SettingsStore.ttsPitch.collectAsState()
+                val wakeTimeoutSec by SettingsStore.wakeTimeoutSec.collectAsState()
+                val wakeSensitivity by SettingsStore.wakeSensitivity.collectAsState()
                 val caps by PhoneAgentService.capabilities.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
@@ -274,6 +277,14 @@ class SettingsActivity : ComponentActivity() {
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                                 )
+                                SliderRow(
+                                    "Wake sensitivity", wakeSensitivity, 0f..1f, steps = 4,
+                                    format = { when { it < 0.5f -> "Exact"; it < 0.8f -> "Tolerant"; else -> "Loose" } },
+                                ) { SettingsStore.setWakeSensitivity(it) }
+                                SliderRow(
+                                    "Listen timeout", wakeTimeoutSec.toFloat(), 3f..15f, steps = 11,
+                                    format = { "${it.roundToInt()}s" },
+                                ) { SettingsStore.setWakeTimeoutSec(it.roundToInt()) }
                             }
                             HorizontalDivider()
                             SectionLabel("Actions the agent can use")
@@ -313,20 +324,22 @@ class SettingsActivity : ComponentActivity() {
     }
 }
 
-/** A labelled slider showing its current multiplier (e.g. "Speech rate   1.2×"). */
+/** A labelled slider showing its current value (e.g. "Speech rate  1.2×", "Listen timeout  8s"). */
 @Composable
-private fun SliderRow(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
+private fun SliderRow(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int = 14,
+    format: (Float) -> String = { String.format(java.util.Locale.US, "%.1f×", it) },
+    onChange: (Float) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Text(
-                String.format(java.util.Locale.US, "%.1f×", value),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(format(value), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        // 0.5..2.0 in 0.1 steps → 15 discrete stops.
-        Slider(value = value, onValueChange = onChange, valueRange = range, steps = 14)
+        Slider(value = value, onValueChange = onChange, valueRange = range, steps = steps)
     }
 }
 

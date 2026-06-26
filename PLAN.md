@@ -81,7 +81,12 @@ command capture in one continuous stream (no mic handoff).
 - [x] On the wake phrase → capture the rest of the utterance (or the next one) → `sendUserMessage`.
       Half-duplex: ignores the agent's own TTS (`speaking` flag), paused while hold-to-talk owns the mic.
 - [x] Settings → Voice & sounds: Wake word on/off (opt-in, off by default) + editable wake phrase.
-- [ ] Per-state chimes / sensitivity / listen-timeout knobs; boot restart. (later)
+- [x] **Sensitivity** (fuzzy wake match — Vosk has no native dial; per-word Levenshtein tolerance:
+      Exact/Tolerant/Loose, unit-tested), **listen-timeout** knob (3–15s, replaces the hardcoded 8s
+      window), and **boot restart** (`BootReceiver` on `BOOT_COMPLETED` restarts the wake service if
+      enabled + mic granted). Sliders persist (verified 14→8s). Boot receiver registered; live
+      reboot-test deferred to loop end (BOOT_COMPLETED is a protected broadcast, can't be faked).
+      (Per-state custom chimes → Phase 5 / W8.)
 - [x] **Distinct wake-flow chimes**: added `wakeHeard()` (TONE_PROP_BEEP2 double-beep — fires the
       instant the wake phrase is recognized) and `wakeDone()` (TONE_PROP_PROMPT — at end of capture /
       command sent), both distinct from the generic `listening`/`sent`/`error` tones and gated by the
@@ -222,7 +227,7 @@ never by the ephemeral agent turn or a per-process timer.
 | TTS speech rate + voice pitch | 2 | [x] |
 | Wake word on/off | 3 | [x] |
 | Wake phrase | 3 | [x] |
-| Wake sensitivity / listen timeout / per-state chime | 3 | [ ] |
+| Wake sensitivity / listen timeout / boot restart | 3 | [x] |
 | Agents: list / add / switch / forget | 4 | [x] |
 
 ## Protocol additions (brain ↔ phone, over the existing bus)
