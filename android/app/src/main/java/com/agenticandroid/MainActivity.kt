@@ -91,6 +91,10 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.FlashlightOn
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Screenshot
 import androidx.compose.material.icons.rounded.FolderZip
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Movie
@@ -161,6 +165,7 @@ class MainActivity : ComponentActivity() {
                 val connected by PhoneAgentService.connected.collectAsState()
                 val agentName by PhoneAgentService.agentName.collectAsState()
                 val status by PhoneAgentService.status.collectAsState()
+                val speaking by PhoneAgentService.speaking.collectAsState()
                 val commands by PhoneAgentService.commands.collectAsState()
                 val connectionEnabled by SettingsStore.connectionEnabled.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
@@ -192,7 +197,8 @@ class MainActivity : ComponentActivity() {
                 }
                 LaunchedEffect(status) {
                     val st = status ?: return@LaunchedEffect
-                    if (st != "Transcribing…" && st != "Sending…" && !st.startsWith("🔊")) haptics.tick()
+                    val clean = cleanStatus(st)
+                    if (clean != "Transcribing…" && clean != "Sending…" && !clean.startsWith("Speaking")) haptics.tick()
                 }
                 var recording by remember { mutableStateOf(false) }   // capturing voice (held or locked)
                 var locked by remember { mutableStateOf(false) }      // hands-free: keeps recording after release
@@ -494,7 +500,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // animated "typing / transcribing / speaking" strip, pinned above the input bar
-                    StatusStrip(status) { PhoneAgentService.instance?.stopSpeaking() }
+                    StatusStrip(status, speaking) { PhoneAgentService.instance?.stopSpeaking() }
 
                     // input bar: morphs between a text field and a live recording bar; ONE combined
                     // button — tap to send, hold to talk, slide up to lock hands-free, slide left to cancel.
@@ -841,9 +847,28 @@ private fun MarkdownText(md: String, color: Color, modifier: Modifier = Modifier
     )
 }
 
+/** Strip any leading emoji/symbols from a status label so the strip shows clean text + a Material icon. */
+private fun cleanStatus(raw: String): String = raw.trimStart().dropWhile { !it.isLetterOrDigit() }.trim()
+
+/** A Material icon for a status label (keyword-mapped); null → just the typing dots. */
+private fun statusIcon(text: String): ImageVector? {
+    val t = text.lowercase()
+    return when {
+        "listening" in t || "transcrib" in t -> Icons.Rounded.Mic
+        "sending" in t -> Icons.AutoMirrored.Rounded.Send
+        "photo" in t -> Icons.Rounded.PhotoCamera
+        "screen" in t -> Icons.Rounded.Screenshot
+        "device" in t || "battery" in t -> Icons.Rounded.PhoneAndroid
+        "flashlight" in t || "torch" in t -> Icons.Rounded.FlashlightOn
+        "thinking" in t -> Icons.Rounded.AutoAwesome
+        "running" in t -> Icons.Rounded.Bolt
+        else -> null
+    }
+}
+
 /** Pinned "agent is typing / transcribing / speaking" strip that animates IN and OUT. */
 @Composable
-private fun StatusStrip(status: String?, onStopSpeaking: () -> Unit) {
+private fun StatusStrip(status: String?, speaking: Boolean, onStopSpeaking: () -> Unit) {
     var last by remember { mutableStateOf("") }
     LaunchedEffect(status) { if (status != null) last = status }
     AnimatedVisibility(
@@ -851,7 +876,6 @@ private fun StatusStrip(status: String?, onStopSpeaking: () -> Unit) {
         enter = fadeIn(tween(180)) + expandVertically(tween(200)),
         exit = fadeOut(tween(160)) + shrinkVertically(tween(180)),
     ) {
-        val speaking = last.startsWith("🔊")
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp), horizontalArrangement = Arrangement.Start) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -864,8 +888,13 @@ private fun StatusStrip(status: String?, onStopSpeaking: () -> Unit) {
                         Spacer(Modifier.width(8.dp))
                         Text("Speaking — tap to stop", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                     } else {
+                        val clean = cleanStatus(last)
+                        statusIcon(clean)?.let {
+                            Icon(it, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                        }
                         Text(
-                            last.trimEnd('…', ' ', '.'),
+                            clean.trimEnd('…', ' ', '.'),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontStyle = FontStyle.Italic,
                             style = MaterialTheme.typography.bodyMedium,
