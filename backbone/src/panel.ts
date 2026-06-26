@@ -421,6 +421,8 @@ const SETUP_PAGE = `<!doctype html>
   .dot.lit { background:#3b82f6; } .dot.bad { background:#d29922; }
   .addbox { border-top:1px dashed #2a2c34; padding-top:14px; }
   .addlabel { font-size:13px; color:#9a9aa3; margin-bottom:6px; }
+  .phonechk { display:flex; align-items:flex-start; gap:8px; font-size:13px; color:#cdd; cursor:pointer; }
+  .phonechk input { margin-top:3px; flex:none; }
   .empty { color:#8a8a93; font-size:13px; padding:8px 2px; }
 </style></head>
 <body><div class="wrap">
@@ -441,9 +443,13 @@ const SETUP_PAGE = `<!doctype html>
       <div class="cards">
         <div class="card2 sel" data-type="claude"><div class="ct">Your Claude</div><div class="cd">Uses your Claude subscription. No API key.</div></div>
         <div class="card2" data-type="basic"><div class="ct">Built-in helper</div><div class="cd">No setup, no login. Basic replies — good for a first test.</div></div>
+        <div class="card2" data-type="other"><div class="ct">Other agent</div><div class="cd">Hermes, Pi, Cursor, opencode… any CLI you run.</div></div>
       </div>
-      <span class="adv" id="advtoggle">Advanced: use a custom command ▸</span>
-      <input id="ccmd" placeholder="a CLI that prints a reply, e.g. codex" style="display:none;width:100%;margin:6px 0 2px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
+      <div id="otherform" style="display:none;margin-top:10px;">
+        <input id="oname" placeholder="Name (e.g. Hermes)" style="width:100%;margin:0 0 8px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;" />
+        <input id="ocmd" placeholder="command to run (e.g. hermes, pi, cursor-agent)" style="width:100%;margin:0 0 8px;background:#0f1014;border:1px solid #2a2c34;color:#e7e7ea;border-radius:8px;padding:9px 11px;font-size:13px;font-family:ui-monospace,Menlo,monospace;" />
+        <label class="phonechk"><input type="checkbox" id="ophone" checked /><span>Can control the phone <span class="hint" style="margin:0;">— for Claude Code-compatible CLIs (Claude, Cursor, Hermes, Pi). Off = chat only.</span></span></label>
+      </div>
       <div class="cmdrow" style="margin-top:14px;"><button id="connect">Add agent</button><span id="astate" class="hint" style="margin:0;"></span></div>
       <div id="alog" class="callout" style="display:none;"></div>
     </div>
@@ -488,12 +494,7 @@ const SETUP_PAGE = `<!doctype html>
 <script>
   let curType='claude';
   const cards=[...document.querySelectorAll('.card2')];
-  cards.forEach(c=>c.onclick=()=>{ cards.forEach(x=>x.classList.toggle('sel',x===c)); curType=c.dataset.type; document.getElementById('ccmd').style.display='none'; });
-  document.getElementById('advtoggle').onclick=()=>{
-    const i=document.getElementById('ccmd'); const show=i.style.display==='none';
-    i.style.display=show?'block':'none';
-    if(show){ curType='custom'; cards.forEach(x=>x.classList.remove('sel')); } else { curType='claude'; cards[0].classList.add('sel'); }
-  };
+  cards.forEach(c=>c.onclick=()=>{ cards.forEach(x=>x.classList.toggle('sel',x===c)); curType=c.dataset.type; document.getElementById('otherform').style.display = curType==='other' ? 'block' : 'none'; });
   function showCallout(error,command){
     const lg=document.getElementById('alog'); lg.innerHTML='';
     const p=document.createElement('div'); p.textContent=error; lg.appendChild(p);
@@ -510,12 +511,17 @@ const SETUP_PAGE = `<!doctype html>
   }
   document.getElementById('connect').onclick=async()=>{
     const st=document.getElementById('astate');
+    let body;
+    if(curType==='other'){
+      const command=document.getElementById('ocmd').value.trim();
+      if(!command){ st.textContent='enter a command'; document.getElementById('ocmd').focus(); return; }
+      body={type:'other', name:document.getElementById('oname').value.trim(), command, phone:document.getElementById('ophone').checked};
+    } else { body={type:curType}; }
     st.textContent='adding…'; document.getElementById('alog').style.display='none';
     try{
-      const body={type:curType, command:document.getElementById('ccmd').value};
       const r=await (await fetch('/agent/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})).json();
       if(!r.ok){ st.textContent=''; showCallout(r.error||'Could not start the agent.', r.command); }
-      else { st.textContent='starting…'; }
+      else { st.textContent='starting…'; document.getElementById('oname').value=''; document.getElementById('ocmd').value=''; }
     }catch(e){ st.textContent=''; showCallout(String(e)); }
     poll();
   };
@@ -643,14 +649,19 @@ async function main() {
     for (let n = 2; n < 99; n++) { const cand = `${base} (${n})`; if (!taken.has(cand)) return cand; }
     return base;
   }
-  /** Spawn another agent process (additive — does NOT stop existing ones). Returns its instanceId. */
-  function spawnAgent(kind: string, command?: string): string {
+  /** Spawn another agent process (additive — does NOT stop existing ones). Returns its instanceId.
+   *  kind: "claude" (your Claude) · "basic" (built-in) · "other" (any CLI; opts.phone picks the runner). */
+  function spawnAgent(kind: string, command?: string, opts: { name?: string; phone?: boolean } = {}): string {
     const instanceId = randomUUID();
     let env: NodeJS.ProcessEnv = { ...process.env };
     let script = "src/agent.ts";                                  // basic (keyword) agent
     let baseName = "Built-in helper";
     if (kind === "claude") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); baseName = "Claude"; }            // your Claude
-    else if (kind === "custom") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); env.AGENT_CLI = command || "claude"; baseName = command || "custom"; }
+    else if (kind === "other" || kind === "custom") {
+      baseName = opts.name?.trim() || command || "agent";
+      if (opts.phone === false) { script = "src/agent-text.ts"; env.AGENT_CMD = command || ""; }                    // chat-only: any CLI
+      else { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); env.AGENT_CLI = command || "claude"; }           // Claude-Code-compatible: full phone control
+    }
     const name = uniqueAgentName(baseName);
     env.AGENT_INSTANCE_ID = instanceId;
     env.AGENT_NAME = name;
@@ -986,17 +997,21 @@ async function main() {
       let body = ""; req.on("data", (c) => (body += c));
       req.on("end", async () => {
         try {
-          const { type, command } = JSON.parse(body || "{}");
+          const { type, command, name, phone } = JSON.parse(body || "{}");
           const kind = String(type ?? "basic");
+          const cmd = String(command ?? "").trim();
+          const wantsPhone = phone !== false; // default: Claude-Code-compatible (full phone control)
+          if ((kind === "other" || kind === "custom") && !cmd) return json({ ok: false, error: "Enter the command to run." });
+          // Probe the CLI only when it'll run in Claude-compatible mode (claude itself, or phone-control "other").
           if (kind === "claude") {
             const probe = await probeClaude("claude");
             if (!probe.ok) return json({ ok: false, error: probe.message, command: probe.command });
-          } else if (kind === "custom") {
-            const probe = await probeClaude(String(command || "claude"));
+          } else if ((kind === "other" || kind === "custom") && wantsPhone) {
+            const probe = await probeClaude(cmd.split(/\s+/)[0] || "claude");
             if (!probe.ok) return json({ ok: false, error: probe.message, command: probe.command });
           }
-          const id = spawnAgent(kind, command);
-          logEvent("connection", `started agent process: ${kind} (${id})`);
+          const id = spawnAgent(kind, cmd, { name: typeof name === "string" ? name : undefined, phone: wantsPhone });
+          logEvent("connection", `started agent process: ${kind}${cmd ? ` (${cmd})` : ""} phone=${wantsPhone} (${id})`);
           json({ ok: true, id });
         } catch (e) { json({ ok: false, error: String(e) }, 500); }
       });
