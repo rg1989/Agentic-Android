@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
@@ -655,7 +656,7 @@ private fun PartView(part: MsgPart, isUser: Boolean, onSaveFile: (MsgPart.FileRe
     val fg = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     when (part) {
         is MsgPart.Text -> if (part.markdown) MarkdownText(part.text, fg) else Text(part.text, color = fg, style = MaterialTheme.typography.bodyMedium)
-        is MsgPart.Table -> Text("📊 table · ${part.rows.size}×${part.columns.size}", color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+        is MsgPart.Table -> TableView(part, fg)
         is MsgPart.ImageRef -> AgentImage(part, fg)
         is MsgPart.FileRef -> FilePart(part, fg, onSaveFile)
     }
@@ -678,6 +679,38 @@ private fun FilePart(part: MsgPart.FileRef, fg: Color, onSave: (MsgPart.FileRef)
                     (part.size?.let { humanSize(it) + " · " } ?: "") + "tap to save",
                     color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall,
                 )
+            }
+        }
+    }
+}
+
+/** A structured table part rendered as a simple grid: bold header row, divider, then data rows. */
+@Composable
+private fun TableView(part: MsgPart.Table, fg: Color) {
+    val ncols = maxOf(part.columns.size, part.rows.maxOfOrNull { it.size } ?: 0)
+    if (ncols == 0) return
+    Column(Modifier.padding(vertical = 2.dp)) {
+        if (part.columns.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth()) {
+                for (i in 0 until ncols) {
+                    Text(
+                        part.columns.getOrElse(i) { "" },
+                        Modifier.weight(1f).padding(horizontal = 6.dp, vertical = 4.dp),
+                        color = fg, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            HorizontalDivider(color = fg.copy(alpha = 0.3f))
+        }
+        part.rows.forEach { row ->
+            Row(Modifier.fillMaxWidth()) {
+                for (i in 0 until ncols) {
+                    Text(
+                        row.getOrElse(i) { "" },
+                        Modifier.weight(1f).padding(horizontal = 6.dp, vertical = 4.dp),
+                        color = fg, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
     }

@@ -46,7 +46,7 @@ sealed class MsgPart {
                     is Text -> p.text
                     is ImageRef -> "(an image)"
                     is FileRef -> "(a file: ${p.name})"
-                    is Table -> "(a table)"
+                    is Table -> "(a table with ${p.rows.size} rows)"
                 }
             }.trim()
             return s.ifBlank { fallback }

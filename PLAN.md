@@ -150,8 +150,10 @@ speech), the **eye** gets the full rich render in chat. Agent replies are more t
       taps to a fullscreen `Dialog`. Decoded bitmaps cached per blobId. Spoken: "(an image)". Hub
       `bus.putBlob` seals for the phone; `POST /demo-image` test affordance. Device-verified: a sealed
       photo rendered inline + fullscreen. (Replay after the relay's 5-min blob TTL shows "unavailable".)
-- [ ] **Charts/tables**: structured data (a table or a simple chart spec) rendered visually; spoken
-      as a one-line summary, not cell-by-cell. Define a small reply-content type the agent emits.
+- [x] **Tables**: a `table {columns, rows}` part renders as a real grid (bold header + divider + data
+      rows, columns evenly weighted, ragged rows padded). Spoken as a one-line summary ("a table with
+      N rows"), not cell-by-cell. Device-verified live + on history replay. (A dedicated *chart* spec is
+      deferred — YAGNI until an agent emits one; the table already carries structured data visually.)
 - [x] **Receive files from the agent**: a `file-ref {blobId, name, mime, size}` part renders as a chat
       attachment chip (type icon + name + human size). Tap → SAF `CreateDocument` picker → the phone
       fetches + E2E-decrypts the blob and writes it (reuses the same blob transport as photos). Spoken:

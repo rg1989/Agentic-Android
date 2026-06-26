@@ -78,7 +78,7 @@ Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-don
 - [x] W10 Markdown rendering (hand-rolled AnnotatedString, no dep) for assistant bubbles + md parts; 6 unit tests; device-verified styled. commit pending.
 - [x] W11 Inline agent images (image-ref part, E2E blob fetch+decode, tap fullscreen, cache). Hub /demo-image. Device-verified inline + fullscreen. commit pending.
 - [x] W12 Receive files: file-ref chip + SAF save (E2E blob -> write). Device-verified notes.txt 50B to /Download. Hub /demo-file. commit pending.
-- [ ] W13 Phase 6 tables/charts: structured part rendered visually; spoken as one-line summary.
+- [x] W13 Table part renders as a grid (header+divider+rows); spoken one-line summary. Device-verified live + replay. Charts deferred (YAGNI). commit pending.
 - [ ] W14 Phase 7 send files phone→agent: attach button → SAF picker → blob upload → hub persist → agent sees path/mime.
 - [ ] W15 Phase 9 hub-owned scheduler: move into panel.ts, persist schedule.jsonl, re-arm on boot, fire+wake agent, schedule/list/cancel + cron.
 - [ ] W16 Phase 8 (SAFE) hub holds N agents + live roster + route-at-hub, single-agent behavior identical. Multi-brain verify flagged for user.
