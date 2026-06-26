@@ -121,6 +121,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.put
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import com.agenticandroid.pairing.PairingActivity
@@ -219,6 +222,30 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val onSaveFile: (MsgPart.FileRef) -> Unit = { f -> pendingSave = f; saveLauncher.launch(f.name) }
+
+                // Attach a file from the phone and send it to the agent: pick → upload blob → user_message w/ file part.
+                val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri != null) scope.launch(Dispatchers.IO) {
+                        runCatching {
+                            val cr = context.contentResolver
+                            val mime = cr.getType(uri)
+                            var name = "file"
+                            cr.query(uri, null, null, null, null)?.use { c ->
+                                val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                                if (c.moveToFirst() && ni >= 0) c.getString(ni)?.let { name = it }
+                            }
+                            val bytes = cr.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
+                            val id = PhoneAgentService.instance?.putBlob(bytes) ?: return@launch
+                            val partsJson = buildJsonArray {
+                                addJsonObject {
+                                    put("kind", "file"); put("blobId", id); put("name", name)
+                                    mime?.let { put("mime", it) }; put("size", bytes.size)
+                                }
+                            }
+                            withContext(Dispatchers.Main) { PhoneAgentService.instance?.sendUserMessage("", partsJson) }
+                        }
+                    }
+                }
 
                 // --- combined hold-to-talk / tap-to-send button: gesture helpers ---
                 fun sendText() {
@@ -465,6 +492,11 @@ class MainActivity : ComponentActivity() {
                         Modifier.fillMaxWidth().padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (paired && !recording) {
+                            IconButton(onClick = { pickFile.launch(arrayOf("*/*")) }) {
+                                Text("📎", style = MaterialTheme.typography.titleLarge)
+                            }
+                        }
                         Box(Modifier.weight(1f)) {
                             if (recording) {
                                 RecordingBar(

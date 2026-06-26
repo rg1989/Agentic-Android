@@ -224,13 +224,20 @@ class PhoneAgentService : Service() {
         }
     }
 
-    /** Phone-initiated message to the agent (the user typed/spoke it). */
-    fun sendUserMessage(text: String) {
+    /** Phone-initiated message to the agent (the user typed/spoke it), optionally with attached parts. */
+    fun sendUserMessage(text: String, parts: JsonArray? = null) {
         tts?.stop() // barge-in: stop speaking the previous reply when the user talks again
-        chat.value = chat.value + ChatMsg("user", text)
+        chat.value = chat.value + ChatMsg("user", text, parts = MsgPart.parse(parts))
         status.value = "Sending…"
-        bus?.event("user_message", JsonObject(mapOf("text" to JsonPrimitive(text))))
+        val data = buildMap<String, kotlinx.serialization.json.JsonElement> {
+            put("text", JsonPrimitive(text))
+            if (parts != null) put("parts", parts)
+        }
+        bus?.event("user_message", JsonObject(data))
     }
+
+    /** Upload bytes as an E2E blob sealed for the agent; returns its id. Blocking — call off-main. */
+    fun putBlob(bytes: ByteArray): String? = runCatching { bus?.putBlob(bytes) }.getOrNull()
 
     /** Stop any in-progress spoken reply (used for tap-to-stop / barge-in). */
     fun stopSpeaking() {

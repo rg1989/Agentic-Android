@@ -85,7 +85,12 @@ async function main() {
       const r = pending.get(m.id);
       if (r) { pending.delete(m.id); r({ status: m.status, result: m.result, error: m.error }); }
     } else if (m.t === "user") {
-      void runBrain(String(m.text ?? ""));
+      // Surface any attached files to the brain as a path + mime it can open/act on.
+      const files = Array.isArray(m.files) ? m.files : [];
+      const note = files
+        .map((f: any) => `\n\n[Attached file: ${f.name}${f.mime ? ` (${f.mime})` : ""} saved at ${f.path}]`)
+        .join("");
+      void runBrain(String(m.text ?? "") + note);
     }
   });
   ws.on("close", () => { console.error("hub connection closed — exiting"); process.exit(1); });

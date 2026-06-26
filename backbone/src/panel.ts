@@ -45,6 +45,8 @@ function configPath(): string { return path.join(configDir(), "agent.json"); }
 function eventsPath(): string { return path.join(configDir(), "panel-events.jsonl"); }
 /** The agent's consolidated photo folder, next to its config: ~/.agentic-android/media/photos/ */
 function mediaDir(): string { return path.join(configDir(), "media", "photos"); }
+/** Files the user sent from the phone (any mime), next to the photos. */
+function filesDir(): string { return path.join(configDir(), "media", "files"); }
 
 // ---------- persistent event log ----------
 const events: LogEvent[] = [];
@@ -650,14 +652,32 @@ async function main() {
       return;
     }
     if (ev.topic === "user_message") {
-      const text = String((ev.data as { text?: unknown }).text ?? "");
-      logEvent("user_message", text, { text });
-      addTurn("user", text);
-      if (agentSock) agentSock.send(JSON.stringify({ t: "user", text }));
-      else {
-        bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." });
-        logEvent("error", "user_message but no agent connected");
-      }
+      const d = ev.data as { text?: unknown; parts?: unknown };
+      const text = String(d.text ?? "");
+      const parts = Array.isArray(d.parts) ? (d.parts as MsgPart[]) : undefined;
+      logEvent("user_message", text, { text, parts });
+      // Persist any attached file blobs to disk so the agent gets a real local path + mime to open.
+      void (async () => {
+        const files: { path: string; name: string; mime?: string; size?: number }[] = [];
+        for (const p of parts ?? []) {
+          if (p.kind !== "file") continue;
+          try {
+            const bytes = await bus.getBlob(p.blobId);
+            fs.mkdirSync(filesDir(), { recursive: true });
+            const safe = p.name.replace(/[^\w.\-]+/g, "_") || "file";
+            const fp = path.join(filesDir(), `${Date.now()}_${safe}`);
+            fs.writeFileSync(fp, bytes);
+            files.push({ path: fp, name: p.name, mime: p.mime, size: bytes.length });
+            logEvent("phone_event", `saved attached file ${p.name} (${bytes.length} bytes)`, { path: fp });
+          } catch (e) { logEvent("error", `failed to save attached file ${p.name}`, { error: String(e) }); }
+        }
+        addTurn("user", text || (files.length ? `(sent ${files.length} file${files.length > 1 ? "s" : ""})` : ""), parts);
+        if (agentSock) agentSock.send(JSON.stringify({ t: "user", text, ...(files.length ? { files } : {}) }));
+        else {
+          bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." });
+          logEvent("error", "user_message but no agent connected");
+        }
+      })();
       return;
     }
     logEvent("phone_event", `phone event: ${ev.topic}`, ev.data);

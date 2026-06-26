@@ -166,17 +166,19 @@ speech), the **eye** gets the full rich render in chat. Agent replies are more t
       parts. Back-compat: no parts → renders `text`. Device-verified via a `demo rich` stub trigger
       ("2 parts" parsed; markdown + table placeholder rendered). image/file/table renderers follow below.
 
-## Phase 7 — Send files from the phone (phone → agent)  ← **not started**
-The mirror of Phase 6's "receive files": let the user attach a file from the phone and drop it into
-the conversation for the agent to use. Reuses the same hub blob/media path.
-- [ ] Phone: attach button → Android file picker (SAF / `ACTION_GET_CONTENT`); show the attachment
-      in the chat bubble (name, size, thumbnail for images).
-- [ ] Wire: stream the file to the hub as a blob (reuse the photo blob upload); cap size, show
-      progress. Reuse the `file-ref {blobId, name, mime, size}` part from Phase 6, phone→hub direction.
-- [ ] Hub: persist the blob + record it on the conversation turn; expose its path/handle to the
-      agent so the brain can read or act on it.
-- [ ] Agent side: surface the attachment to the brain (path + mime) like a captured photo today.
-- Open Qs: max size / allowed types; binary vs text; agent gets bytes inline or a path it opens.
+## Phase 7 — Send files from the phone (phone → agent)  ← **DONE (device-verified)**
+The mirror of Phase 6's "receive files": the user attaches a file and drops it into the conversation
+for the agent. Reuses the same hub blob/media path + the `file-ref` part (phone→hub direction).
+- [x] Phone: 📎 attach button → SAF `OpenDocument` picker → reads bytes (name via `OpenableColumns`,
+      mime via resolver) → uploads an E2E blob (`putBlob`) → shows the attachment chip in the chat.
+- [x] Wire: the file rides as a `file-ref {blobId, name, mime, size}` part on `user_message`
+      (phone→hub), reusing the photo blob transport.
+- [x] Hub: persists the blob to `~/.agentic-android/media/files/` and records the part on the turn.
+- [x] Agent side: the hub passes `{path, name, mime, size}` to the agent, which surfaces it to the
+      brain as an `[Attached file: … saved at <path>]` note it can open/act on.
+      Device-verified end-to-end: picked log_list.json → saved on the hub (41646 B) → agent replied
+      "📎 Got your file — log_list.json (application/json) saved at …".
+- Notes: large-file streaming/progress + an image thumbnail (vs the type-icon chip) are minor later adds.
 
 ## Phase 8 — Multiple agents at the hub (the core-glue redesign)  ← **not started**
 **This is the consolidated home for "many agents at once."** Today the whole stack is single-agent:

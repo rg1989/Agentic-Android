@@ -130,6 +130,10 @@ async function stubLoop(deps: BrainDeps, userText: string): Promise<string | Ass
   const t = userText.toLowerCase();
   const has = (...w: string[]) => w.some((x) => t.includes(x));
 
+  // Acknowledge an attached file (Phase 7) so the send-file path is verifiable end to end.
+  const fileNote = userText.match(/\[Attached file: ([^\]]+)\]/);
+  if (fileNote) return `📎 Got your file — ${fileNote[1]}.`;
+
   // Demo trigger for the Phase 6 rich-reply pipeline (markdown + table parts). No device needed.
   if (has("demo rich", "demo parts", "rich demo")) {
     return {
