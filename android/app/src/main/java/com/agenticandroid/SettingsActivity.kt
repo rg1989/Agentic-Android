@@ -70,6 +70,10 @@ class SettingsActivity : ComponentActivity() {
                 val ttsPitch by SettingsStore.ttsPitch.collectAsState()
                 val wakeTimeoutSec by SettingsStore.wakeTimeoutSec.collectAsState()
                 val wakeSensitivity by SettingsStore.wakeSensitivity.collectAsState()
+                val chimeStyle by SettingsStore.chimeStyle.collectAsState()
+                val wakeDnd by SettingsStore.wakeDnd.collectAsState()
+                val wakeDndStart by SettingsStore.wakeDndStart.collectAsState()
+                val wakeDndEnd by SettingsStore.wakeDndEnd.collectAsState()
                 val caps by PhoneAgentService.capabilities.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
@@ -221,6 +225,22 @@ class SettingsActivity : ComponentActivity() {
                                 }
                                 Switch(checked = chimes, onCheckedChange = { SettingsStore.setChimes(it) })
                             }
+                            if (chimes) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("Chime sound", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                    listOf("classic" to "Classic", "soft" to "Soft").forEach { (key, label) ->
+                                        FilterChip(
+                                            selected = chimeStyle == key,
+                                            onClick = { SettingsStore.setChimeStyle(key) },
+                                            label = { Text(label) },
+                                        )
+                                    }
+                                }
+                            }
                             Row(
                                 Modifier.fillMaxWidth()
                                     .clickable {
@@ -285,6 +305,27 @@ class SettingsActivity : ComponentActivity() {
                                     "Listen timeout", wakeTimeoutSec.toFloat(), 3f..15f, steps = 11,
                                     format = { "${it.roundToInt()}s" },
                                 ) { SettingsStore.setWakeTimeoutSec(it.roundToInt()) }
+                                Row(
+                                    Modifier.fillMaxWidth().clickable { SettingsStore.setWakeDnd(!wakeDnd) }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Do not disturb")
+                                        Text(
+                                            "Ignore the wake word during quiet hours.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(checked = wakeDnd, onCheckedChange = { SettingsStore.setWakeDnd(it) })
+                                }
+                                if (wakeDnd) {
+                                    SliderRow("Quiet from", wakeDndStart.toFloat(), 0f..23f, steps = 22,
+                                        format = { "%02d:00".format(it.roundToInt()) }) { SettingsStore.setWakeDndStart(it.roundToInt()) }
+                                    SliderRow("Quiet until", wakeDndEnd.toFloat(), 0f..23f, steps = 22,
+                                        format = { "%02d:00".format(it.roundToInt()) }) { SettingsStore.setWakeDndEnd(it.roundToInt()) }
+                                }
                             }
                             HorizontalDivider()
                             SectionLabel("Actions the agent can use")

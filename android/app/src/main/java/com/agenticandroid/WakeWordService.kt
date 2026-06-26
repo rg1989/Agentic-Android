@@ -93,6 +93,10 @@ class WakeWordService : Service(), RecognitionListener {
         if (text.isBlank()) return
         if (PhoneAgentService.speaking.value) return            // don't react to the agent's own voice
         if (PhoneAgentService.instance?.micMuted == true) return // hard mute
+        if (SettingsStore.wakeDnd.value) {                       // quiet hours — ignore the wake word
+            val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            if (WakeWindow.isQuiet(hour, SettingsStore.wakeDndStart.value, SettingsStore.wakeDndEnd.value)) return
+        }
 
         val now = System.currentTimeMillis()
         if (awaitingCommand && now - lastWakeAt < SettingsStore.wakeTimeoutSec.value * 1000L) {

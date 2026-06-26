@@ -23,6 +23,10 @@ object SettingsStore {
     private const val KEY_TTS_PITCH = "tts_pitch"
     private const val KEY_WAKE_TIMEOUT = "wake_timeout_sec"
     private const val KEY_WAKE_SENS = "wake_sensitivity"
+    private const val KEY_CHIME_STYLE = "chime_style"
+    private const val KEY_DND = "wake_dnd"
+    private const val KEY_DND_START = "wake_dnd_start"
+    private const val KEY_DND_END = "wake_dnd_end"
 
     val theme = MutableStateFlow("system")
     val disabledCaps = MutableStateFlow<Set<String>>(emptySet())
@@ -35,6 +39,10 @@ object SettingsStore {
     val ttsPitch = MutableStateFlow(1.0f) // voice pitch multiplier (0.5–2.0); 1.0 = engine default
     val wakeTimeoutSec = MutableStateFlow(8)     // how long to wait for the command after a bare wake phrase
     val wakeSensitivity = MutableStateFlow(0.5f) // 0 = exact phrase only; higher tolerates Vosk mishears
+    val chimeStyle = MutableStateFlow("classic") // "classic" | "soft" — the chime tone palette
+    val wakeDnd = MutableStateFlow(false)        // suppress the wake word during a quiet window
+    val wakeDndStart = MutableStateFlow(23)      // DND start hour (0–23)
+    val wakeDndEnd = MutableStateFlow(7)         // DND end hour (0–23, exclusive)
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -53,6 +61,30 @@ object SettingsStore {
         ttsPitch.value = p.getFloat(KEY_TTS_PITCH, 1.0f)
         wakeTimeoutSec.value = p.getInt(KEY_WAKE_TIMEOUT, 8)
         wakeSensitivity.value = p.getFloat(KEY_WAKE_SENS, 0.5f)
+        chimeStyle.value = p.getString(KEY_CHIME_STYLE, "classic") ?: "classic"
+        wakeDnd.value = p.getBoolean(KEY_DND, false)
+        wakeDndStart.value = p.getInt(KEY_DND_START, 23)
+        wakeDndEnd.value = p.getInt(KEY_DND_END, 7)
+    }
+
+    fun setChimeStyle(v: String) {
+        chimeStyle.value = v
+        prefs?.edit()?.putString(KEY_CHIME_STYLE, v)?.apply()
+    }
+
+    fun setWakeDnd(on: Boolean) {
+        wakeDnd.value = on
+        prefs?.edit()?.putBoolean(KEY_DND, on)?.apply()
+    }
+
+    fun setWakeDndStart(h: Int) {
+        wakeDndStart.value = h
+        prefs?.edit()?.putInt(KEY_DND_START, h)?.apply()
+    }
+
+    fun setWakeDndEnd(h: Int) {
+        wakeDndEnd.value = h
+        prefs?.edit()?.putInt(KEY_DND_END, h)?.apply()
     }
 
     fun setTtsRate(v: Float) {

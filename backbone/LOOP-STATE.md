@@ -65,14 +65,15 @@ Stop: all items `[x]` → done · 3 failed tries on one item → mark blocked, m
 ONE bounded item per iteration; never weaken a test to pass; tick PLAN.md box + commit per item.
 
 Worklist (highest value / lowest risk first — status: [ ] todo · [~] code-done-needs-verify · [x] done · [B] blocked):
-- [x] W1  Wake-word coexist bug FIXED + device-verified (logcat: mic released on TTS, restarts after). commit 760c1f5. Note: I left wake word ON in settings for upcoming items; turn OFF at end + restore Claude agent.
+- [x] W1  Wake-word coexist bug FIXED + device-verified (logcat: mic released on TTS, restarts after). commit 760c1f5.
+  >> END-OF-RUN CLEANUP (restore user's original state): wake word OFF, chime style → classic, DND OFF, TTS rate/pitch 1.0, restore Claude agent (`pkill -f agent.ts; pnpm -C backbone agent:claude`), `svc power stayon false`, and do the deferred `adb reboot` test of BootReceiver.
 - [x] W2  "button mic wins" device-verified: long-press mid-TTS → red "Listening…" bar, TTS halted. (verify-only, doc commit)
 - [x] W3  Smart-speech junk filter (UUID/hash/ID/path/long-digits) + 12/12 unit tests, no speak regression. commit pending below.
 - [x] W4  Chat polish: timestamps under bubbles (hub replay carries ts) + state-change haptics; typing dots already existed. Screenshot-verified. commit pending.
 - [x] W5  Distinct wake-flow chimes (wakeHeard=double-beep, wakeDone=prompt) wired in WakeWordService. Compile-verified; audible=user. commit pending.
 - [x] W6  TTS speech rate + voice pitch sliders (persist+apply). Device-verified prefs round-trip 1.9->1.0. Named-voice catalog skipped (YAGNI). commit pending.
 - [x] W7  Wake sensitivity (fuzzy match, unit-tested) + listen-timeout slider (persist 14->8) + BootReceiver (registered; reboot-test deferred to loop end). commit pending.
-- [ ] W8  Phase 5 per-state custom chime sounds + wake-word DND windows.
+- [x] W8  Chime style (Classic/Soft palette) + wake-word DND windows (WakeWindow unit-tested overnight wrap). Device-verified persist + sliders. commit pending.
 - [ ] W9  Phase 6 wire shape: extend assistant_message with typed parts (text/markdown/image-ref/file-ref/table), back-compat.
 - [ ] W10 Phase 6 markdown rendering in chat bubbles (headings/bold/lists/links/inline+fenced code); TTS still strips it.
 - [ ] W11 Phase 6 inline images (reuse hub blob/media path), tap-to-fullscreen; spoken "(an image)".

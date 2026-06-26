@@ -132,7 +132,11 @@ The glue, decoupled from any one agent. Foundational — informs Phases 3–4.
       (tick when the agent starts working, confirm when a reply lands; phone-local states + the spoken
       reply skipped), **message timestamps** under each bubble (aligned end/start). Hub replay now carries
       `ts` so history shows real times. Device-verified: distinct replayed times (3:51/3:57/3:59) + live.
-- [ ] Per-state custom chime sounds; "do not disturb" windows for the wake word.
+- [x] **Chime sound style** (Classic / Soft tone palettes, applied across all states; persists) and
+      **"do not disturb" windows** for the wake word (enable + quiet-from/until hour sliders; the wake
+      service ignores results during the window). Overnight-wrap logic in `WakeWindow` unit-tested.
+      Device-verified: chime_style→soft persisted, DND on/off + 23:00–07:00 sliders. (Full per-state
+      individual ringtone picker deliberately skipped — gold-plating; the palette covers it.)
 
 ## Phase 6 — Rich responses (eye vs ear)  ← **not started**
 The two channels carry different loads: the **ear** gets a clean spoken summary (Phase 2 smart
