@@ -67,6 +67,13 @@
 - Depends on: `@anthropic-ai/sdk` (if real key present), `ws` (WebSocket), hub's public contract
 - Used by: User messages (routed by hub); hub (WebSocket connection)
 
+**Driver seat & orchestration:**
+- The hub's north/driver seat (today the phone) is a small contract: send a user turn, receive a reply,
+  and — for an orchestrator — `list_agents` / `ask_agent` over `:8123` (`GET /status`, `POST /ask`).
+- An orchestrator is an ordinary CLI agent holding the `hub` MCP server (`hub-mcp.ts`); it delegates to
+  workers by id/name. Replies correlate by an additive `askId` field; delegation logic lives in the
+  I/O-free `delegate.ts`. See `docs/orchestration.md`.
+
 **Phone MCP Bridge:**
 - Purpose: Expose phone capabilities as Model Context Protocol tools to ANY MCP host (the user's own `claude` on subscription, no key needed in app)
 - Location: `backbone/src/phone-mcp.ts`

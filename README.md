@@ -87,6 +87,15 @@ within seconds), `event` (phone‑initiated: wake word, notifications, deferred�
 
 ---
 
+## Orchestration
+
+One agent you talk to can know about your other agents and delegate work to them by strength — an
+**orchestrator** occupying a hub's *driver seat*. Roster access is an opt-in tool, so workers never
+orchestrate each other. See **[docs/orchestration.md](docs/orchestration.md)** for the architecture,
+diagrams, and safety mechanisms.
+
+---
+
 ## Setup
 
 ### Prerequisites
