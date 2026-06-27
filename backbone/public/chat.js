@@ -175,7 +175,7 @@
     es.addEventListener("sessions", function (e) { var d = JSON.parse(e.data); sessions = d.sessions || []; if (d.activeId) activeSession = d.activeId; renderSessions(); });
     es.addEventListener("history", function (e) { hydrate((JSON.parse(e.data).messages) || []); });
     es.addEventListener("orch", function (e) { onOrch(JSON.parse(e.data)); });
-    es.addEventListener("orch_clear", function () { orch.clear(); orchSeen.clear(); orchExpanded.clear(); renderOrch(); updateOlive(); });
+    es.addEventListener("orch_clear", function () { orch.clear(); orchSeen.clear(); orchCollapsed.clear(); renderOrch(); updateOlive(); });
     es.onopen = function () { var rc = document.querySelector(".reconnect"); if (rc) rc.remove(); };
     es.onerror = function () { if (!document.querySelector(".reconnect")) { var rc = document.createElement("div"); rc.className = "reconnect"; rc.textContent = "reconnecting…"; document.querySelector(".cmain").appendChild(rc); } };
   }
@@ -369,14 +369,15 @@
   function post(url, body) { return fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(function (r) { return r.json().catch(function () { return {}; }); }); }
 
   // ---------- orchestration panel (live delegation + internal-subagent tree) ----------
-  var orch = new Map(), orchOpen = false, orchAutoOpened = false, orchSeen = new Set(), orchRenderQ = null, orchExpanded = new Set();
+  var orch = new Map(), orchOpen = false, orchAutoOpened = false, orchSeen = new Set(), orchRenderQ = null, orchCollapsed = new Set();
+  var orchtip = $("orchtip");
   var orchpanel = $("orchpanel"), orchtree = $("orchtree"), orchtoggle = $("orchtoggle"), orchclose = $("orchclose"), orchclear = $("orchclear"), olive = $("olive");
   if (orchpanel) orchpanel.hidden = false; // visibility is driven by the .orch-open width, not [hidden]
   function openOrch() { shell.classList.add("orch-open"); orchOpen = true; if (orchtoggle) orchtoggle.classList.remove("live"); }
   function closeOrch() { shell.classList.remove("orch-open"); orchOpen = false; }
   if (orchtoggle) orchtoggle.onclick = function () { orchOpen ? closeOrch() : openOrch(); };
   if (orchclose) orchclose.onclick = closeOrch;
-  if (orchclear) orchclear.onclick = function () { orch.clear(); orchSeen.clear(); orchExpanded.clear(); renderOrch(); updateOlive(); post("/orch/clear"); };
+  if (orchclear) orchclear.onclick = function () { orch.clear(); orchSeen.clear(); orchCollapsed.clear(); renderOrch(); updateOlive(); post("/orch/clear"); };
   function onOrch(n) {
     var prev = orch.get(n.id);
     if (prev && prev.status === "running" && n.status !== "running") flyUp(n); // value bubbles up to its parent
@@ -396,48 +397,95 @@
   }
   function ometa(n) { if (n.status === "running") return "…"; if (n.ms == null) return ""; return n.ms < 1000 ? n.ms + "ms" : (n.ms / 1000).toFixed(1) + "s"; }
   function oesc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-  // A subtree is "live" if it or any descendant is still running. Finished subtrees gray out and collapse
-  // (the moment work returns, it folds back) so the panel only foregrounds what's in progress.
-  function subtreeLive(n, childOf, memo) {
-    if (memo[n.id] != null) return memo[n.id];
-    var live = n.status === "running";
-    (childOf[n.id] || []).forEach(function (c) { if (subtreeLive(c, childOf, memo)) live = true; });
-    return (memo[n.id] = live);
-  }
-  function descCount(n, childOf) { var c = childOf[n.id] || [], t = c.length; c.forEach(function (x) { t += descCount(x, childOf); }); return t; }
+  // File-system tree: nested .onode boxes so CSS can draw the folder guides. A node's connector colours
+  // in when it FINISHES (its result has returned up the chain); the reply rides as data-reply for the
+  // hover tooltip, so the whole chain of results is readable from the tree alone.
   function renderOrch() {
     if (!orchtree) return;
     if (orchclear) orchclear.disabled = !orch.size;
     if (!orch.size) { orchtree.innerHTML = '<div class="oempty">No orchestration yet.<br>Open a session with a harness as <b>Orchestrator</b> and ask it to delegate — the live tree builds here.</div>'; return; }
-    var all = [...orch.values()], childOf = {}, roots = [], memo = {};
+    var all = [...orch.values()], childOf = {}, roots = [];
     all.forEach(function (n) { if (n.parentId && orch.has(n.parentId)) { (childOf[n.parentId] = childOf[n.parentId] || []).push(n); } else roots.push(n); });
     Object.keys(childOf).forEach(function (k) { childOf[k].sort(function (a, b) { return a.ts - b.ts; }); });
     roots.sort(function (a, b) { return a.ts - b.ts; });
-    var rows = [];
-    function walk(n, depth) {
+    function nodeHtml(n) {
       var d = odisplay(n), isNew = !orchSeen.has(n.id); orchSeen.add(n.id);
-      var settled = n.status !== "running", live = subtreeLive(n, childOf, memo);
-      var val = (settled && n.reply) ? '<div class="ovalue ' + n.status + '">' + (n.status === "error" ? "⚠ " : "") + oesc(n.reply.slice(0, 80)) + '</div>' : '';
-      rows.push('<div class="orow ' + n.status + (isNew ? ' new' : '') + (live ? '' : ' settled') + '" id="orow_' + n.id + '" style="margin-left:' + (depth * 16) + 'px">'
-        + '<div class="odot ' + n.status + '"></div><div class="obody"><div class="oline">'
+      var settled = n.status !== "running", kids = childOf[n.id] || [], collapsed = orchCollapsed.has(n.id);
+      var caret = kids.length
+        ? '<span class="ocaret' + (collapsed ? " collapsed" : "") + '" data-tog="' + n.id + '">▾</span>'
+        : '<span class="ocaret-none"></span>';
+      var reply = (settled && n.reply) ? n.reply : "";
+      var attrs = reply ? ' data-reply="' + oesc(reply) + '" data-rname="' + oesc(d.tag + " · " + d.name) + '"' : "";
+      var row = '<div class="orow ' + n.status + (isNew ? " new" : "") + (settled ? " settled" : "") + '"' + attrs + ' id="orow_' + n.id + '">'
+        + caret + '<div class="odot ' + n.status + '"></div><div class="obody"><div class="oline">'
         + '<span class="okind ' + n.kind + '">' + oesc(d.tag) + '</span><span class="oname">' + oesc(d.name) + '</span><span class="ometa">' + oesc(ometa(n)) + '</span></div>'
-        + (d.sub ? '<div class="olabel">' + oesc(d.sub) + '</div>' : '') + val + '</div></div>');
-      var kids = childOf[n.id] || [];
-      if (!kids.length) return;
-      if (!live && !orchExpanded.has(n.id)) { // fully finished → collapse to a click-to-expand summary
-        rows.push('<div class="ocollapse" data-exp="' + n.id + '" style="margin-left:' + ((depth + 1) * 16) + 'px">▸ ' + descCount(n, childOf) + ' done</div>');
-        return;
-      }
-      kids.forEach(function (c) { walk(c, depth + 1); });
+        + (d.sub ? '<div class="olabel">' + oesc(d.sub) + '</div>' : "") + '</div></div>';
+      var kidsHtml = (kids.length && !collapsed) ? '<div class="okids">' + kids.map(nodeHtml).join("") + '</div>' : "";
+      return '<div class="onode ' + n.status + '">' + row + kidsHtml + '</div>';
     }
-    roots.forEach(function (r) { walk(r, 0); });
-    orchtree.innerHTML = rows.join("");
+    orchtree.innerHTML = roots.map(nodeHtml).join("");
   }
-  if (orchtree) orchtree.addEventListener("click", function (e) {
-    var c = e.target.closest("[data-exp]"); if (!c) return;
-    var id = c.getAttribute("data-exp"); if (orchExpanded.has(id)) orchExpanded.delete(id); else orchExpanded.add(id);
-    renderOrch();
-  });
+  function hideTip() { if (orchtip) orchtip.hidden = true; }
+  function positionTip(e) {
+    if (!orchtip || orchtip.hidden) return;
+    var pad = 12, tw = orchtip.offsetWidth || 320, th = orchtip.offsetHeight || 80;
+    var x = e.clientX - tw - 16; if (x < pad) x = e.clientX + 18;        // prefer left of cursor (the panel is on the right)
+    var y = e.clientY + 14; if (y + th > window.innerHeight - pad) y = window.innerHeight - th - pad;
+    orchtip.style.left = Math.max(pad, x) + "px"; orchtip.style.top = Math.max(pad, y) + "px";
+  }
+  if (orchtree) {
+    orchtree.addEventListener("click", function (e) {                    // folder open/close
+      var c = e.target.closest("[data-tog]"); if (!c) return;
+      var id = c.getAttribute("data-tog"); if (orchCollapsed.has(id)) orchCollapsed.delete(id); else orchCollapsed.add(id);
+      renderOrch();
+    });
+    orchtree.addEventListener("mouseover", function (e) {                // reply tooltip
+      var r = e.target.closest(".orow[data-reply]"); if (!r || !orchtip) return;
+      orchtip.innerHTML = '<span class="tname"></span><div class="treply"></div>';
+      orchtip.querySelector(".tname").textContent = r.getAttribute("data-rname") || "";
+      orchtip.querySelector(".treply").textContent = r.getAttribute("data-reply") || "";
+      orchtip.hidden = false; positionTip(e);
+    });
+    orchtree.addEventListener("mousemove", positionTip);
+    orchtree.addEventListener("mouseout", function (e) { if (e.target.closest(".orow[data-reply]")) hideTip(); });
+  }
+
+  // ---------- resizable side panels: drag the splitters; widths persist; chat keeps a min width ----------
+  (function setupResizers() {
+    var SX_MIN = 190, SX_MAX = 460, ORCH_MIN = 300, ORCH_MAX = 860, CHAT_MIN = 380;
+    function px(name, dflt) { return parseInt(getComputedStyle(shell).getPropertyValue(name)) || dflt; }
+    var curSx = function () { return px("--sx-w", 256); }, curOrch = function () { return px("--orch-w", 460); };
+    function applySx(w) {
+      var orchW = orchOpen ? curOrch() : 0;
+      w = Math.max(SX_MIN, Math.min(w, SX_MAX, window.innerWidth - CHAT_MIN - orchW));
+      shell.style.setProperty("--sx-w", w + "px");
+      try { localStorage.setItem("sxWidth", w); } catch (e) {}
+    }
+    function applyOrch(w) {
+      w = Math.max(ORCH_MIN, Math.min(w, ORCH_MAX, window.innerWidth - CHAT_MIN - curSx()));
+      shell.style.setProperty("--orch-w", w + "px");
+      try { localStorage.setItem("orchWidth", w); } catch (e) {}
+    }
+    var s = parseInt(localStorage.getItem("sxWidth")); if (s) applySx(s);
+    var o = parseInt(localStorage.getItem("orchWidth")); if (o) applyOrch(o);
+    function drag(handle, getStart, onMove, sign) {
+      if (!handle) return;
+      handle.addEventListener("pointerdown", function (e) {
+        e.preventDefault(); handle.setPointerCapture(e.pointerId);
+        var startX = e.clientX, startW = getStart();
+        handle.classList.add("dragging"); shell.classList.add("resizing");
+        function move(ev) { onMove(startW + sign * (ev.clientX - startX)); }
+        function up() {
+          handle.classList.remove("dragging"); shell.classList.remove("resizing");
+          handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up);
+        }
+        handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
+      });
+    }
+    drag($("sxrsz"), curSx, applySx, 1);        // drag right edge → list grows
+    drag($("orchrsz"), curOrch, applyOrch, -1); // drag left edge → panel grows
+    window.addEventListener("resize", function () { applySx(curSx()); applyOrch(curOrch()); });
+  })();
   function flyUp(n) {
     if (!n.parentId || !n.reply) return;
     var childEl = document.getElementById("orow_" + n.id), parentEl = document.getElementById("orow_" + n.parentId);

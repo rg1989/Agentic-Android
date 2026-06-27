@@ -388,6 +388,7 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
     <div class="sxsearch"><span class="si">${icon("search", 16)}</span><input id="sxsearch" placeholder="Search chats…" autocomplete="off" aria-label="Search chats"></div>
     <div class="sxlist" id="sxlist"></div>
   </aside>
+  <div class="rsz" id="sxrsz" role="separator" aria-label="Resize chat list" title="Drag to resize"></div>
   <div class="scrim" id="scrim" hidden></div>
   <section class="cmain">
     <header class="chathead">
@@ -416,6 +417,7 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
       <input type="file" id="filein" multiple hidden>
     </div>
   </section>
+  <div class="rsz rsz-orch" id="orchrsz" role="separator" aria-label="Resize orchestration panel" title="Drag to resize"></div>
   <aside class="orchpanel" id="orchpanel" aria-label="Orchestration" hidden>
     <header class="orchhead">
       <div class="otitle"><span class="olive" id="olive"></span>Orchestration</div>
@@ -428,6 +430,7 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
     <div class="orchtree" id="orchtree"></div>
   </aside>
 </div>
+<div class="orchtip" id="orchtip" hidden></div>
 <script src="/public/vendor/marked.min.js"></script>
 <script src="/public/vendor/purify.min.js"></script>
 <script src="/public/vendor/highlight.min.js"></script>
