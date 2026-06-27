@@ -418,7 +418,7 @@
       var d = odisplay(n), isNew = !orchSeen.has(n.id); orchSeen.add(n.id);
       var settled = n.status !== "running", live = subtreeLive(n, childOf, memo);
       var val = (settled && n.reply) ? '<div class="ovalue ' + n.status + '">' + (n.status === "error" ? "⚠ " : "") + oesc(n.reply.slice(0, 80)) + '</div>' : '';
-      rows.push('<div class="orow' + (isNew ? ' new' : '') + (live ? '' : ' settled') + '" id="orow_' + n.id + '" style="margin-left:' + (depth * 16) + 'px">'
+      rows.push('<div class="orow ' + n.status + (isNew ? ' new' : '') + (live ? '' : ' settled') + '" id="orow_' + n.id + '" style="margin-left:' + (depth * 16) + 'px">'
         + '<div class="odot ' + n.status + '"></div><div class="obody"><div class="oline">'
         + '<span class="okind ' + n.kind + '">' + oesc(d.tag) + '</span><span class="oname">' + oesc(d.name) + '</span><span class="ometa">' + oesc(ometa(n)) + '</span></div>'
         + (d.sub ? '<div class="olabel">' + oesc(d.sub) + '</div>' : '') + val + '</div></div>');

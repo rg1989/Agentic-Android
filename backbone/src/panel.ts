@@ -1288,6 +1288,12 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     const node = orchNodes.get(id);
     if (node && node.kind === "turn") { node.status = "done"; node.ms = Date.now() - node.ts; node.reply = reply.slice(0, 400); orchEmit(node); }
     orchInbound.delete(agentId);
+    // The turn is over, so nothing is actually running anymore — settle any node still marked "running"
+    // (a tool/delegation whose end event never arrived because the harness's turn ended first), so the
+    // tree doesn't show a phantom in-progress job after the answer is in.
+    for (const n of orchNodes.values()) {
+      if (n.status === "running") { n.status = "done"; if (n.ms == null) n.ms = Date.now() - n.ts; orchEmit(n); }
+    }
   }
 
   const MAX_ASK_DEPTH = Number(process.env.MAX_ASK_DEPTH ?? 8);

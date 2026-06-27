@@ -183,8 +183,12 @@ svg.ic { display: block; flex: none; }
 .orow { display: flex; align-items: flex-start; gap: 8px; padding: 5px 8px; border-radius: 8px; }
 .orow:hover { background: var(--surface); }
 .orow.new { animation: oin .3s ease; }
-.orow.settled { opacity: .4; transition: opacity .3s ease; }
-.orow.settled:hover { opacity: .8; }
+.orow.settled { opacity: .82; transition: opacity .2s ease; }   /* finished: still readable, just receded */
+.orow.settled:hover { opacity: 1; }
+.orow.done.settled .ometa { color: var(--ok); }                  /* green duration = clearly done */
+.orow.error.settled .ometa { color: var(--err); }
+.orow.done.settled .ometa::before { content: "✓ "; }
+.orow.error.settled .ometa::before { content: "⚠ "; }
 .ocollapse { font-size: 11px; color: var(--text-faint); cursor: pointer; padding: 2px 8px; border-radius: 6px; user-select: none; }
 .ocollapse:hover { color: var(--text-dim); background: var(--surface); }
 @keyframes oin { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }

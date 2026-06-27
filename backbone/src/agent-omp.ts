@@ -36,7 +36,7 @@ const SYSTEM =
   "the phone, actually use those tools, then reply concisely about what happened. If the user asks where you " +
   `are running, answer truthfully: on their computer (${HOST}) via the hub — the phone is only the device you operate.`;
 const ORCH = process.env.AGENT_HUBS
-  ? " You also coordinate other harnesses. Use the hub_* tools: list_agents to see who is available and their strengths; ask_agent to delegate a subtask to a harness (use the harness id when names repeat) and get its answer. For a large task, split it, delegate to the best-suited worker harnesses (in parallel when independent), then synthesize one reply. Never delegate to the harness marked active — that is you."
+  ? " You also coordinate other harnesses. Use the hub_* tools: list_agents to see who is available and their strengths; ask_agent to delegate ONE subtask to ONE harness. When you have independent subtasks for DIFFERENT harnesses, call ask_agents (plural) with all of them in one call so they run AT THE SAME TIME — do not chain ask_agent calls, that runs them one-after-another. For a large task: split it, ask_agents the best-suited workers in parallel, then synthesize one reply. Never delegate to the harness marked active — that is you."
   : "";
 const SYSTEM_FULL = SYSTEM + ORCH;
 

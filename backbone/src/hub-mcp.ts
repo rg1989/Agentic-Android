@@ -29,20 +29,36 @@ export function makeHubMcpServer(opts: { hubHttp: string; askDepth?: number; lab
     },
   );
 
+  // One delegation → the hub's /ask (which queues per-worker and replies by askId).
+  const askOne = async (agent: string, message: string): Promise<unknown> =>
+    fetch(`${HUB}/ask`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json", "x-ask-depth": String(depth + 1),
+        ...(opts.fromId ? { "x-ask-from-id": opts.fromId } : {}),
+        ...(opts.fromName ? { "x-ask-from-name": opts.fromName } : {}),
+      },
+      body: JSON.stringify({ agent, text: message }),
+    }).then((x) => x.json()).catch((e) => ({ error: String(e) }));
+
   server.registerTool(
     "ask_agent",
-    { description: "Delegate a subtask to a WORKER harness on this hub and get its answer. Pass the harness's `id` (preferred when names repeat) or `name`, plus the `message`. Never target the harness marked `active` on a phone-backed hub — that is the user-facing brain.", inputSchema: { agent: z.string(), message: z.string() } },
+    { description: "Delegate a subtask to a WORKER harness on this hub and get its answer. Pass the harness's `id` (preferred when names repeat) or `name`, plus the `message`. Never target the harness marked `active` on a phone-backed hub — that is the user-facing brain. To delegate to SEVERAL harnesses AT THE SAME TIME, use ask_agents instead — one ask_agent call blocks until its answer returns.", inputSchema: { agent: z.string(), message: z.string() } },
     async ({ agent, message }: { agent: string; message: string }) => {
-      const r: any = await fetch(`${HUB}/ask`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json", "x-ask-depth": String(depth + 1),
-          ...(opts.fromId ? { "x-ask-from-id": opts.fromId } : {}),
-          ...(opts.fromName ? { "x-ask-from-name": opts.fromName } : {}),
-        },
-        body: JSON.stringify({ agent, text: message }),
-      }).then((x) => x.json()).catch((e) => ({ error: String(e) }));
+      const r: any = await askOne(agent, message);
       return jtext(r.reply != null ? { reply: r.reply } : r);
+    },
+  );
+
+  server.registerTool(
+    "ask_agents",
+    { description: "Delegate to SEVERAL worker harnesses AT ONCE, in parallel, and get all answers together. Use this (not repeated ask_agent calls) whenever the subtasks are independent — the harnesses then work simultaneously instead of one-after-another. Pass `tasks`: a list of {agent, message}. Returns a list of {agent, reply}.", inputSchema: { tasks: z.array(z.object({ agent: z.string(), message: z.string() })).min(1) } },
+    async ({ tasks }: { tasks: { agent: string; message: string }[] }) => {
+      const results = await Promise.all(tasks.map(async (t) => {
+        const r: any = await askOne(t.agent, t.message);
+        return { agent: t.agent, reply: r.reply != null ? r.reply : (r.error ?? r) };
+      }));
+      return jtext({ results });
     },
   );
 
