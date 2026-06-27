@@ -14,7 +14,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runAgent, buildHubServers, type AgentAdapter } from "./agent-runner.ts";
+import { runAgent, buildHubServers, type AgentAdapter, type TurnContext } from "./agent-runner.ts";
+import { makeLineParser } from "./parse-claude-stream.ts";
+import { parseOmpEvent } from "./parse-omp-stream.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HUB_HTTP = process.env.HUB_HTTP ?? "http://127.0.0.1:8123";
@@ -64,27 +66,44 @@ const AUTH_HELP =
   "key) in the environment, or run `omp` once interactively to sign in, then try again.";
 const NEEDS_AUTH = /api[\s._-]?key|unauthor|401|403|credential|not (?:configured|authenticated)|no .*provider|sign[\s-]?in|log[\s-]?in/i;
 
-/** Run one user turn through `omp -p` — text mode, so the reply is just stdout. */
-function runTurn(text: string): Promise<string> {
+/** Run one user turn through omp. Text mode normally; `--mode=json` when the hub is watching internals
+ *  (ctx.onActivity), so we can narrate omp's tool calls + subagents the same way Claude does. */
+function runTurn(text: string, ctx?: TurnContext): Promise<string> {
   return new Promise((resolve) => {
-    const args = ["-p", "--auto-approve", "--session-dir", sessionDir];
+    const watch = !!ctx?.onActivity;
+    const args = ["-p", ...(watch ? ["--mode", "json"] : []), "--auto-approve", "--session-dir", sessionDir];
     if (hasSession) args.push("--continue");            // keep the same conversation going (memory!)
     else args.push("--append-system-prompt", SYSTEM_FULL); // seed identity/instructions on the first turn
     args.push(text);
     const child = spawn(CLI, args, { cwd: workDir, env: process.env });
     // The prompt rides as an arg — close stdin so omp doesn't block waiting for piped input.
     try { child.stdin?.end(); } catch { /* */ }
-    let out = "", err = "";
-    child.stdout.on("data", (d) => (out += d));
+    let err = "";
     child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => resolve(`Couldn't run "${CLI}": ${String(e)}. Is it installed and on PATH?`));
-    child.on("close", () => {
-      const reply = out.trim();
-      if (reply) { hasSession = true; return resolve(reply); } // a session now exists to --continue next turn
+    const settle = (reply: string) => {
+      const r = reply.trim();
+      if (r) { hasSession = true; return resolve(r); } // a session now exists to --continue next turn
       const e = err.trim();
-      if (e && NEEDS_AUTH.test(e)) return resolve(AUTH_HELP);
-      resolve(e || "(no reply)");
-    });
+      resolve(e && NEEDS_AUTH.test(e) ? AUTH_HELP : (e || "(no reply)"));
+    };
+
+    if (watch) {
+      let final: string | null = null, lastText = "";
+      const feed = makeLineParser((obj) => {
+        const ev = parseOmpEvent(obj);
+        for (const a of ev.activities) ctx!.onActivity!(a);
+        if (ev.text) lastText = ev.text;
+        if (ev.final) final = ev.final.text || lastText;
+      });
+      child.stdout.on("data", (d) => feed(d.toString()));
+      child.on("close", () => settle(final ?? lastText));
+      return;
+    }
+
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.on("close", () => settle(out));
   });
 }
 
