@@ -312,6 +312,7 @@ def serve(hub: str, name: str, cmd: str) -> None:
                     sys.stderr.write(f"hub diagnostic: {m.get('problem')}\n  remedy: {m.get('remedy')}\n")
                 elif t == "user":
                     text = str(m.get("text", ""))
+                    ask_id = m.get("askId")   # set when this is a DELEGATED task — must be echoed back so the hub correlates the reply (else it times out)
                     files = m.get("files") or []
                     for f in files:
                         text += f"\n[Attached file: {f.get('name')} saved at {f.get('path')}]"
@@ -319,7 +320,10 @@ def serve(hub: str, name: str, cmd: str) -> None:
                         continue
                     ws.send_text(json.dumps({"t": "event", "topic": "agent_status", "data": {"label": "Thinking…"}}))
                     reply = run_model(cmd, text)
-                    ws.send_text(json.dumps({"t": "event", "topic": "assistant_message", "data": {"text": reply}}))
+                    data = {"text": reply}
+                    if ask_id is not None:
+                        data["askId"] = ask_id
+                    ws.send_text(json.dumps({"t": "event", "topic": "assistant_message", "data": data}))
                     ws.send_text(json.dumps({"t": "event", "topic": "agent_status", "data": {"label": "Ready", "ready": True}}))
                 # ready/catalog/result: nothing to do for a chat bridge.
         except Exception as e:
