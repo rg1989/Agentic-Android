@@ -249,17 +249,53 @@ function runAgent(template: string, prompt: string) {
   child.unref();
 }
 
+// ---------- Material icons (authentic Material Symbols path data, inlined as SVG) ----------
+// Delivered as inline SVG — no web-font / CDN dependency, matching the locally-vendored libs. One source
+// of truth for the server-rendered pages (nav, settings, chat shell); chat.js keeps a tiny mirror for the
+// icons it builds at runtime. Colour follows currentColor; size via the `size` arg or CSS.
+const ICON_PATHS: Record<string, string> = {
+  dashboard: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
+  hub: "M21 6.5c0-1.38-1.12-2.5-2.5-2.5S16 5.12 16 6.5c0 .42.11.81.28 1.16l-2.12 2.12c-.35-.17-.74-.28-1.16-.28-.42 0-.81.11-1.16.28L9.72 7.66C9.89 7.31 10 6.92 10 6.5 10 5.12 8.88 4 7.5 4S5 5.12 5 6.5 6.12 9 7.5 9c.42 0 .81-.11 1.16-.28l2.12 2.12c-.17.35-.28.74-.28 1.16s.11.81.28 1.16l-2.12 2.12C8.31 15.11 7.92 15 7.5 15 6.12 15 5 16.12 5 17.5S6.12 20 7.5 20 10 18.88 10 17.5c0-.42-.11-.81-.28-1.16l2.12-2.12c.35.17.74.28 1.16.28s.81-.11 1.16-.28l2.12 2.12c-.17.35-.28.74-.28 1.16 0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5c-.42 0-.81.11-1.16.28l-2.12-2.12c.17-.35.28-.74.28-1.16s-.11-.81-.28-1.16l2.12-2.12c.35.17.74.28 1.16.28C19.88 9 21 7.88 21 6.5z",
+  chat: "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z",
+  settings: "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z",
+  menu: "M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z",
+  add: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
+  close: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
+  search: "M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z",
+  edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+  delete: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+  copy: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
+  check: "M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+  info: "M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z",
+  tree: "M22 11V3h-7v3H9V3H2v8h7V8h2v10h4v3h7v-8h-7v3h-2V8h2v3z",
+  send: "M2.01 21 23 12 2.01 3 2 10l15 2-15 2z",
+  attach: "M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5S13.5 3.62 13.5 5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7.5 2.79 7.5 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z",
+  arrowDown: "M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z",
+  file: "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
+  warning: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
+  regen: "M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z",
+  bolt: "M7 2v11h3v9l7-12h-4l4-8z",
+  link: "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z",
+  smartphone: "M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14z",
+  cable: "M19 7V4h-2v3h-2V4h-2v5h6v2c0 1.1-.9 2-2 2h-4c-2.21 0-4 1.79-4 4v4h2v-4c0-1.1.9-2 2-2h4c2.21 0 4-1.79 4-4V9h-2V7h2zM5 4v5h6V4H9v3H7V4H5z",
+  storage: "M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z",
+  schedule: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z",
+};
+/** An inline Material-icon SVG, coloured by currentColor. */
+const icon = (name: string, size = 18) =>
+  `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor" aria-hidden="true"><path d="${ICON_PATHS[name] ?? ""}"/></svg>`;
+
 // ---------- shared app shell: ONE sidebar menu wraps every page so they feel like one app ----------
 const NAV = [
-  { href: "/panel", label: "Control Panel", icon: "🎛" },
-  { href: "/", label: "Connections", icon: "🔌" },
-  { href: "/chat", label: "Chat", icon: "💬" },
-  { href: "/settings", label: "Settings", icon: "⚙️" },
+  { href: "/panel", label: "Control Panel", icon: "dashboard" },
+  { href: "/connections", label: "Connections", icon: "link" },
+  { href: "/chat", label: "Chat", icon: "chat" },
+  { href: "/settings", label: "Settings", icon: "settings" },
 ];
 /** The left nav, with the current page marked active. Pure string → safe to interpolate into any page. */
 const sidebar = (active: string) => `<aside class="sidebar">
   <div class="brand"><div class="mark" aria-hidden="true"></div><div class="bt">Agentic Android</div></div>
-  ${NAV.map((n) => `<a class="navitem${n.href === active ? " on" : ""}" href="${n.href}"><span class="ni">${n.icon}</span>${n.label}</a>`).join("\n  ")}
+  ${NAV.map((n) => `<a class="navitem${n.href === active ? " on" : ""}" href="${n.href}"><span class="ni">${icon(n.icon, 19)}</span>${n.label}</a>`).join("\n  ")}
 </aside>`;
 /** Canonical base — design tokens, document reset, body, and the brand mark — defined ONCE and
  *  included by every page so the shared shell (sidebar, header, logo) is pixel-identical across
@@ -292,9 +328,12 @@ const SHELL_CSS = `
   .sidebar .brand .bt { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
   .sidebar .navitem { display: flex; align-items: center; gap: 11px; color: var(--text-dim); text-decoration: none;
     font-size: 14px; font-weight: 540; padding: 10px 12px; border-radius: 10px; transition: background .15s, color .15s; }
-  .sidebar .navitem .ni { width: 18px; text-align: center; font-size: 14px; }
+  .sidebar .navitem .ni { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-faint); transition: color .15s; }
+  .sidebar .navitem .ni svg { display: block; }
   .sidebar .navitem:hover { background: var(--surface); color: var(--text); }
+  .sidebar .navitem:hover .ni { color: var(--text-dim); }
   .sidebar .navitem.on { background: var(--accent-soft); color: var(--text); }
+  .sidebar .navitem.on .ni { color: var(--accent-hi); }
   .appmain { flex: 1; min-width: 0; }
   @media (max-width: 760px) {
     .app { flex-direction: column; }
@@ -302,6 +341,23 @@ const SHELL_CSS = `
       border-right: 0; border-bottom: 1px solid var(--border); }
     .sidebar .brand { display: none; }
   }`;
+/** The full-width sticky page header used by Connections — shared so Settings matches it pixel-for-pixel. */
+const HEADER_CSS = `
+  .chead { position: sticky; top: 0; z-index: 9; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    padding: 13px 26px; min-height: 56px; border-bottom: 1px solid var(--border);
+    background: rgba(10,11,16,0.72); backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px); }
+  .chead .ttl { display: flex; align-items: center; gap: 13px; min-width: 0; }
+  .chead .ttl .hi { width: 34px; height: 34px; border-radius: 10px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+    color: var(--accent-hi); background: var(--accent-soft); border: 1px solid rgba(129,140,248,0.28); }
+  .chead .ttl h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  .chead .ttl .csub { margin: 1px 0 0; font-size: 12px; color: var(--text-dim); }
+  .statusbar { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
+  .schip { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 7px 13px; }
+  .schip .dot { width: 9px; height: 9px; border-radius: 99px; background: var(--text-faint); flex: none; }
+  .schip .dot.on { background: var(--ok); box-shadow: 0 0 0 4px rgba(52,211,153,0.16); }
+  .schip .t { font-size: 11px; color: var(--text-dim); line-height: 1.15; }
+  .schip .v { font-size: 12.5px; font-weight: 560; line-height: 1.2; }`;
+
 /** A minimal full page in the shell — for the simple/new pages (Chat, Settings). */
 const shellDoc = (active: string, title: string, bodyInner: string, extraCss = "") => `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -327,35 +383,33 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
 <link rel="stylesheet" href="/public/chat.css">
 <div class="chatshell">
   <aside class="sx" id="sx" aria-label="Chats">
-    <div class="sxhead"><button class="newchat" id="newchat">＋ New chat</button></div>
-    <div class="sxsearch"><input id="sxsearch" placeholder="Search chats…" autocomplete="off" aria-label="Search chats"></div>
+    <div class="sxhead"><button class="newchat" id="newchat">${icon("add", 18)}<span>New chat</span></button></div>
+    <div class="sxsearch"><span class="si">${icon("search", 16)}</span><input id="sxsearch" placeholder="Search chats…" autocomplete="off" aria-label="Search chats"></div>
     <div class="sxlist" id="sxlist"></div>
   </aside>
   <div class="scrim" id="scrim" hidden></div>
   <section class="cmain">
     <header class="chathead">
-      <button class="iconbtn drawer" id="drawer" aria-label="Toggle chat list">☰</button>
+      <button class="iconbtn drawer" id="drawer" aria-label="Toggle chat list">${icon("menu", 20)}</button>
       <div class="seat">
         <select id="agentsel" class="sel" aria-label="Agent"></select>
         <div class="modeseg" id="modeseg" role="tablist" aria-label="Agent mode">
           <button type="button" data-m="regular" class="on" role="tab">Regular</button>
-          <button type="button" data-m="orchestrator" role="tab">Orchestrator<span class="info">ⓘ</span></button>
+          <button type="button" data-m="orchestrator" role="tab">Orchestrator<span class="info">${icon("info", 13)}</span></button>
         </div>
       </div>
       <div class="seatstatus" id="seatstatus" aria-live="polite"></div>
-      <button class="iconbtn orchtoggle" id="orchtoggle" aria-label="Orchestration panel" title="Orchestration — watch delegations live">
-        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v4M5 17v-2a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2"/></svg>
-      </button>
+      <button class="iconbtn orchtoggle" id="orchtoggle" aria-label="Orchestration panel" title="Orchestration — watch delegations live">${icon("tree", 18)}</button>
     </header>
     <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Conversation"></div>
-    <button class="jump" id="jump" hidden>↓ Latest</button>
+    <button class="jump" id="jump" hidden>${icon("arrowDown", 15)}<span>Latest</span></button>
     <div class="composer-wrap">
       <div class="chips" id="chips"></div>
       <div class="slash" id="slash" role="listbox" hidden></div>
       <form class="composer" id="composer">
-        <button type="button" class="iconbtn attach" id="attach" aria-label="Attach file">＋</button>
+        <button type="button" class="iconbtn attach" id="attach" aria-label="Attach file">${icon("attach", 20)}</button>
         <textarea id="inp" rows="1" placeholder="Message the agent…   ( / for commands, Shift+Enter for newline )" autocomplete="off" aria-label="Message"></textarea>
-        <button type="submit" id="send">Send</button>
+        <button type="submit" id="send">${icon("send", 17)}<span>Send</span></button>
         <button type="button" id="stop" hidden>Stop</button>
       </form>
       <input type="file" id="filein" multiple hidden>
@@ -364,7 +418,7 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
   <aside class="orchpanel" id="orchpanel" aria-label="Orchestration" hidden>
     <header class="orchhead">
       <div class="otitle"><span class="olive" id="olive"></span>Orchestration</div>
-      <button class="iconbtn" id="orchclose" aria-label="Close orchestration panel">✕</button>
+      <button class="iconbtn" id="orchclose" aria-label="Close orchestration panel">${icon("close", 18)}</button>
     </header>
     <div class="orchhint">Live tree of every delegation the hub mediates, plus the internal subagents an agent reports about itself.</div>
     <div class="orchtree" id="orchtree"></div>
@@ -755,7 +809,7 @@ const SETUP_PAGE = `<!doctype html>
   .agentrow .nm .anm { font-weight: 540; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agentrow .nm .adesc { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style></head>
-<body><div class="app">${sidebar("/")}<main class="appmain">
+<body><div class="app">${sidebar("/connections")}<main class="appmain">
   <header class="chead">
     <div class="ttl"><h1>Connections</h1><div class="csub">Link your phone and your agents to this hub.</div></div>
     <div class="statusbar">
@@ -1001,6 +1055,86 @@ const SETUP_PAGE = `<!doctype html>
   if(_cm) _cm.onclick=()=>{ const t=document.getElementById('manualcode').textContent; if(navigator.clipboard&&t&&t!=='—'&&t!=='…') navigator.clipboard.writeText(t); const o=_cm.innerHTML; _cm.innerHTML='✓'; _cm.classList.add('ok'); setTimeout(()=>{_cm.innerHTML=o;_cm.classList.remove('ok');},1200); };
   setInterval(poll,2000); poll();
 </script></main></div></body></html>`;
+
+/** Settings — read-only hub facts, styled to match the Connections page (sticky header + gradient cards). */
+interface SettingsInfo { hubName: string; webUrl: string; agentSocket: string; relayUrl: string; phoneReach: string; maxDepth: number }
+const SETTINGS_PAGE = (s: SettingsInfo) => {
+  const esc = (v: string) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+  const row = (ic: string, label: string, value: string, copy = true) => `<div class="kv">
+    <span class="kvi">${icon(ic, 17)}</span><span class="kvl">${label}</span>
+    <span class="kvv">${copy
+      ? `<span class="copyfield"><code>${esc(value)}</code><button class="iconbtn copy" title="Copy" aria-label="Copy">${icon("copy", 13)}</button></span>`
+      : `<code>${esc(value)}</code>`}</span></div>`;
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agentic Android — Settings</title>
+<style>
+  ${BASE_CSS}
+  ${SHELL_CSS}
+  ${HEADER_CSS}
+  .setwrap { max-width: 760px; margin: 0 auto; padding: 26px 26px 64px; display: flex; flex-direction: column; gap: 16px; }
+  .scard { background: linear-gradient(180deg, var(--surface-2), var(--surface)); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px 22px 8px; box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 12px 30px rgba(0,0,0,0.22);
+    transition: border-color .2s, box-shadow .2s; }
+  .scard:hover { border-color: var(--border-strong); }
+  .scard .sh { display: flex; align-items: center; gap: 12px; }
+  .scard .sh .si { width: 34px; height: 34px; border-radius: 10px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+    color: var(--accent-hi); background: var(--accent-soft); border: 1px solid rgba(129,140,248,0.28); }
+  .scard .sh h2 { font-size: 15px; margin: 0; font-weight: 620; letter-spacing: -0.005em; }
+  .scard .sh .sd { font-size: 12.5px; color: var(--text-dim); margin: 1px 0 0; }
+  .kv { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
+  .scard .sh + .kv { border-top: 0; margin-top: 8px; }
+  .kvi { color: var(--text-faint); flex: none; display: inline-flex; }
+  .kvl { font-size: 13px; color: var(--text-dim); flex: none; width: 168px; }
+  .kvv { margin-left: auto; min-width: 0; display: flex; justify-content: flex-end; }
+  .kvv > code { font-family: var(--mono); font-size: 12.5px; color: var(--text); background: none; border: 0; padding: 0; }
+  .copyfield { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: rgba(8,9,13,0.6); }
+  .copyfield code { font-family: var(--mono); font-size: 12.5px; color: var(--text); border: 0; background: transparent; padding: 6px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+  .iconbtn.copy { background: transparent; border: 0; border-left: 1px solid var(--border); color: var(--text-dim); cursor: pointer; padding: 0 9px; display: inline-flex; align-items: center; transition: background .15s, color .15s; }
+  .iconbtn.copy:hover { background: var(--surface-2); color: var(--text); }
+  .iconbtn.copy.ok { color: var(--ok); }
+  .note { font-size: 13px; color: var(--text-dim); line-height: 1.55; padding: 12px 0 14px; border-top: 1px solid var(--border); }
+  .note a { color: var(--accent-hi); }
+  @media (max-width: 560px) { .kv { flex-wrap: wrap; } .kvl { width: auto; } .kvv { margin-left: 0; width: 100%; justify-content: flex-start; } .copyfield code { max-width: 200px; } }
+</style></head>
+<body><div class="app">${sidebar("/settings")}<main class="appmain">
+  <header class="chead">
+    <div class="ttl"><span class="hi">${icon("settings", 19)}</span>
+      <div><h1>Settings</h1><div class="csub">Configure this hub and how it connects. Read-only for now — editable controls land as features need them.</div></div></div>
+    <div class="statusbar"><div class="schip"><span class="dot on"></span><div><div class="t">Hub</div><div class="v">Running</div></div></div></div>
+  </header>
+  <div class="setwrap">
+    <div class="scard">
+      <div class="sh"><span class="si">${icon("storage", 19)}</span><div><h2>This hub</h2><div class="sd">Identity &amp; local endpoints.</div></div></div>
+      ${row("smartphone", "Name on your phone", s.hubName, false)}
+      ${row("dashboard", "Web UI", s.webUrl)}
+      ${row("bolt", "Agent socket", s.agentSocket)}
+    </div>
+    <div class="scard">
+      <div class="sh"><span class="si">${icon("link", 19)}</span><div><h2>Connectivity</h2><div class="sd">How the phone reaches this hub.</div></div></div>
+      ${row("link", "Relay server", s.relayUrl)}
+      ${row("smartphone", "Phone reaches hub at", s.phoneReach)}
+      <div class="note">Pair a phone and switch the network it uses (Wi-Fi, Tailscale, USB) on the <a href="/">Connections</a> page.</div>
+    </div>
+    <div class="scard">
+      <div class="sh"><span class="si">${icon("tree", 19)}</span><div><h2>Orchestration</h2><div class="sd">Limits for agent-to-agent delegation.</div></div></div>
+      ${row("tree", "Max delegation hops", String(s.maxDepth), false)}
+      <div class="note">When an agent holds the driver seat it can delegate to your other agents; this caps how deep those hops can chain. Watch them live in the Orchestration panel inside <a href="/chat">Chat</a>.</div>
+    </div>
+    <div class="scard">
+      <div class="sh"><span class="si">${icon("info", 19)}</span><div><h2>Coming soon</h2><div class="sd">On the roadmap for this page.</div></div></div>
+      <div class="note">Editable hub name, relay/connectivity, per-agent defaults, consent policy, and orchestration limits — all configurable right here.</div>
+    </div>
+  </div>
+<script>
+  document.querySelectorAll('.copyfield .copy').forEach(function(b){ b.onclick=function(){
+    var t=b.parentElement.querySelector('code').textContent;
+    if(navigator.clipboard&&t) navigator.clipboard.writeText(t);
+    var o=b.innerHTML; b.innerHTML='${icon("check", 13)}'; b.classList.add('ok');
+    setTimeout(function(){ b.innerHTML=o; b.classList.remove('ok'); },1200);
+  }; });
+</script></main></div></body></html>`;
+};
 
 export interface StartPanelOpts {
   identity?: Identity; peerEdPub?: string; relayUrl?: string;
@@ -1629,7 +1763,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     const url = new URL(req.url ?? "/", "http://x");
     const json = (o: unknown, code = 200) => { res.statusCode = code; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(o)); };
 
-    if (req.method === "GET" && url.pathname === "/") {
+    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/connections")) {
       res.setHeader("content-type", "text/html"); res.setHeader("cache-control", "no-store"); res.end(SETUP_PAGE); return;
     }
     if (req.method === "GET" && url.pathname === "/panel") {
@@ -1639,11 +1773,16 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       res.setHeader("content-type", "text/html"); res.end(shellDoc("/chat", "Chat", CHAT_BODY)); return;
     }
     if (req.method === "GET" && url.pathname === "/settings") {
-      const body = `<h2>Settings</h2>
-        <p class="lead">Configuration lives here. Read-only for now — editable controls land as features need them.</p>
-        <div class="card"><h3>This hub</h3><p>Hub UI &amp; HTTP: <code>http://127.0.0.1:${PORT}</code><br>Agent socket: <code>:${process.env.AGENT_PORT ?? 8124}</code><br>Relay: <code>${cfg.relayUrl}</code><br>Max delegation depth (orchestrator hops): <code>${MAX_ASK_DEPTH}</code></p></div>
-        <div class="card"><h3>Coming soon</h3><p>Relay/connectivity, hub name, per-agent defaults, consent policy, and orchestration limits — editable here.</p></div>`;
-      res.setHeader("content-type", "text/html"); res.end(shellDoc("/settings", "Settings", body)); return;
+      res.setHeader("content-type", "text/html");
+      res.end(SETTINGS_PAGE({
+        hubName: hubName(),
+        webUrl: `http://127.0.0.1:${PORT}`,
+        agentSocket: `ws://127.0.0.1:${AGENT_PORT}`,
+        relayUrl: cfg.relayUrl,
+        phoneReach: phoneRelayUrl(cfg.relayUrl),
+        maxDepth: MAX_ASK_DEPTH,
+      }));
+      return;
     }
     if (req.method === "GET" && url.pathname === "/status") {
       // Every agent the hub knows: connected ones (the roster) + any managed child still starting up.
@@ -1838,7 +1977,10 @@ export async function startPanel(opts: StartPanelOpts = {}) {
         const ext = path.extname(full).toLowerCase();
         const ct = ext === ".js" ? "application/javascript; charset=utf-8" : ext === ".css" ? "text/css; charset=utf-8"
           : ext === ".svg" ? "image/svg+xml" : ext === ".json" ? "application/json" : ext === ".woff2" ? "font/woff2" : "application/octet-stream";
-        res.setHeader("content-type", ct); res.setHeader("cache-control", "max-age=3600"); res.end(buf);
+        // Vendored libs are immutable → cache hard. Our own chat.css/chat.js change with the app, so make
+        // them revalidate every load (otherwise UI edits stay invisible behind a stale cache for an hour).
+        const isVendor = full.startsWith(path.join(publicDir, "vendor") + path.sep);
+        res.setHeader("content-type", ct); res.setHeader("cache-control", isVendor ? "max-age=86400" : "no-cache"); res.end(buf);
       });
       return;
     }

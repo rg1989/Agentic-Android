@@ -5,17 +5,24 @@
 .appmain > .inner { max-width: none; padding: 0; height: 100vh; }
 
 .chatshell { display: flex; height: 100vh; min-height: 0; }
+svg.ic { display: block; flex: none; }
+[hidden] { display: none !important; }   /* our flex buttons set display, which would otherwise beat the attribute */
 
 /* ---- sessions sidebar ---- */
 .sx { width: 256px; flex: none; display: flex; flex-direction: column; min-height: 0;
   border-right: 1px solid var(--border); background: rgba(8,9,13,0.4); }
 .sxhead { padding: 12px; }
-.newchat { width: 100%; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text);
-  border-radius: 10px; padding: 9px 12px; font: 13.5px/1 var(--sans); font-weight: 600; cursor: pointer; text-align: left; }
-.newchat:hover { background: var(--surface-3); }
-.sxsearch { padding: 0 12px 8px; }
+.newchat { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid rgba(129,140,248,0.30); background: linear-gradient(180deg, var(--accent-soft), rgba(99,102,241,0.06)); color: var(--text);
+  border-radius: 10px; padding: 10px 12px; font: 13.5px/1 var(--sans); font-weight: 600; cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s; }
+.newchat .ic { color: var(--accent-hi); }
+.newchat:hover { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 4px 16px rgba(79,70,229,0.18); }
+.sxsearch { padding: 0 12px 8px; position: relative; }
+.sxsearch .si { position: absolute; left: 23px; top: 8px; color: var(--text-faint); pointer-events: none; display: inline-flex; }
 .sxsearch input { width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text);
-  border: 1px solid var(--border); border-radius: 9px; padding: 7px 10px; font: 13px var(--sans); }
+  border: 1px solid var(--border); border-radius: 9px; padding: 7px 10px 7px 33px; font: 13px var(--sans); transition: border-color .15s, box-shadow .15s; }
+.sxsearch input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .sxlist { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 14px; display: flex; flex-direction: column; gap: 2px; }
 .sxitem { display: flex; align-items: center; gap: 6px; padding: 9px 10px; border-radius: 9px; cursor: pointer;
   color: var(--text-dim); font-size: 13.5px; }
@@ -26,41 +33,49 @@
   border-radius: 6px; padding: 3px 6px; font: 13px var(--sans); }
 .sxitem .act { display: none; gap: 2px; }
 .sxitem:hover .act, .sxitem.on .act { display: flex; }
-.sxitem .act button { background: none; border: 0; color: var(--text-faint); cursor: pointer; font-size: 13px; padding: 2px 4px; border-radius: 5px; }
+.sxitem .act button { display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; color: var(--text-faint); cursor: pointer; padding: 4px; border-radius: 6px; transition: color .12s, background .12s; }
 .sxitem .act button:hover { color: var(--text); background: var(--surface-3); }
+.sxitem .act button.del:hover { color: var(--err); }
 .sxempty { color: var(--text-faint); font-size: 12.5px; text-align: center; padding: 18px 8px; }
 
 /* ---- main column ---- */
 .cmain { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; position: relative; }
-.chathead { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--border); flex: none; }
-.iconbtn { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); width: 34px; height: 34px;
-  border-radius: 9px; cursor: pointer; font-size: 15px; flex: none; }
-.iconbtn:hover { background: var(--surface-3); }
+.chathead { display: flex; align-items: center; gap: 12px; padding: 12px 18px; min-height: 56px; border-bottom: 1px solid var(--border); flex: none;
+  background: rgba(10,11,16,0.55); backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px); }
+.iconbtn { display: inline-flex; align-items: center; justify-content: center; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim); width: 34px; height: 34px;
+  border-radius: 9px; cursor: pointer; flex: none; transition: background .15s, color .15s, border-color .15s; }
+.iconbtn:hover { background: var(--surface-3); color: var(--text); border-color: var(--border-strong); }
 .drawer { display: none; }
-.seat { display: flex; align-items: center; gap: 9px; }
+.seat { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .sel { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); border-radius: 9px;
   padding: 7px 10px; font: 14px var(--sans); max-width: 220px; }
 .modeseg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 9px; overflow: hidden; }
 .modeseg button { background: var(--surface); color: var(--text-dim); border: 0; padding: 7px 12px; font: 13px var(--sans); cursor: pointer; }
 .modeseg button.on { background: var(--accent-soft); color: var(--text); }
 .modeseg button:disabled { opacity: .4; cursor: not-allowed; }
-.modeseg .info { margin-left: 5px; opacity: .7; }
-.seatstatus { margin-left: auto; font-size: 12.5px; color: var(--text-dim); }
+.modeseg button { display: inline-flex; align-items: center; }
+.modeseg .info { margin-left: 5px; opacity: .6; display: inline-flex; }
+.seatstatus { margin-left: auto; font-size: 12.5px; color: var(--text-dim); white-space: nowrap; }
 .seatstatus .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); margin-right: 6px; vertical-align: middle; }
 .seatstatus .dot.ok { background: var(--ok); }
 
 /* ---- thread ---- */
 .msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(16px, 6vw, 64px); display: flex; flex-direction: column; gap: 14px; }
-.msg { max-width: 760px; width: fit-content; padding: 11px 15px; border-radius: 14px; font-size: 14.5px; line-height: 1.6; }
+.msg { position: relative; max-width: 760px; width: fit-content; padding: 11px 15px; border-radius: 14px; font-size: 14.5px; line-height: 1.6; }
 .msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 5px; }
 .msg.bot { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 5px; max-width: min(760px, 100%); }
-.msg.err { align-self: center; background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.32); color: var(--err); font-size: 13.5px; }
+.msg.err { align-self: center; display: inline-flex; align-items: center; gap: 4px; background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.32); color: var(--err); font-size: 13.5px; }
+.msg.err .ei { display: inline-flex; color: var(--err); }
 .msg.err .retry { margin-left: 8px; background: var(--err); color: #160606; border: 0; border-radius: 7px; padding: 3px 10px; font-weight: 600; cursor: pointer; }
-.msg .acts { display: flex; gap: 8px; margin-top: 7px; opacity: 0; transition: opacity .12s; }
+/* actions float just under the bubble, over the page background — they don't add to the bubble's height.
+   padding-top (not margin/offset) keeps the hover target touching the bubble so :hover doesn't flicker. */
+.msg .acts { position: absolute; top: 100%; padding-top: 5px; display: flex; gap: 4px; opacity: 0; transition: opacity .12s; z-index: 2; }
+.msg.bot .acts { left: 2px; }
+.msg.user .acts { right: 2px; }
 .msg:hover .acts { opacity: 1; }
-.msg .acts button { background: none; border: 0; color: var(--text-faint); font-size: 12px; cursor: pointer; padding: 0; }
-.msg .acts button:hover { color: var(--text); }
-.msg.user .acts button { color: rgba(255,255,255,.7); }
+.msg .acts button { display: inline-flex; align-items: center; gap: 5px; background: none; border: 0; color: var(--text-faint); font-size: 12px; cursor: pointer;
+  padding: 3px 8px; border-radius: 7px; transition: color .12s, background .12s; }
+.msg .acts button:hover { color: var(--text); background: var(--surface-3); }
 
 /* ---- thinking ---- */
 .msg.think { align-self: flex-start; color: var(--text-dim); font-size: 13.5px; background: none; border: 0; padding: 4px 2px; display: flex; align-items: center; gap: 8px; }
@@ -88,7 +103,7 @@
 .codewrap { margin: 10px 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #0b0e14; }
 .codehead { display: flex; align-items: center; justify-content: space-between; padding: 5px 12px; background: var(--surface-3); border-bottom: 1px solid var(--border); }
 .codehead span { font: 11px var(--mono); color: var(--text-dim); text-transform: lowercase; }
-.codehead .copy { background: none; border: 1px solid var(--border-strong); color: var(--text-dim); border-radius: 6px; padding: 2px 9px; font-size: 11px; cursor: pointer; }
+.codehead .copy { display: inline-flex; align-items: center; gap: 5px; background: none; border: 1px solid var(--border-strong); color: var(--text-dim); border-radius: 6px; padding: 3px 9px; font-size: 11px; cursor: pointer; transition: color .12s, border-color .12s; }
 .codehead .copy:hover { color: var(--text); border-color: var(--accent); }
 .mermaid { margin: 10px 0; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
 .mermaid svg { max-width: 100%; height: auto; }
@@ -102,12 +117,13 @@
 .filechip { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; margin: 5px 6px 5px 0;
   background: var(--surface-3); border: 1px solid var(--border-strong); border-radius: 10px; padding: 8px 12px; color: var(--text); }
 .filechip:hover { border-color: var(--accent); }
-.filechip .fi { font-size: 16px; } .filechip .fn { font-size: 13px; } .filechip .fs { font-size: 11px; color: var(--text-faint); }
+.filechip .fi { display: inline-flex; color: var(--accent-hi); } .filechip .fn { font-size: 13px; } .filechip .fs { font-size: 11px; color: var(--text-faint); }
 
 /* ---- jump to latest ---- */
-.jump { position: absolute; right: 22px; bottom: 96px; z-index: 4; background: var(--surface-3); color: var(--text);
-  border: 1px solid var(--border-strong); border-radius: 20px; padding: 7px 14px; font-size: 12.5px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
-.jump:hover { background: var(--accent-soft); }
+.jump { position: absolute; right: 22px; bottom: 96px; z-index: 4; display: inline-flex; align-items: center; gap: 5px; background: var(--surface-3); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: 20px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.4); transition: background .15s, border-color .15s; }
+.jump .ic { color: var(--accent-hi); }
+.jump:hover { background: var(--accent-soft); border-color: var(--accent); }
 
 /* ---- composer ---- */
 .composer-wrap { flex: none; padding: 12px clamp(16px, 6vw, 64px) 16px; border-top: 1px solid var(--border); position: relative; }
@@ -116,16 +132,20 @@
 .chip { display: inline-flex; align-items: center; gap: 7px; background: var(--surface-3); border: 1px solid var(--border-strong);
   border-radius: 9px; padding: 6px 9px; font-size: 12.5px; }
 .chip.uploading { opacity: .6; }
-.chip .x { cursor: pointer; color: var(--text-faint); border: 0; background: none; font-size: 13px; }
+.chip .x { display: inline-flex; align-items: center; cursor: pointer; color: var(--text-faint); border: 0; background: none; padding: 0; transition: color .12s; }
 .chip .x:hover { color: var(--err); }
 .composer { display: flex; align-items: flex-end; gap: 10px; }
+.composer .attach { width: 44px; height: 44px; }
 .composer textarea { flex: 1; resize: none; background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong);
-  border-radius: 12px; padding: 12px 14px; font: 14.5px var(--sans); max-height: 200px; line-height: 1.5; }
-.composer textarea:focus { outline: none; border-color: var(--accent); }
-.composer button#send, .composer button#stop { flex: none; border: 0; border-radius: 12px; padding: 0 20px; height: 44px;
-  font: 14px var(--sans); font-weight: 600; cursor: pointer; }
-.composer #send { background: var(--accent); color: #fff; }
-.composer #send:disabled { opacity: .5; cursor: not-allowed; }
+  border-radius: 12px; padding: 12px 14px; font: 14.5px var(--sans); max-height: 200px; line-height: 1.5; transition: border-color .15s, box-shadow .15s; }
+.composer textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.composer button#send, .composer button#stop { flex: none; display: inline-flex; align-items: center; gap: 7px; border: 0; border-radius: 12px; padding: 0 18px; height: 44px;
+  font: 14px var(--sans); font-weight: 600; cursor: pointer; transition: filter .15s, transform .04s; }
+.composer #send { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: #fff;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.16) inset, 0 6px 16px rgba(79,70,229,0.32); }
+.composer #send:hover { filter: brightness(1.08); }
+.composer #send:active { transform: translateY(1px); }
+.composer #send:disabled { opacity: .5; cursor: not-allowed; filter: none; }
 .composer #stop { background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong); }
 .dragover { outline: 2px dashed var(--accent); outline-offset: -8px; border-radius: 12px; }
 
@@ -179,9 +199,14 @@
 
 /* ---- responsive: sessions sidebar becomes a drawer ---- */
 @media (max-width: 860px) {
-  .drawer { display: block; }
+  .drawer { display: inline-flex; }
   .sx { position: fixed; left: 0; top: 0; bottom: 0; z-index: 30; transform: translateX(-100%); transition: transform .2s; box-shadow: 0 0 40px rgba(0,0,0,.6); }
   .chatshell.drawer-open .sx { transform: translateX(0); }
   .scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.5); }
   .seatstatus { display: none; }
+  /* keep the header on one line: let the agent picker shrink so the mode toggle + orch button stay visible */
+  .chathead { gap: 8px; padding: 10px 12px; }
+  .seat { flex: 1; gap: 6px; }
+  .sel { flex: 1; min-width: 0; max-width: none; }
+  .modeseg { flex: none; }
 }

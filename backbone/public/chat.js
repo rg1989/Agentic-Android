@@ -19,6 +19,18 @@
   var busy = false, pinned = true, lastUserText = null;
   var mermaidLoaded = false, mermaidN = 0;
 
+  // Material icons (mirror of panel.ts ICON_PATHS) for the elements built at runtime.
+  var ICON_PATHS = {
+    copy: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
+    regen: "M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z",
+    edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+    delete: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+    file: "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
+    close: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
+    warning: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
+  };
+  function ic(name, size) { return '<svg class="ic" viewBox="0 0 24 24" width="' + (size || 14) + '" height="' + (size || 14) + '" fill="currentColor" aria-hidden="true"><path d="' + (ICON_PATHS[name] || "") + '"/></svg>'; }
+
   if (window.marked && marked.setOptions) marked.setOptions({ gfm: true, breaks: true });
 
   // ---------- rich rendering ----------
@@ -42,8 +54,8 @@
     var wrap = document.createElement("div"); wrap.className = "codewrap";
     var head = document.createElement("div"); head.className = "codehead";
     var tag = document.createElement("span"); tag.textContent = lang; head.appendChild(tag);
-    var cp = document.createElement("button"); cp.className = "copy"; cp.textContent = "Copy";
-    cp.onclick = function () { navigator.clipboard.writeText(code.textContent || ""); cp.textContent = "Copied"; setTimeout(function () { cp.textContent = "Copy"; }, 1200); };
+    var cp = document.createElement("button"); cp.className = "copy"; cp.innerHTML = ic("copy", 12) + '<span class="lbl">Copy</span>';
+    cp.onclick = function () { navigator.clipboard.writeText(code.textContent || ""); var l = cp.querySelector(".lbl"); l.textContent = "Copied"; setTimeout(function () { l.textContent = "Copy"; }, 1200); };
     head.appendChild(cp);
     pre.parentElement.insertBefore(wrap, pre); wrap.appendChild(head); wrap.appendChild(pre);
   }
@@ -98,7 +110,7 @@
     var a = document.createElement("a"); a.className = "filechip";
     a.href = "/blob/" + p.blobId + "?download=1&mime=" + encodeURIComponent(p.mime || "application/octet-stream") + "&name=" + encodeURIComponent(p.name || "file");
     a.setAttribute("download", p.name || "file");
-    var fi = document.createElement("span"); fi.className = "fi"; fi.textContent = "📄"; a.appendChild(fi);
+    var fi = document.createElement("span"); fi.className = "fi"; fi.innerHTML = ic("file", 16); a.appendChild(fi);
     var fn = document.createElement("span"); fn.className = "fn"; fn.textContent = p.name || "file"; a.appendChild(fn);
     if (p.size) { var fs = document.createElement("span"); fs.className = "fs"; fs.textContent = fmtSize(p.size); a.appendChild(fs); }
     return a;
@@ -113,10 +125,11 @@
   }
   function addMsgActions(b, role, text) {
     var acts = document.createElement("div"); acts.className = "acts";
-    var copy = document.createElement("button"); copy.textContent = "Copy"; copy.onclick = function () { navigator.clipboard.writeText(text || b.textContent || ""); copy.textContent = "Copied"; setTimeout(function () { copy.textContent = "Copy"; }, 1200); };
+    var copy = document.createElement("button"); copy.title = "Copy"; copy.innerHTML = ic("copy", 14) + '<span class="lbl">Copy</span>';
+    copy.onclick = function () { navigator.clipboard.writeText(text || b.textContent || ""); var l = copy.querySelector(".lbl"); l.textContent = "Copied"; setTimeout(function () { l.textContent = "Copy"; }, 1200); };
     acts.appendChild(copy);
-    if (role === "assistant") { var rg = document.createElement("button"); rg.textContent = "Regenerate"; rg.onclick = function () { if (lastUserText != null && !busy) send(lastUserText); }; acts.appendChild(rg); }
-    if (role === "user") { var ed = document.createElement("button"); ed.textContent = "Edit"; ed.onclick = function () { inp.value = text || ""; autosize(); inp.focus(); }; acts.appendChild(ed); }
+    if (role === "assistant") { var rg = document.createElement("button"); rg.title = "Regenerate"; rg.innerHTML = ic("regen", 14) + "<span>Regenerate</span>"; rg.onclick = function () { if (lastUserText != null && !busy) send(lastUserText); }; acts.appendChild(rg); }
+    if (role === "user") { var ed = document.createElement("button"); ed.title = "Edit"; ed.innerHTML = ic("edit", 14) + "<span>Edit</span>"; ed.onclick = function () { inp.value = text || ""; autosize(); inp.focus(); }; acts.appendChild(ed); }
     b.appendChild(acts);
   }
 
@@ -132,7 +145,8 @@
   function setBusy(b) { busy = b; sendBtn.hidden = b; stopBtn.hidden = !b; sendBtn.disabled = b || !roster.length; }
   function errorBubble(msg, retry) {
     clearThinking();
-    var b = bubble("err"); b.appendChild(document.createTextNode("⚠ " + msg + " "));
+    var b = bubble("err"); var ico = document.createElement("span"); ico.className = "ei"; ico.innerHTML = ic("warning", 15); b.appendChild(ico);
+    b.appendChild(document.createTextNode(" " + msg + " "));
     var r = document.createElement("button"); r.className = "retry"; r.textContent = "Retry"; r.onclick = function () { b.remove(); retry(); }; b.appendChild(r);
   }
   function clearEmpty() { var e = msgs.querySelector(".empty"); if (e) e.remove(); }
@@ -249,8 +263,8 @@
       var t = document.createElement("div"); t.className = "t"; t.textContent = s.title || "New chat"; it.appendChild(t);
       it.onclick = function () { selectSession(s.id); };
       var act = document.createElement("div"); act.className = "act";
-      var rn = document.createElement("button"); rn.textContent = "✎"; rn.title = "Rename"; rn.onclick = function (ev) { ev.stopPropagation(); startRename(it, t, s); };
-      var dl = document.createElement("button"); dl.textContent = "✕"; dl.title = "Delete"; dl.onclick = function (ev) { ev.stopPropagation(); if (confirm("Delete this chat?")) post("/session/delete", { id: s.id }); };
+      var rn = document.createElement("button"); rn.innerHTML = ic("edit", 14); rn.title = "Rename"; rn.onclick = function (ev) { ev.stopPropagation(); startRename(it, t, s); };
+      var dl = document.createElement("button"); dl.className = "del"; dl.innerHTML = ic("delete", 14); dl.title = "Delete"; dl.onclick = function (ev) { ev.stopPropagation(); if (confirm("Delete this chat?")) post("/session/delete", { id: s.id }); };
       act.appendChild(rn); act.appendChild(dl); it.appendChild(act);
       sxlist.appendChild(it);
     });
@@ -291,7 +305,7 @@
     attachments.forEach(function (a) {
       var c = document.createElement("div"); c.className = "chip" + (a.uploading ? " uploading" : "");
       var n = document.createElement("span"); n.textContent = a.name + (a.size ? " · " + fmtSize(a.size) : ""); c.appendChild(n);
-      var x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.onclick = function () { remove(a); renderChips(); }; c.appendChild(x);
+      var x = document.createElement("button"); x.className = "x"; x.innerHTML = ic("close", 14); x.onclick = function () { remove(a); renderChips(); }; c.appendChild(x);
       chipsEl.appendChild(c);
     });
   }
