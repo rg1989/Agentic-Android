@@ -20,7 +20,7 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
-import { ready } from "./crypto.ts";
+import { ready, type Identity } from "./crypto.ts";
 import { BusEndpoint } from "./peer.ts";
 import type { MsgPart } from "./parts.ts";
 import { Scheduler, type Task } from "./scheduler.ts";
@@ -900,18 +900,29 @@ const SETUP_PAGE = `<!doctype html>
   setInterval(poll,2000); poll();
 </script></body></html>`;
 
-async function main() {
+export interface StartPanelOpts {
+  identity?: Identity; peerEdPub?: string; relayUrl?: string;
+  host?: string; httpPort?: number; agentPort?: number;
+}
+
+export async function startPanel(opts: StartPanelOpts = {}) {
   await ready();
-  const cp = configPath();
-  if (!fs.existsSync(cp)) { console.error("No agent.json — pair first."); process.exit(1); }
   const cfg = loadCfg();
-  if (!cfg.peerEdPub) { console.error("Not paired (no peerEdPub)."); process.exit(1); }
+  const self = opts.identity ?? cfg.self;
+  const peerEdPub = opts.peerEdPub ?? cfg.peerEdPub!;
+  const relayUrl = opts.relayUrl ?? cfg.relayUrl;
+  const HOST = opts.host ?? process.env.PANEL_HOST ?? "127.0.0.1";
   loadEvents();
   loadConversation();
 
-  const bus = new BusEndpoint({ self: cfg.self, peerEdPub: cfg.peerEdPub, relayUrl: cfg.relayUrl });
+  const bus = new BusEndpoint({ self, peerEdPub, relayUrl });
   await bus.connect();
-  logEvent("connection", `connected to relay ${cfg.relayUrl}`, { relayUrl: cfg.relayUrl });
+  logEvent("connection", `connected to relay ${relayUrl}`, { relayUrl });
+  let _panelClosed = false;
+  // Guard bus.event() so it silently no-ops after close() instead of throwing "not connected".
+  // This prevents spurious uncaughtException events when agent sockets close during teardown.
+  const _realBusEvent = bus.event.bind(bus);
+  bus.event = (topic, data) => { if (!_panelClosed) try { _realBusEvent(topic, data); } catch { /* closed */ } };
 
   // ---------- pairing payload (shared by the QR + the manual code) ----------
   /** The exact string the phone needs to pair: a "PAIR:"-prefixed base64url blob of the hub's identity. */
@@ -940,7 +951,7 @@ async function main() {
   }
 
   // ---------- the agent connects IN over a local WebSocket; the brain runs as its OWN process ----------
-  const AGENT_PORT = Number(process.env.AGENT_PORT ?? 8124);
+  const AGENT_PORT = opts.agentPort ?? Number(process.env.AGENT_PORT ?? 8124);
   let agentSock: WebSocket | null = null; // the ACTIVE agent's socket — all existing routing uses this
   let agentName: string | null = null;
   let agentReady: boolean | null = null; // null = unknown (probing); false = connected but can't auth
@@ -1221,9 +1232,9 @@ async function main() {
       addTurn("assistant", text);
     },
   });
-  setInterval(() => verifier.sweep(), 10000);
+  const sweepTimer = setInterval(() => verifier.sweep(), 10000);
 
-  const agentWss = new WebSocketServer({ port: AGENT_PORT });
+  const agentWss = new WebSocketServer({ port: AGENT_PORT, host: process.env.AGENT_HOST ?? HOST });
   agentWss.on("connection", (ws) => {
     ws.on("message", (raw) => {
       let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
@@ -1262,8 +1273,10 @@ async function main() {
           logEvent("response", `${method} ok`, result);
           ws.send(JSON.stringify({ t: "result", id: m.id, status: "ok", result }));
         } else {
-          void execForAgent(method, m.params ?? {}).then((resp) =>
-            ws.send(JSON.stringify({ t: "result", id: m.id, status: resp.status, result: resp.result, error: resp.error })));
+          void execForAgent(method, m.params ?? {}).then((resp) => {
+            // execForAgent awaits the phone (seconds); the agent may have disconnected meanwhile.
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "result", id: m.id, status: resp.status, result: resp.result, error: resp.error }));
+          });
         }
       } else if (m.t === "event") {
         const topic = String(m.topic); const data = (m.data ?? {}) as Record<string, unknown>;
@@ -1413,9 +1426,9 @@ async function main() {
   // Keep trying until the phone answers (fast at first, then relaxed) — don't give up after a fixed
   // window, or a phone that links up late (e.g. the hub restarted while the phone was reconnecting)
   // would stay stuck on "Paired, waiting…" forever even though chat works.
-  void (async () => { let n = 0; while (caps.length === 0) { await refreshCatalog(); if (caps.length === 0) await new Promise((r) => setTimeout(r, n++ < 10 ? 3000 : 15000)); } })();
+  void (async () => { let n = 0; while (caps.length === 0 && !_panelClosed) { await refreshCatalog(); if (caps.length === 0 && !_panelClosed) await new Promise((r) => setTimeout(r, n++ < 10 ? 3000 : 15000)); } })();
 
-  const PORT = Number(process.env.PANEL_PORT ?? 8123);
+  const PORT = opts.httpPort ?? Number(process.env.PANEL_PORT ?? 8123);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     const json = (o: unknown, code = 200) => { res.statusCode = code; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(o)); };
@@ -1724,7 +1737,26 @@ async function main() {
     }
     res.statusCode = 404; res.end("not found");
   });
-  server.listen(PORT, () => console.error(`panel: http://127.0.0.1:${PORT}  (${caps.length} caps, relay ${cfg.relayUrl}, ${events.length} events loaded)`));
+  await new Promise<void>((res) => server.listen(PORT, HOST, () => { console.error(`panel: http://${HOST}:${(server.address() as any).port}  (${caps.length} caps, relay ${relayUrl}, ${events.length} events loaded)`); res(); }));
+  return {
+    http: server,
+    agentWss,
+    async close() {
+      _panelClosed = true;
+      clearInterval(sweepTimer);
+      bus.close();
+      await new Promise<void>((r) => agentWss.close(() => r()));
+      await new Promise<void>((r) => server.close(() => r()));
+    },
+  };
+}
+
+async function main() {
+  const cp = configPath();
+  if (!fs.existsSync(cp)) { console.error("No agent.json — pair first."); process.exit(1); }
+  const cfg = loadCfg();
+  if (!cfg.peerEdPub) { console.error("Not paired (no peerEdPub)."); process.exit(1); }
+  await startPanel();
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
