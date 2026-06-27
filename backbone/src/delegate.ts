@@ -1,17 +1,17 @@
 /**
  * delegate.ts — addressed, serialized, askId-correlated delegation core. No sockets, no globals.
  *
- * The hub uses this to forward a user turn to a NAMED worker agent and await that worker's reply,
- * keeping at most ONE turn in flight per worker (CLI agents keep a single --resume/--continue session,
+ * The hub uses this to forward a user turn to a NAMED worker harness and await that worker's reply,
+ * keeping at most ONE turn in flight per worker (CLI-backed harnesses keep a single --resume/--continue session,
  * so concurrent turns to one worker would corrupt it). Replies correlate to jobs by `askId`, NOT by
  * queue position: a worker that "timed out" keeps running (agent-runner never cancels a turn) and WILL
- * emit late — only an askId match makes that safe. Different workers run in parallel.
+ * emit late — only an askId match makes that safe. Different worker harnesses run in parallel.
  */
 /** A delegation lifecycle signal for the orchestration monitor (start when sent, settle on reply). */
 export interface DelegationLifecycle { phase: "start" | "settle"; askId: string; agentId: string; text: string; meta?: Record<string, unknown>; reply?: string; ms?: number }
 
 export interface DelegateDeps {
-  /** Deliver a delegated turn. MUST throw if the agent's socket is missing/closed. */
+  /** Deliver a delegated turn. MUST throw if the worker harness's socket is missing/closed. */
   send: (agentId: string, text: string, askId: string) => void;
   /** Mint a unique correlation id (panel: randomUUID; tests: a counter). */
   newId: () => string;

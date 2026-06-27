@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="a11y_desc">Lets your paired agent operate the phone: tap, swipe, type, read the screen, and take screenshots. Only active while you have this enabled.</string>
+    <string name="a11y_desc">Lets your paired harness operate the phone: tap, swipe, type, read the screen, and take screenshots. Only active while you have this enabled.</string>
 </resources>

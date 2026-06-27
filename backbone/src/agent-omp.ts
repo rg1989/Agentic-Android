@@ -36,7 +36,7 @@ const SYSTEM =
   "the phone, actually use those tools, then reply concisely about what happened. If the user asks where you " +
   `are running, answer truthfully: on their computer (${HOST}) via the hub — the phone is only the device you operate.`;
 const ORCH = process.env.AGENT_HUBS
-  ? " You also coordinate other agents. Use the hub_* tools: list_agents to see who is available and their strengths; ask_agent to delegate a subtask (use the agent's id when names repeat) and get its answer. For a large task, split it, delegate to the best-suited workers (in parallel when independent), then synthesize one reply. Never delegate to the agent marked active — that is you."
+  ? " You also coordinate other harnesses. Use the hub_* tools: list_agents to see who is available and their strengths; ask_agent to delegate a subtask to a harness (use the harness id when names repeat) and get its answer. For a large task, split it, delegate to the best-suited worker harnesses (in parallel when independent), then synthesize one reply. Never delegate to the harness marked active — that is you."
   : "";
 const SYSTEM_FULL = SYSTEM + ORCH;
 
@@ -78,6 +78,7 @@ function runTurn(text: string, ctx?: TurnContext): Promise<string> {
     const child = spawn(CLI, args, { cwd: workDir, env: process.env });
     // The prompt rides as an arg — close stdin so omp doesn't block waiting for piped input.
     try { child.stdin?.end(); } catch { /* */ }
+    ctx?.signal?.addEventListener("abort", () => { try { child.kill("SIGTERM"); } catch { /* */ } }); // Stop → kill this run
     let err = "";
     child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => resolve(`Couldn't run "${CLI}": ${String(e)}. Is it installed and on PATH?`));

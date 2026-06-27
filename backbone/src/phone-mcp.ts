@@ -40,7 +40,19 @@ async function main() {
           body: JSON.stringify({ method: nameToMethod.get(name), args: args ?? {} }),
         }).then((x) => x.json()).catch((e) => ({ status: "error", error: String(e) }));
         const payload = r.status === "ok" ? r.result : { error: r.error ?? r };
-        return { content: [{ type: "text" as const, text: JSON.stringify(payload) }] };
+        const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] =
+          [{ type: "text" as const, text: JSON.stringify(payload) }];
+        // If the phone returned an image blob (camera/screenshot), fetch its bytes and hand the model the
+        // ACTUAL pixels — the JSON only carries a blob id, so without this the model is blind to the photo.
+        const blobId = (payload as { blob_id?: string })?.blob_id;
+        const ct = (payload as { content_type?: string })?.content_type;
+        if (blobId && typeof ct === "string" && ct.startsWith("image/")) {
+          try {
+            const bytes = await fetch(`${HUB}/blob/${blobId}?mime=${encodeURIComponent(ct)}`).then((x) => x.arrayBuffer());
+            content.unshift({ type: "image" as const, data: Buffer.from(bytes).toString("base64"), mimeType: ct });
+          } catch { /* fall back to text-only — the agent still has the blob id */ }
+        }
+        return { content };
       },
     );
   }

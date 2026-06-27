@@ -1,8 +1,8 @@
 # Agent Orchestration
 
 A hub has two **seats**: a *driver* (who gives instructions) and a *brain* (who answers). They are
-symmetric. The phone is the usual driver; an **orchestrator agent** can occupy a driver seat too — so a
-single agent you talk to can see your other agents and delegate work to them by strength.
+symmetric. The phone is the usual driver; an **orchestrator harness** can occupy a driver seat too — so a
+single harness you talk to can see your other harnesses and delegate work to them by strength.
 
 ## How it fits together
 
@@ -19,8 +19,8 @@ graph LR
   class A,B w;
 ```
 
-The orchestrator is just an agent that holds one extra tool — the `hub` MCP server (`backbone/src/hub-mcp.ts`).
-Worker agents never get that tool, so they cannot enumerate or drive each other: **the asymmetry is an
+The orchestrator is just a harness that holds one extra tool — the `hub` MCP server (`backbone/src/hub-mcp.ts`).
+Worker harnesses never get that tool, so they cannot enumerate or drive each other: **the asymmetry is an
 opt-in grant, not an ambient power.**
 
 ## A delegated task, step by step
@@ -87,7 +87,7 @@ Two verbs are the whole seam between an orchestrator and a hub:
 
 | Verb | HTTP | Returns |
 |------|------|---------|
-| `list_agents()` | `GET /status` | `{ hub, agents: [{ id, name, description, active, kind }] }` — connected agents + their strengths |
+| `list_agents()` | `GET /status` | `{ hub, agents: [{ id, name, description, active, kind }] }` — connected harnesses + their strengths |
 | `ask_agent(agent, message)` | `POST /ask` | `{ reply }` — delegate a subtask to a worker and await its answer |
 
 Because both verbs are realized hub-side, the transport can be swapped later (an E2E-relay-paired
@@ -99,14 +99,14 @@ Every row maps to real code in this repo.
 
 | Mechanism | Protects against | Where |
 |-----------|------------------|-------|
-| **Opt-in tool grant** | Workers orchestrating each other — only an agent given the `hub` tool can delegate | `AGENT_HUBS` → `buildHubServers` (`backbone/src/agent-runner.ts`) |
-| **Loopback bind by default** | The driver/agent ports being exposed to the LAN/public unless you opt in | `PANEL_HOST` / `AGENT_HOST` = `127.0.0.1` (`backbone/src/panel.ts`) |
+| **Opt-in tool grant** | Workers orchestrating each other — only a harness given the `hub` tool can delegate | `AGENT_HUBS` → `buildHubServers` (`backbone/src/agent-runner.ts`) |
+| **Loopback bind by default** | The driver/harness ports being exposed to the LAN/public unless you opt in | `PANEL_HOST` / `AGENT_HOST` = `127.0.0.1` (`backbone/src/panel.ts`) |
 | **`askId` correlation** | A slow/timed-out worker's late answer cross-wiring into another subtask | match by `askId`, ignore unknown/stale (`backbone/src/delegate.ts`) |
 | **Quiet delegation** | A delegated sub-answer leaking into your chat | askId-routed reply returns before any phone broadcast (`backbone/src/panel.ts`) |
-| **Per-worker serialization** | A CLI agent's single resumed session being corrupted by concurrent turns | one in-flight turn per worker (`backbone/src/delegate.ts`) |
+| **Per-worker serialization** | A CLI harness's single resumed session being corrupted by concurrent turns | one in-flight turn per worker (`backbone/src/delegate.ts`) |
 | **Hop-count loop-breaker** | Orchestrator→orchestrator cycles running away | `X-Ask-Depth` header, rejected past `MAX_ASK_DEPTH` (default 8) → `508` |
-| **Self-delegation guard** | The user-facing brain being asked to delegate to itself | `POST /ask` → `400` when target is the active agent on a phone-backed hub |
-| **Timeout + disconnect** | A delegated ask hanging forever | resolves with the answer, `(no reply within timeout)` (60s), or `(agent disconnected)` (`delegate.ts`) |
+| **Self-delegation guard** | The user-facing brain being asked to delegate to itself | `POST /ask` → `400` when target is the active harness on a phone-backed hub |
+| **Timeout + disconnect** | A delegated ask hanging forever | resolves with the answer, `(no reply within timeout)` (60s), or `(harness disconnected)` (`delegate.ts`) |
 
 ## Running one
 

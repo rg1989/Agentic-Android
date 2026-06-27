@@ -18,7 +18,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * One live connection to a single hub. Owns that hub's [BusEndpoint], its capability registry (bound to
- * the bus so results route back), its connection/online state, and its agent roster.
+ * the bus so results route back), its connection/online state, and its harness roster.
  *
  * The phone keeps one [HubConnection] per paired hub, all connected at once (full simultaneous sessions).
  * Events drive the shared "foreground" UI flows on [PhoneAgentService] ONLY when this hub is the active
@@ -36,9 +36,9 @@ class HubConnection(
 
     /** True while this hub's relay link is established. Drives the "online hubs" list. */
     val online = MutableStateFlow(false)
-    /** Agents currently connected to THIS hub (tagged with the hub so the cross-hub picker can group them). */
+    /** Harnesses currently connected to THIS hub (tagged with the hub so the cross-hub picker can group them). */
     val roster = MutableStateFlow<List<RosterAgent>>(emptyList())
-    /** The active agent name this hub last announced — shown in the header when this hub is foreground. */
+    /** The active harness name this hub last announced — shown in the header when this hub is foreground. */
     @Volatile var lastAgentName: String? = null
         private set
 

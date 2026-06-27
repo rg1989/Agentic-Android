@@ -1,8 +1,8 @@
 package com.agenticandroid
 
 /**
- * On-phone consent (Q8) — the trust boundary. The agent can REQUEST anything; the phone decides.
- * Policy is keyed by (agent fingerprint x capability method), defaulting to the capability's own
+ * On-phone consent (Q8) — the trust boundary. The harness can REQUEST anything; the phone decides.
+ * Policy is keyed by (harness fingerprint x capability method), defaulting to the capability's own
  * sensitivity. Pure logic, JVM-unit-tested in ConsentTest.
  */
 enum class Sensitivity { ALLOW, ASK, DENY }
@@ -18,7 +18,7 @@ class ConsentPolicy {
         overrides.getOrPut(agentFp) { HashMap() }[method] = s
     }
 
-    /** Apply a default profile when a new agent pairs (Q8: Trusted vs Limited). */
+    /** Apply a default profile when a new harness pairs (Q8: Trusted vs Limited). */
     fun applyProfile(agentFp: String, profile: Profile, methods: Collection<String>) {
         when (profile) {
             Profile.TRUSTED -> methods.forEach { set(agentFp, it, Sensitivity.ALLOW) }

@@ -1,7 +1,7 @@
 /**
  * Bridge — the agent-side daemon (Q3). One local process doing double duty:
  *   - OUTBOUND: an MCP server whose tools are derived from the phone's advertised capability catalog.
- *     An LLM agent (Claude Code / any MCP host) calls a tool -> bridge forwards a `request` to the
+ *     An LLM harness (Claude Code / any MCP host) calls a tool -> bridge forwards a `request` to the
  *     phone -> returns the typed `response` as the tool result (errors included, so the agent can
  *     observe & recover — Q10).
  *   - INBOUND: holds the relay connection; on a phone `event`, drives the agent via `agentRunner`
@@ -160,7 +160,7 @@ function configPath(): string {
   return path.join(dir, "agent.json");
 }
 
-/** Spawn `claude -p` to drive the agent on an inbound phone event (Mode 1, Q9). */
+/** Spawn `claude -p` (the Claude harness) on an inbound phone event (Mode 1, Q9). */
 function claudeAgentRunner(cfg: BridgeConfig): AgentRunner {
   return (event) => {
     const prompt = `[phone:${event.topic}] ${JSON.stringify(event.data)}`;

@@ -29,6 +29,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -139,6 +140,8 @@ class CameraCaptureCapability(
         val thread = HandlerThread("cam-capture").apply { start() }
         val handler = Handler(thread.looper)
         var device: CameraDevice? = null
+        var sess: CameraCaptureSession? = null
+        val deviceClosed = CompletableDeferred<Unit>()
         try {
             return suspendCancellableCoroutine { cont ->
                 reader.setOnImageAvailableListener({ r ->
@@ -155,6 +158,7 @@ class CameraCaptureCapability(
                         device = d
                         d.createCaptureSession(listOf(previewSurface, reader.surface), object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(session: CameraCaptureSession) {
+                                sess = session // keep a handle so teardown closes the session BEFORE the device
                                 var stillFired = false
                                 val fireStill = fire@{
                                     if (stillFired) return@fire
@@ -203,12 +207,20 @@ class CameraCaptureCapability(
                         d.close()
                         if (cont.isActive) cont.resumeWithException(IllegalStateException("camera error $error"))
                     }
+                    // The OS only frees the camera once the device is FULLY closed. Signal that so teardown
+                    // can wait for it before the next capture opens the camera again.
+                    override fun onClosed(d: CameraDevice) { deviceClosed.complete(Unit) }
                 }, handler)
 
                 cont.invokeOnCancellation { runCatching { device?.close() } }
             }
         } finally {
+            // Ordered teardown: close the SESSION first, then the DEVICE, then WAIT for onClosed. Skipping
+            // the session close or returning before the device is closed leaves the camera HAL holding the
+            // device — the next openCamera then fails with ERROR_MAX_CAMERAS_IN_USE (the "works once" wedge).
+            runCatching { sess?.close() }
             runCatching { device?.close() }
+            withTimeoutOrNull(2000) { deviceClosed.await() }
             reader.close()
             runCatching { previewSurface.release() }
             runCatching { previewTexture.release() }

@@ -42,14 +42,15 @@ export interface ProbeResult { ok: boolean; label?: string; command?: string }
 /** A within-agent activity the adapter can report mid-turn (subagent spawn / tool call) for the
  *  hub's orchestration tree. The hub nests these under the agent via `parentId` (a prior activity id). */
 export interface AgentActivity { id: string; parentId?: string | null; kind: "subagent" | "tool"; name: string; detail?: string; status: "start" | "end"; error?: boolean; reply?: string }
-/** Per-turn context handed to runTurn so it can stream internal activity back to the hub. */
-export interface TurnContext { onActivity?: (a: AgentActivity) => void }
+/** Per-turn context handed to runTurn so it can stream internal activity back to the hub. `signal`
+ *  fires when the user hits Stop — adapters should kill their in-flight child process on abort. */
+export interface TurnContext { onActivity?: (a: AgentActivity) => void; signal?: AbortSignal }
 
 /** The brain behind an agent. Only `name` + `runTurn` are required; everything else is an opt-in hook. */
 export interface AgentAdapter {
   /** Display name announced to the hub (env AGENT_NAME overrides this at runtime). */
   name: string;
-  /** One-line strength shown in the hub roster so an orchestrator can delegate by strength. */
+  /** One-line strength shown in the hub roster so a harness can delegate to other harnesses by strength. */
   description?: string;
   /** One-time startup check: can this brain actually answer here? Omit = assumed ready. */
   probe?(): Promise<ProbeResult>;
@@ -81,10 +82,11 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
   const emit = (topic: string, data: Record<string, unknown>) => ws.send(JSON.stringify({ t: "event", topic, data }));
   const status = (data: Record<string, unknown>) => emit("agent_status", data);
   let beat: ReturnType<typeof setInterval> | null = null;
+  let current: AbortController | null = null; // the in-flight turn, so the hub's Stop can abort it
 
   ws.on("open", () => {
-    // orchestrator = launched with AGENT_HUBS (it holds the hub's driver-seat tools). The hub uses this
-    // to hide orchestrators from each other's list_agents and to 409 /ask targeting one (loop prevention).
+    // orchestrator harness = launched with AGENT_HUBS (it holds the hub's driver-seat tools). The hub uses this
+    // to hide orchestrator harnesses from each other's list_agents and to 409 /ask targeting one (loop prevention).
     ws.send(JSON.stringify({ t: "hello", name: process.env.AGENT_NAME ?? adapter.name, id: process.env.AGENT_INSTANCE_ID, description: process.env.AGENT_DESC ?? adapter.description, orchestrator: !!process.env.AGENT_HUBS }));
     console.error(`agent "${adapter.name}" connected to hub ${HUB_WS}`);
     // Heartbeat so the hub can tell "alive" from "socket open but process dead".
@@ -102,6 +104,7 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
     // Liveness check from the hub — answer in code (no brain turn) so it knows the read-loop is alive.
     if (m.t === "selftest") { ws.send(JSON.stringify({ t: "selftest_ok", token: m.token })); return; }
     if (m.t === "diag") { console.error(`hub diagnostic: ${m.problem}\n  remedy: ${m.remedy}`); return; }
+    if (m.t === "interrupt") { current?.abort(); return; } // user hit Stop — kill the in-flight turn
     if (m.t !== "user") return; // phone-mcp fetches the catalog itself; nothing else to handle here
     const text = String(m.text ?? "");
     const askId = typeof m.askId === "string" ? m.askId : undefined;
@@ -115,11 +118,14 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
     const prompt = buildPrompt(text, files);
     if (!prompt.trim()) return; // empty event — don't poke the brain with nothing
     status({ label: "Thinking…" });
-    void adapter.runTurn(prompt, { onActivity: (a) => emit("agent_activity", a as unknown as Record<string, unknown>) }).then((reply) => {
+    const ac = new AbortController(); current = ac;
+    void adapter.runTurn(prompt, { onActivity: (a) => emit("agent_activity", a as unknown as Record<string, unknown>), signal: ac.signal }).then((reply) => {
+      if (current === ac) current = null;
+      const stopped = ac.signal.aborted;
       // Self-heal readiness from the REAL result so a fixed/broken auth flips on the next message.
-      const fail = adapter.authFailed?.(reply) ?? null;
+      const fail = stopped ? null : adapter.authFailed?.(reply) ?? null;
       status(fail ? { label: fail.label, ready: false, command: fail.command } : { label: "Ready", ready: true });
-      emit("assistant_message", { text: reply, ...(askId ? { askId } : {}) });
+      emit("assistant_message", { text: stopped ? (reply && reply.trim() ? reply + "\n\n_(stopped)_" : "_(stopped)_") : reply, ...(askId ? { askId } : {}) });
     });
   });
 

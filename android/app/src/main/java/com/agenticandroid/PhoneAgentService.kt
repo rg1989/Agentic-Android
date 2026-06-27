@@ -17,11 +17,11 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** A line in the on-phone chat with the agent. `imagePath` (a local JPEG) renders as an inline preview. */
+/** A line in the on-phone chat with the harness. `imagePath` (a local JPEG) renders as an inline preview. */
 data class ChatMsg(val role: String, val text: String, val imagePath: String? = null, val ts: Long = System.currentTimeMillis(), val parts: List<MsgPart> = emptyList())
 
-/** An agent connected to a hub. `active` = active within its hub; `hubId`/`hubName` tag which hub it's
- *  on, so the header picker can list agents across all online hubs and group them. */
+/** A harness connected to a hub. `active` = active within its hub; `hubId`/`hubName` tag which hub it's
+ *  on, so the header picker can list harnesses across all online hubs and group them. */
 data class RosterAgent(
     val id: String,
     val name: String,
@@ -29,18 +29,18 @@ data class RosterAgent(
     val external: Boolean = false,
     val hubId: String = "",
     val hubName: String = "",
-    // Hub's verdict on whether this agent really answers: "verifying" | "verified" | "failed" | "stale".
+    // Hub's verdict on whether this harness really answers: "verifying" | "verified" | "failed" | "stale".
     // Defaults to "verified" so older hubs that don't send it don't show a false alarm.
     val verified: String = "verified",
 )
 
-/** A chat session with the agent (Phase: multi-session). */
+/** A chat session with the harness (Phase: multi-session). */
 data class SessionInfo(val id: String, val title: String, val ts: Long)
 
-/** A file being uploaded to the agent right now — shown as a pending chip with progress until sent. */
+/** A file being uploaded to the harness right now — shown as a pending chip with progress until sent. */
 data class PendingUpload(val id: String, val name: String, val mime: String?, val size: Int, val sent: Long)
 
-/** A slash command/skill the connected agent exposes, shown in the phone's `/` menu. */
+/** A slash command/skill the connected harness exposes, shown in the phone's `/` menu. */
 data class SlashCommand(val invoke: String, val description: String, val hint: String?, val kind: String, val group: String)
 
 /** One registered capability, surfaced to the settings screen (method + human summary). */
@@ -57,7 +57,7 @@ data class CapInfo(val method: String, val summary: String)
  */
 class PhoneAgentService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    /** Consent is the phone's, shared across every hub's bus (keyed by the calling agent's fingerprint). */
+    /** Consent is the phone's, shared across every hub's bus (keyed by the calling harness's fingerprint). */
     val consentPolicy = ConsentPolicy()
     @Volatile var micMuted = false // hard mic mute for the always-on wake word (Q12 trust)
 
@@ -147,7 +147,7 @@ class PhoneAgentService : Service() {
         onAggregateChanged()
     }
 
-    /** Backward-compatible alias used by older call sites (switching hub == switching the active "agent" tab). */
+    /** Backward-compatible alias used by older call sites (switching hub == switching the active "harness" tab). */
     fun switchAgent(id: String) = switchHub(id)
 
     /** Drop a hub entirely: close its connection and forget the pairing, repicking a foreground hub. */
@@ -163,7 +163,7 @@ class PhoneAgentService : Service() {
     /** Re-sync connections and kick any offline hub to reconnect (the manual "Retry"). */
     fun reconnect() = ensureConnections()
 
-    /** Push the foreground hub's name/agent into the shared header flows after a switch. */
+    /** Push the foreground hub's name/harness into the shared header flows after a switch. */
     private fun refreshForeground() {
         val fg = foreground()
         agentName.value = fg?.lastAgentName ?: Agents.active()?.let { it.display() }
@@ -171,7 +171,7 @@ class PhoneAgentService : Service() {
         connected.value = fg?.online?.value == true
     }
 
-    /** Recompute the cross-hub aggregates (online set, all-agents union, foreground connected flag).
+    /** Recompute the cross-hub aggregates (online set, all-harnesses union, foreground connected flag).
      *  Called by every [HubConnection] whenever its online/roster state changes. */
     fun onAggregateChanged() {
         val live = connections.values.filter { it.online.value }
@@ -198,7 +198,7 @@ class PhoneAgentService : Service() {
     }
 
     /**
-     * Phone-initiated message to the agent (the user typed/spoke it), optionally with attached parts.
+     * Phone-initiated message to the harness (the user typed/spoke it), optionally with attached parts.
      * [viaWake] marks a hands-free wake-word turn — its reply is always spoken even if replies are
      * muted, since the user can't see the screen.
      */
@@ -214,16 +214,16 @@ class PhoneAgentService : Service() {
         foreground()?.event("user_message", JsonObject(data))
     }
 
-    /** Upload bytes as an E2E blob sealed for the foreground hub's agent; returns its id. Blocking. */
+    /** Upload bytes as an E2E blob sealed for the foreground hub's harness; returns its id. Blocking. */
     fun putBlob(bytes: ByteArray, onProgress: ((Long, Long) -> Unit)? = null): String? =
         foreground()?.putBlob(bytes, onProgress)
 
-    /** Pick a connected agent WITHIN the foreground hub (Settings roster). */
+    /** Pick a connected harness WITHIN the foreground hub (Settings roster). */
     fun selectAgent(id: String) {
         foreground()?.event("select_agent", JsonObject(mapOf("id" to JsonPrimitive(id))))
     }
 
-    /** Pick an agent on ANY online hub (the header picker): foreground its hub first, then route to it. */
+    /** Pick a harness on ANY online hub (the header picker): foreground its hub first, then route to it. */
     fun selectAgentOnHub(hubId: String, agentId: String) {
         if (Agents.activeId.value != hubId) switchHub(hubId)
         connections[hubId]?.event("select_agent", JsonObject(mapOf("id" to JsonPrimitive(agentId))))
@@ -242,7 +242,7 @@ class PhoneAgentService : Service() {
         if (status.value == "🔊 Speaking…") status.value = null
     }
 
-    /** Mark whether the user is recording. Turning it on stops any in-progress reply (the agent
+    /** Mark whether the user is recording. Turning it on stops any in-progress reply (the harness
      *  must never talk over the mic); [speak] won't start a new one until it's off again. */
     fun setRecording(on: Boolean) {
         recording.value = on
@@ -277,9 +277,9 @@ class PhoneAgentService : Service() {
         chat.value = chat.value + ChatMsg("assistant", "", imagePath = localPath)
     }
 
-    /** Fetch + E2E-decrypt an out-of-band blob (e.g. an image/file the agent sent). Blocking — call off-main. */
+    /** Fetch + E2E-decrypt an out-of-band blob (e.g. an image/file the harness sent). Blocking — call off-main. */
     /**
-     * Fetch + E2E-decrypt a blob, caching it locally so it survives the relay's short TTL — the agent's
+     * Fetch + E2E-decrypt a blob, caching it locally so it survives the relay's short TTL — the harness's
      * files/images stay openable/shareable/downloadable long after the relay would have dropped them.
      * Blocking — call off-main.
      */
@@ -302,32 +302,32 @@ class PhoneAgentService : Service() {
         val chat = MutableStateFlow<List<ChatMsg>>(emptyList())
         /** True once the relay connection is established. */
         val connected = MutableStateFlow(false)
-        /** Human-readable name of the paired agent, announced over the connection. */
+        /** Human-readable name of the paired harness, announced over the connection. */
         val agentName = MutableStateFlow<String?>(null)
         /** All registered capabilities, for the settings screen's on/off list. */
         val capabilities = MutableStateFlow<List<CapInfo>>(emptyList())
         /** Transient "what's happening now" label (Transcribing…/Sending…/Thinking…/running an action). */
         val status = MutableStateFlow<String?>(null)
-        /** Slash commands/skills the connected agent exposes, for the `/` menu. */
+        /** Slash commands/skills the connected harness exposes, for the `/` menu. */
         val commands = MutableStateFlow<List<SlashCommand>>(emptyList())
-        /** Agents on the FOREGROUND hub — for the Settings in-hub roster. */
+        /** Harnesses on the FOREGROUND hub — for the Settings in-hub roster. */
         val roster = MutableStateFlow<List<RosterAgent>>(emptyList())
         /** Hub ids with a live connection right now — drives the "online hubs" list in the drawer. */
         val onlineHubs = MutableStateFlow<Set<String>>(emptySet())
-        /** Every agent across all ONLINE hubs (tagged with its hub) — for the cross-hub header picker. */
+        /** Every harness across all ONLINE hubs (tagged with its hub) — for the cross-hub header picker. */
         val allAgents = MutableStateFlow<List<RosterAgent>>(emptyList())
         /** Hubs with an unread background message (cleared when you switch to them) — for a drawer dot. */
         val unreadHubs = MutableStateFlow<Set<String>>(emptySet())
-        /** Chat sessions for the active agent + which one is open. */
+        /** Chat sessions for the active harness + which one is open. */
         val sessions = MutableStateFlow<List<SessionInfo>>(emptyList())
         val activeSessionId = MutableStateFlow<String?>(null)
         /** Blob ids currently being saved to the phone (drives the per-file download spinner). */
         val downloading = MutableStateFlow<Set<String>>(emptySet())
-        /** Files being uploaded to the agent right now (drives the pending-upload chips + progress). */
+        /** Files being uploaded to the harness right now (drives the pending-upload chips + progress). */
         val uploads = MutableStateFlow<List<PendingUpload>>(emptyList())
         /** True while a spoken reply is playing — the wake-word service ignores input meanwhile. */
         val speaking = MutableStateFlow(false)
-        /** True while the user is recording voice (hold-to-talk or wake-word capture). The agent
+        /** True while the user is recording voice (hold-to-talk or wake-word capture). The harness
          *  never starts speaking while this is set, and any in-progress speech is stopped. */
         val recording = MutableStateFlow(false)
     }
@@ -360,7 +360,7 @@ class PhoneAgentService : Service() {
         )
         return Notification.Builder(this, ch)
             .setContentTitle("Agentic Android")
-            .setContentText("Connected to your agent")
+            .setContentText("Connected to your harness")
             .setSmallIcon(R.drawable.ic_agent_notification)
             .setOngoing(true)
             .build()

@@ -150,7 +150,7 @@
     var r = document.createElement("button"); r.className = "retry"; r.textContent = "Retry"; r.onclick = function () { b.remove(); retry(); }; b.appendChild(r);
   }
   function clearEmpty() { var e = msgs.querySelector(".empty"); if (e) e.remove(); }
-  function maybeEmpty() { if (!msgs.querySelector(".msg")) { var e = document.createElement("div"); e.className = "empty"; e.textContent = roster.length ? "Start the conversation — type a message below." : "No agent connected. Start one in Connections; it’ll appear here."; msgs.appendChild(e); } }
+  function maybeEmpty() { if (!msgs.querySelector(".msg") && !msgs.querySelector(".empty")) { var e = document.createElement("div"); e.className = "empty"; e.textContent = roster.length ? "Start the conversation — type a message below." : "No harness connected. Start one in Connections; it’ll appear here."; msgs.appendChild(e); } }
 
   // ---------- autoscroll ----------
   function autoscroll() { if (pinned) msgs.scrollTop = msgs.scrollHeight; }
@@ -175,6 +175,7 @@
     es.addEventListener("sessions", function (e) { var d = JSON.parse(e.data); sessions = d.sessions || []; if (d.activeId) activeSession = d.activeId; renderSessions(); });
     es.addEventListener("history", function (e) { hydrate((JSON.parse(e.data).messages) || []); });
     es.addEventListener("orch", function (e) { onOrch(JSON.parse(e.data)); });
+    es.addEventListener("orch_clear", function () { orch.clear(); orchSeen.clear(); orchExpanded.clear(); renderOrch(); updateOlive(); });
     es.onopen = function () { var rc = document.querySelector(".reconnect"); if (rc) rc.remove(); };
     es.onerror = function () { if (!document.querySelector(".reconnect")) { var rc = document.createElement("div"); rc.className = "reconnect"; rc.textContent = "reconnecting…"; document.querySelector(".cmain").appendChild(rc); } };
   }
@@ -198,7 +199,7 @@
       if (r && r.ok === false) { setBusy(false); errorBubble(r.error || "send failed", function () { send(text); }); }
     }).catch(function (e) { setBusy(false); errorBubble(String((e && e.message) || e), function () { send(text); }); });
   }
-  stopBtn.onclick = function () { clearThinking(); setBusy(false); post("/ask-async", { text: "/stop" }).catch(function () {}); };
+  stopBtn.onclick = function () { clearThinking(); setBusy(false); post("/agent/interrupt").catch(function () {}); };
 
   // ---------- seat picker (agent dropdown + Regular|Orchestrator) ----------
   function selectedAgent() { return roster.filter(function (a) { return a.id === sel.value; })[0] || null; }
@@ -208,10 +209,10 @@
     var a = selectedAgent(), oBtn = seg.querySelector('[data-m="orchestrator"]'), allowed = orchAllowed(a);
     oBtn.disabled = !allowed;
     if (!allowed && mode === "orchestrator") { mode = "regular"; syncModeButtons(); }
-    oBtn.title = allowed ? "Orchestrator: this agent takes the hub driver seat and can delegate to your other (regular) agents." : "Remote agent — start it with AGENT_HUBS on its own host to use it as an orchestrator.";
+    oBtn.title = allowed ? "Orchestrator: this harness takes the hub driver seat and can delegate to your other (regular) harnesses." : "Remote harness — start it with AGENT_HUBS on its own host to use it as an orchestrator.";
     seatEl.innerHTML = "";
     var dot = document.createElement("span"); dot.className = "dot" + (active && agentReady ? " ok" : ""); seatEl.appendChild(dot);
-    var t = document.createElement("span"); t.textContent = active ? ("Driver seat: " + active.name + (agentReady === false ? " (not ready)" : "")) : "No agent in the driver seat"; seatEl.appendChild(t);
+    var t = document.createElement("span"); t.textContent = active ? ("Driver seat: " + active.name + (agentReady === false ? " (not ready)" : "")) : "No harness in the driver seat"; seatEl.appendChild(t);
   }
   function fillAgents() {
     var keep = sel.value;
@@ -368,13 +369,14 @@
   function post(url, body) { return fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(function (r) { return r.json().catch(function () { return {}; }); }); }
 
   // ---------- orchestration panel (live delegation + internal-subagent tree) ----------
-  var orch = new Map(), orchOpen = false, orchAutoOpened = false, orchSeen = new Set(), orchRenderQ = null;
-  var orchpanel = $("orchpanel"), orchtree = $("orchtree"), orchtoggle = $("orchtoggle"), orchclose = $("orchclose"), olive = $("olive");
+  var orch = new Map(), orchOpen = false, orchAutoOpened = false, orchSeen = new Set(), orchRenderQ = null, orchExpanded = new Set();
+  var orchpanel = $("orchpanel"), orchtree = $("orchtree"), orchtoggle = $("orchtoggle"), orchclose = $("orchclose"), orchclear = $("orchclear"), olive = $("olive");
   if (orchpanel) orchpanel.hidden = false; // visibility is driven by the .orch-open width, not [hidden]
   function openOrch() { shell.classList.add("orch-open"); orchOpen = true; if (orchtoggle) orchtoggle.classList.remove("live"); }
   function closeOrch() { shell.classList.remove("orch-open"); orchOpen = false; }
   if (orchtoggle) orchtoggle.onclick = function () { orchOpen ? closeOrch() : openOrch(); };
   if (orchclose) orchclose.onclick = closeOrch;
+  if (orchclear) orchclear.onclick = function () { orch.clear(); orchSeen.clear(); orchExpanded.clear(); renderOrch(); updateOlive(); post("/orch/clear"); };
   function onOrch(n) {
     var prev = orch.get(n.id);
     if (prev && prev.status === "running" && n.status !== "running") flyUp(n); // value bubbles up to its parent
@@ -394,26 +396,48 @@
   }
   function ometa(n) { if (n.status === "running") return "…"; if (n.ms == null) return ""; return n.ms < 1000 ? n.ms + "ms" : (n.ms / 1000).toFixed(1) + "s"; }
   function oesc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  // A subtree is "live" if it or any descendant is still running. Finished subtrees gray out and collapse
+  // (the moment work returns, it folds back) so the panel only foregrounds what's in progress.
+  function subtreeLive(n, childOf, memo) {
+    if (memo[n.id] != null) return memo[n.id];
+    var live = n.status === "running";
+    (childOf[n.id] || []).forEach(function (c) { if (subtreeLive(c, childOf, memo)) live = true; });
+    return (memo[n.id] = live);
+  }
+  function descCount(n, childOf) { var c = childOf[n.id] || [], t = c.length; c.forEach(function (x) { t += descCount(x, childOf); }); return t; }
   function renderOrch() {
     if (!orchtree) return;
-    if (!orch.size) { orchtree.innerHTML = '<div class="oempty">No orchestration yet.<br>Open a session with an agent as <b>Orchestrator</b> and ask it to delegate — the live tree builds here.</div>'; return; }
-    var all = [...orch.values()], childOf = {}, roots = [];
+    if (orchclear) orchclear.disabled = !orch.size;
+    if (!orch.size) { orchtree.innerHTML = '<div class="oempty">No orchestration yet.<br>Open a session with a harness as <b>Orchestrator</b> and ask it to delegate — the live tree builds here.</div>'; return; }
+    var all = [...orch.values()], childOf = {}, roots = [], memo = {};
     all.forEach(function (n) { if (n.parentId && orch.has(n.parentId)) { (childOf[n.parentId] = childOf[n.parentId] || []).push(n); } else roots.push(n); });
     Object.keys(childOf).forEach(function (k) { childOf[k].sort(function (a, b) { return a.ts - b.ts; }); });
     roots.sort(function (a, b) { return a.ts - b.ts; });
     var rows = [];
     function walk(n, depth) {
       var d = odisplay(n), isNew = !orchSeen.has(n.id); orchSeen.add(n.id);
-      var val = (n.status !== "running" && n.reply) ? '<div class="ovalue ' + n.status + '">' + (n.status === "error" ? "⚠ " : "") + oesc(n.reply.slice(0, 80)) + '</div>' : '';
-      rows.push('<div class="orow' + (isNew ? ' new' : '') + '" id="orow_' + n.id + '" style="margin-left:' + (depth * 16) + 'px">'
+      var settled = n.status !== "running", live = subtreeLive(n, childOf, memo);
+      var val = (settled && n.reply) ? '<div class="ovalue ' + n.status + '">' + (n.status === "error" ? "⚠ " : "") + oesc(n.reply.slice(0, 80)) + '</div>' : '';
+      rows.push('<div class="orow' + (isNew ? ' new' : '') + (live ? '' : ' settled') + '" id="orow_' + n.id + '" style="margin-left:' + (depth * 16) + 'px">'
         + '<div class="odot ' + n.status + '"></div><div class="obody"><div class="oline">'
         + '<span class="okind ' + n.kind + '">' + oesc(d.tag) + '</span><span class="oname">' + oesc(d.name) + '</span><span class="ometa">' + oesc(ometa(n)) + '</span></div>'
         + (d.sub ? '<div class="olabel">' + oesc(d.sub) + '</div>' : '') + val + '</div></div>');
-      (childOf[n.id] || []).forEach(function (c) { walk(c, depth + 1); });
+      var kids = childOf[n.id] || [];
+      if (!kids.length) return;
+      if (!live && !orchExpanded.has(n.id)) { // fully finished → collapse to a click-to-expand summary
+        rows.push('<div class="ocollapse" data-exp="' + n.id + '" style="margin-left:' + ((depth + 1) * 16) + 'px">▸ ' + descCount(n, childOf) + ' done</div>');
+        return;
+      }
+      kids.forEach(function (c) { walk(c, depth + 1); });
     }
     roots.forEach(function (r) { walk(r, 0); });
     orchtree.innerHTML = rows.join("");
   }
+  if (orchtree) orchtree.addEventListener("click", function (e) {
+    var c = e.target.closest("[data-exp]"); if (!c) return;
+    var id = c.getAttribute("data-exp"); if (orchExpanded.has(id)) orchExpanded.delete(id); else orchExpanded.add(id);
+    renderOrch();
+  });
   function flyUp(n) {
     if (!n.parentId || !n.reply) return;
     var childEl = document.getElementById("orow_" + n.id), parentEl = document.getElementById("orow_" + n.parentId);

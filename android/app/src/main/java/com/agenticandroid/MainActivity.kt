@@ -221,7 +221,7 @@ class MainActivity : ComponentActivity() {
                     if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex, scrollOffset = 100_000)
                 }
                 val active = profiles.firstOrNull { it.id == activeId }
-                val who = agentName ?: active?.display() ?: if (paired) "your agent" else "no agent"
+                val who = agentName ?: active?.display() ?: if (paired) "your harness" else "no harness"
                 // Compact name for the header + placeholder: drop a "(your subscription)"-style qualifier
                 // (the agent names itself in agent-cli.ts; the full name still shows in Settings → Agents).
                 val shortWho = who.substringBefore(" (").trim().ifBlank { who }
@@ -374,7 +374,7 @@ class MainActivity : ComponentActivity() {
                         IconButton(
                             onClick = { scope.launch { drawerState.open() } },
                             modifier = Modifier.align(Alignment.CenterStart),
-                        ) { Icon(Icons.Rounded.Menu, contentDescription = "Chats & agents") }
+                        ) { Icon(Icons.Rounded.Menu, contentDescription = "Chats & harnesses") }
 
                         // Agent name = a tab. Chevron + dropdown to switch agents on this hub (only if >1).
                         Box(Modifier.align(Alignment.Center).padding(horizontal = 100.dp)) {
@@ -390,7 +390,7 @@ class MainActivity : ComponentActivity() {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(shortWho, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (canSwitch) Icon(
-                                        Icons.Rounded.ArrowDropDown, contentDescription = "Switch agent",
+                                        Icons.Rounded.ArrowDropDown, contentDescription = "Switch harness",
                                         modifier = Modifier.size(20.dp),
                                     )
                                 }
@@ -448,7 +448,7 @@ class MainActivity : ComponentActivity() {
                                             leadingIcon = {
                                                 Icon(
                                                     if (a.external) Icons.Rounded.Cloud else Icons.Rounded.SmartToy,
-                                                    contentDescription = if (a.external) "Cloud agent — connects from elsewhere" else "Local agent",
+                                                    contentDescription = if (a.external) "Cloud harness — connects from elsewhere" else "Local harness",
                                                     tint = vColor,
                                                 )
                                             },
@@ -617,7 +617,7 @@ class MainActivity : ComponentActivity() {
                     }
                     } // end transcript Box
 
-                    // `/` command palette: type "/" to browse the agent's skills & commands, like the TUI.
+                    // `/` command palette: type "/" to browse the harness's skills & commands, like the TUI.
                     val slashActive = !recording && input.startsWith("/") && !input.contains(' ')
                     val slashMatches = if (slashActive) {
                         val q = input.drop(1)
@@ -689,7 +689,7 @@ class MainActivity : ComponentActivity() {
                                     maxLines = 5,
                                     decorationBox = { inner ->
                                         if (input.isEmpty()) Text(
-                                            if (paired) "Message $shortWho…" else "Pair an agent first",
+                                            if (paired) "Message $shortWho…" else "Pair a harness first",
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             style = MaterialTheme.typography.bodyLarge,
                                             maxLines = 1,
@@ -1373,7 +1373,7 @@ private fun AgentImage(part: MsgPart.ImageRef, fg: Color) {
     var full by remember { mutableStateOf(false) }
     Image(
         bitmap = b,
-        contentDescription = part.alt ?: "image from the agent",
+        contentDescription = part.alt ?: "image from the harness",
         contentScale = ContentScale.Crop,
         modifier = Modifier.width(240.dp).aspectRatio(b.width.toFloat() / b.height).clickable { full = true },
     )
@@ -1382,7 +1382,7 @@ private fun AgentImage(part: MsgPart.ImageRef, fg: Color) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(
                     bitmap = b,
-                    contentDescription = part.alt ?: "image from the agent",
+                    contentDescription = part.alt ?: "image from the harness",
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxWidth().clickable { full = false },
                 )

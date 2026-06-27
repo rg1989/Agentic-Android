@@ -159,8 +159,8 @@ class SettingsActivity : ComponentActivity() {
                             )
                             Text(
                                 when {
-                                    !connectionEnabled -> "Off for now — your agents are kept. Tap to reconnect."
-                                    connected -> "Linked to your agent. Tap to disconnect quickly."
+                                    !connectionEnabled -> "Off for now — your harnesses are kept. Tap to reconnect."
+                                    connected -> "Linked to your harness. Tap to disconnect quickly."
                                     else -> "Reaching your hub…"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -459,10 +459,10 @@ class SettingsActivity : ComponentActivity() {
                             }
                             }
                             if (tab == 3) {
-                            SectionLabel("Actions the agent can use")
+                            SectionLabel("Actions the harness can use")
                             if (caps.isEmpty()) {
                                 Text(
-                                    "Connect to your agent to load its actions.",
+                                    "Connect to your harness to load its actions.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(16.dp),
                                 )

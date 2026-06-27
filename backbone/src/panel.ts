@@ -264,6 +264,7 @@ const ICON_PATHS: Record<string, string> = {
   search: "M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z",
   edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
   delete: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+  eraser: "M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 0 1-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0zM4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53-4.95-4.95-4.95 4.95z",
   copy: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
   check: "M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
   info: "M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z",
@@ -392,8 +393,8 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
     <header class="chathead">
       <button class="iconbtn drawer" id="drawer" aria-label="Toggle chat list">${icon("menu", 20)}</button>
       <div class="seat">
-        <select id="agentsel" class="sel" aria-label="Agent"></select>
-        <div class="modeseg" id="modeseg" role="tablist" aria-label="Agent mode">
+        <select id="agentsel" class="sel" aria-label="Harness"></select>
+        <div class="modeseg" id="modeseg" role="tablist" aria-label="Harness mode">
           <button type="button" data-m="regular" class="on" role="tab">Regular</button>
           <button type="button" data-m="orchestrator" role="tab">Orchestrator<span class="info">${icon("info", 13)}</span></button>
         </div>
@@ -408,7 +409,7 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
       <div class="slash" id="slash" role="listbox" hidden></div>
       <form class="composer" id="composer">
         <button type="button" class="iconbtn attach" id="attach" aria-label="Attach file">${icon("attach", 20)}</button>
-        <textarea id="inp" rows="1" placeholder="Message the agent…   ( / for commands, Shift+Enter for newline )" autocomplete="off" aria-label="Message"></textarea>
+        <textarea id="inp" rows="1" placeholder="Message the harness…   ( / for commands, Shift+Enter for newline )" autocomplete="off" aria-label="Message"></textarea>
         <button type="submit" id="send">${icon("send", 17)}<span>Send</span></button>
         <button type="button" id="stop" hidden>Stop</button>
       </form>
@@ -418,9 +419,12 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
   <aside class="orchpanel" id="orchpanel" aria-label="Orchestration" hidden>
     <header class="orchhead">
       <div class="otitle"><span class="olive" id="olive"></span>Orchestration</div>
-      <button class="iconbtn" id="orchclose" aria-label="Close orchestration panel">${icon("close", 18)}</button>
+      <div class="ohbtns">
+        <button class="iconbtn" id="orchclear" aria-label="Clear orchestration tree" title="Clear the tree" disabled>${icon("eraser", 18)}</button>
+        <button class="iconbtn" id="orchclose" aria-label="Close orchestration panel">${icon("close", 18)}</button>
+      </div>
     </header>
-    <div class="orchhint">Live tree of every delegation the hub mediates, plus the internal subagents an agent reports about itself.</div>
+    <div class="orchhint">Live tree of every delegation the hub mediates, plus the internal sub-agents a harness reports about itself.</div>
     <div class="orchtree" id="orchtree"></div>
   </aside>
 </div>
@@ -539,11 +543,11 @@ const PAGE = (caps: Cap[], relayUrl: string) => `<!doctype html>
     <div class="mark" aria-hidden="true"></div>
     <div>
       <h1>Control Panel</h1>
-      <div class="sub">agent → relay <span class="mono">${relayUrl}</span> → phone · ${caps.length} capabilities</div>
+      <div class="sub">harness → relay <span class="mono">${relayUrl}</span> → phone · ${caps.length} capabilities</div>
     </div>
   </div>
   <div class="agentbar">
-    <label>Agent</label>
+    <label>Harness</label>
     <select id="preset"></select>
     <input class="cmd" id="cmd" placeholder='command with {prompt}'>
     <label class="switch"><input type="checkbox" id="aen"> on inbound</label>
@@ -722,15 +726,27 @@ const SETUP_PAGE = `<!doctype html>
   .qr { background: #fff; border-radius: 14px; padding: 11px; width: 184px; height: 184px; flex: none; box-shadow: 0 12px 30px rgba(0,0,0,0.40); }
   ol { margin: 6px 0 0; padding-left: 20px; } ol li { margin: 4px 0; font-size: 13.5px; color: var(--text-dim); }
   a { color: var(--accent-hi); } .foot { margin-top: 28px; font-size: 13px; color: var(--text-dim); }
-  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0 6px; }
-  .card2 {
-    flex: 1; min-width: 215px; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 13px; padding: 14px 16px; cursor: pointer;
-    transition: border-color .15s, background .15s, box-shadow .15s, transform .12s;
+  .presetlist { display: flex; flex-direction: column; gap: 9px; margin: 14px 0 6px; }
+  .preset {
+    display: flex; align-items: center; gap: 14px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px;
+    transition: border-color .15s, background .15s, box-shadow .15s;
   }
-  .card2:hover { border-color: var(--border-strong); box-shadow: 0 8px 20px rgba(0,0,0,0.28); }
-  .card2.sel { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .card2 .ct { font-size: 15px; font-weight: 600; } .card2 .cd { font-size: 12.5px; color: var(--text-dim); margin-top: 4px; }
+  .preset:hover { border-color: var(--border-strong); }
+  .preset.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .preset .pinfo { flex: 1; min-width: 0; }
+  .preset .pt { font-size: 14.5px; font-weight: 600; }
+  .preset .pd { font-size: 12.5px; color: var(--text-dim); margin-top: 3px; }
+  .preset .pcmd { display: inline-block; margin-top: 8px; font-family: var(--mono); font-size: 11.5px;
+    color: var(--text-dim); background: rgba(8,9,13,0.5); border: 1px solid var(--border); border-radius: 7px; padding: 3px 9px; }
+  .preset .pcfg { flex: none; }
+  .ptoggle { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; cursor: pointer; }
+  .ptoggle input { width: 19px; height: 19px; cursor: pointer; accent-color: var(--accent); }
+  .preset.busy .ptoggle input { visibility: hidden; }
+  .pspin { display: none; position: absolute; width: 16px; height: 16px; border: 2px solid var(--accent-soft);
+    border-top-color: var(--accent-hi); border-radius: 50%; animation: ospin .7s linear infinite; }
+  .preset.busy .pspin { display: block; }
+  @keyframes ospin { to { transform: rotate(360deg); } }
   .adv { color: var(--accent-hi); font-size: 13px; cursor: pointer; display: inline-block; margin: 8px 0 2px; user-select: none; }
   .callout {
     background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.30); border-radius: 11px;
@@ -811,38 +827,53 @@ const SETUP_PAGE = `<!doctype html>
 </style></head>
 <body><div class="app">${sidebar("/connections")}<main class="appmain">
   <header class="chead">
-    <div class="ttl"><h1>Connections</h1><div class="csub">Link your phone and your agents to this hub.</div></div>
+    <div class="ttl"><h1>Connections</h1><div class="csub">Link your phone and your harnesses to this hub.</div></div>
     <div class="statusbar">
-      <div class="schip"><span id="ad" class="dot"></span><div><div class="t">Agent</div><div id="av" class="v">checking…</div></div></div>
+      <div class="schip"><span id="ad" class="dot"></span><div><div class="t">Harness</div><div id="av" class="v">checking…</div></div></div>
       <div class="schip"><span id="pd" class="dot"></span><div><div class="t">Phone</div><div id="pv" class="v">checking…</div></div></div>
     </div>
   </header>
   <div class="conngrid">
     <div class="col">
   <div class="step" id="step1">
-    <h2>Your agents</h2>
-    <p>Agents are the brains that talk to you and act on your phone. Connect one or several — then switch between them anytime, from the phone or right here.</p>
+    <h2>Your harnesses</h2>
+    <p>Harnesses are the brains that talk to you and act on your phone. Connect one or several — then switch between them anytime, from the phone or right here.</p>
     <div id="agentlist" class="agentlist"></div>
     <div class="addbox">
-      <div class="addlabel">Add an agent</div>
-      <div class="cards">
-        <div class="card2 sel" data-type="claude"><div class="ct">Claude</div><div class="cd">Runs the <code>claude</code> CLI on this computer.</div></div>
-        <div class="card2" data-type="omp"><div class="ct">omp (Oh My Pi)</div><div class="cd">Open-source coding agent. Full phone control via MCP.</div></div>
-        <div class="card2" data-type="basic"><div class="ct">Built-in helper</div><div class="cd">No setup, no login. Basic replies — good for a first test.</div></div>
-        <div class="card2" data-type="other"><div class="ct">Other local agent</div><div class="cd">Hermes, Pi, Cursor, Codex… any CLI on this computer.</div></div>
-        <div class="card2" data-type="remote"><div class="ct">Remote / cloud agent</div><div class="cd">A Hermes (or anything) running elsewhere that connects to this hub itself.</div></div>
+      <div class="addlabel">Add a harness</div>
+      <div class="presetlist">
+        <div class="preset" data-type="claude">
+          <div class="pinfo"><div class="pt">Claude</div><div class="pd">Runs the <code>claude</code> CLI on this computer.</div><code class="pcmd">claude -p "…"</code></div>
+          <label class="ptoggle" title="Add / remove this harness"><input type="checkbox" class="ptogglebox" data-type="claude" /><span class="pspin"></span></label>
+        </div>
+        <div class="preset" data-type="omp">
+          <div class="pinfo"><div class="pt">omp (Oh My Pi)</div><div class="pd">Open-source coding harness. Full phone control via MCP.</div><code class="pcmd">omp -p "…"</code></div>
+          <label class="ptoggle" title="Add / remove this harness"><input type="checkbox" class="ptogglebox" data-type="omp" /><span class="pspin"></span></label>
+        </div>
+        <div class="preset" data-type="basic">
+          <div class="pinfo"><div class="pt">Built-in helper</div><div class="pd">No setup, no login. Basic replies — good for a first test.</div><code class="pcmd">built-in · no external command</code></div>
+          <label class="ptoggle" title="Add / remove this harness"><input type="checkbox" class="ptogglebox" data-type="basic" /><span class="pspin"></span></label>
+        </div>
+        <div class="preset cfg" data-type="other">
+          <div class="pinfo"><div class="pt">Other local harness</div><div class="pd">Hermes, Pi, Cursor, Codex… any CLI on this computer.</div></div>
+          <button class="ghost pcfg" data-type="other">Configure</button>
+        </div>
+        <div id="otherform" style="display:none;">
+          <input id="oname" placeholder="Name (e.g. Hermes)" style="width:100%;margin:0 0 8px;" />
+          <input id="ocmd" placeholder="command to run (e.g. hermes, pi, cursor-agent)" style="width:100%;margin:0 0 8px;font-family:var(--mono);" />
+          <label class="phonechk"><input type="checkbox" id="ophone" checked /><span>Can control the phone <span class="hint" style="margin:0;">— for Claude Code-compatible CLIs (Claude, Cursor, Hermes, Pi). Off = chat only.</span></span></label>
+          <div class="cmdrow" style="margin-top:10px;"><button id="connect">Add harness</button><span id="astate" class="hint" style="margin:0;"></span></div>
+        </div>
+        <div class="preset cfg" data-type="remote">
+          <div class="pinfo"><div class="pt">Remote / cloud harness</div><div class="pd">A Hermes (or anything) running elsewhere that connects to this hub itself.</div></div>
+          <button class="ghost pcfg" data-type="remote">Set up</button>
+        </div>
+        <div id="remoteinfo" style="display:none;">
+          <p class="step-p">No “Add” button — a remote harness connects itself. Send the prompt below to your cloud harness; it spells out exactly how to reach this hub and reply. (Keep the address on your tailnet — the port is unauthenticated by design.)</p>
+          <pre id="remoteprompt" style="padding:12px 13px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin:0;">loading…</pre>
+          <div class="cmdrow" style="margin-top:8px;"><button id="copyprompt">Copy prompt</button><span class="hint" id="remotewait" style="margin:0;">⏳ Waiting for a remote harness to connect…</span></div>
+        </div>
       </div>
-      <div id="otherform" style="display:none;margin-top:10px;">
-        <input id="oname" placeholder="Name (e.g. Hermes)" style="width:100%;margin:0 0 8px;" />
-        <input id="ocmd" placeholder="command to run (e.g. hermes, pi, cursor-agent)" style="width:100%;margin:0 0 8px;font-family:var(--mono);" />
-        <label class="phonechk"><input type="checkbox" id="ophone" checked /><span>Can control the phone <span class="hint" style="margin:0;">— for Claude Code-compatible CLIs (Claude, Cursor, Hermes, Pi). Off = chat only.</span></span></label>
-      </div>
-      <div id="remoteinfo" style="display:none;margin-top:10px;">
-        <p class="step-p">No “Add” button — a remote agent connects itself. Send the prompt below to your cloud agent; it spells out exactly how to reach this hub and reply. (Keep the address on your tailnet — the port is unauthenticated by design.)</p>
-        <pre id="remoteprompt" style="padding:12px 13px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin:0;">loading…</pre>
-        <div class="cmdrow" style="margin-top:8px;"><button id="copyprompt">Copy prompt</button><span class="hint" id="remotewait" style="margin:0;">⏳ Waiting for a remote agent to connect…</span></div>
-      </div>
-      <div class="cmdrow" id="addrow" style="margin-top:14px;"><button id="connect">Add agent</button><span id="astate" class="hint" style="margin:0;"></span></div>
       <div id="alog" class="callout" style="display:none;"></div>
     </div>
   </div>
@@ -895,13 +926,39 @@ const SETUP_PAGE = `<!doctype html>
     </div>
   </div>
 <script>
-  let curType='claude';
-  const cards=[...document.querySelectorAll('.card2')];
-  cards.forEach(c=>c.onclick=()=>{ cards.forEach(x=>x.classList.toggle('sel',x===c)); curType=c.dataset.type;
-    document.getElementById('otherform').style.display = curType==='other' ? 'block' : 'none';
-    document.getElementById('remoteinfo').style.display = curType==='remote' ? 'block' : 'none';
-    document.getElementById('addrow').style.display = curType==='remote' ? 'none' : 'flex';
-    if(curType==='remote') loadRemotePrompt(); });
+  // Configure rows (other / remote) expand their own form; the fixed presets use checkboxes instead.
+  document.querySelectorAll('.pcfg').forEach(b=>b.onclick=()=>{
+    const t=b.dataset.type, of=document.getElementById('otherform'), ri=document.getElementById('remoteinfo');
+    if(t==='other'){ const show=of.style.display==='none'; of.style.display=show?'block':'none'; ri.style.display='none'; if(show) document.getElementById('oname').focus(); }
+    else { const show=ri.style.display==='none'; ri.style.display=show?'block':'none'; of.style.display='none'; if(show) loadRemotePrompt(); }
+  });
+  // Checkbox = add/remove a fixed-preset harness. Source of truth is /status; a spinner covers the in-flight gap.
+  let _lastAgents=[]; const presetWant={}, presetPending={};
+  async function togglePreset(kind, want){
+    presetWant[kind]=want; presetPending[kind]=true; syncPresets(_lastAgents);
+    document.getElementById('alog').style.display='none';
+    try{
+      if(want){
+        const r=await (await fetch('/agent/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:kind})})).json();
+        if(!r.ok){ presetPending[kind]=false; presetWant[kind]=false; showCallout(r.error||'Could not start the harness.', r.command); syncPresets(_lastAgents); poll(); return; }
+      } else {
+        for(const a of _lastAgents.filter(a=>a.managed && a.kind===kind))   // un-add: stop every managed harness of this kind
+          await fetch('/agent/stop',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:a.id})});
+      }
+    }catch(e){ presetPending[kind]=false; showCallout(String(e)); syncPresets(_lastAgents); }
+    poll(); for(let i=1;i<=10;i++) setTimeout(poll, i*600);
+  }
+  function syncPresets(list){
+    ['claude','omp','basic'].forEach(kind=>{
+      const box=document.querySelector('.ptogglebox[data-type="'+kind+'"]'); if(!box) return;
+      const row=box.closest('.preset'), running=list.some(a=>a.managed && a.kind===kind);
+      if(presetPending[kind] && running===presetWant[kind]) presetPending[kind]=false;
+      const pending=!!presetPending[kind];
+      box.checked = pending ? presetWant[kind] : running; box.disabled = pending;
+      row.classList.toggle('busy', pending); row.classList.toggle('on', box.checked);
+    });
+  }
+  document.querySelectorAll('.ptogglebox').forEach(b=>b.onchange=()=>togglePreset(b.dataset.type, b.checked));
   let _promptLoaded=false;
   async function loadRemotePrompt(){ if(_promptLoaded) return; _promptLoaded=true;
     try{ const t=await (await fetch('/remote-prompt')).text(); document.getElementById('remoteprompt').textContent=t; }
@@ -937,19 +994,15 @@ const SETUP_PAGE = `<!doctype html>
     row.querySelector('.nm').textContent = type==='other' ? (document.getElementById('oname').value.trim()||'agent') : (names[type]||type);
   }
   function clearPending(){ const pr=document.getElementById('pendingrow'); if(pr) pr.remove(); }
-  document.getElementById('connect').onclick=async()=>{
+  document.getElementById('connect').onclick=async()=>{   // "Other local harness" only — presets use checkboxes
     const btn=document.getElementById('connect'); const st=document.getElementById('astate');
-    let body;
-    if(curType==='other'){
-      const command=document.getElementById('ocmd').value.trim();
-      if(!command){ st.textContent='enter a command'; document.getElementById('ocmd').focus(); return; }
-      body={type:'other', name:document.getElementById('oname').value.trim(), command, phone:document.getElementById('ophone').checked};
-    } else if(curType==='remote'){ return; }   // remote agents connect themselves — nothing to start
-    else { body={type:curType}; }
+    const command=document.getElementById('ocmd').value.trim();
+    if(!command){ st.textContent='enter a command'; document.getElementById('ocmd').focus(); return; }
+    const body={type:'other', name:document.getElementById('oname').value.trim(), command, phone:document.getElementById('ophone').checked};
     // Instant feedback: busy button + the optimistic row, so the wait is never a blank screen.
     btn.disabled=true; const lbl=btn.textContent; btn.textContent='Adding…';
     st.textContent=''; document.getElementById('alog').style.display='none';
-    pendingRow(curType);
+    pendingRow('other');
     try{
       const r=await (await fetch('/agent/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})).json();
       if(!r.ok){ clearPending(); showCallout(r.error||'Could not start the agent.', r.command); }
@@ -967,7 +1020,7 @@ const SETUP_PAGE = `<!doctype html>
     const dot=document.createElement('span');
     dot.className='dot '+(!a.connected?'wait':(a.active?(a.ready===false?'bad':'on'):'lit'));
     row.appendChild(dot);
-    if(a.connected && !a.managed){ const c=document.createElement('span'); c.textContent='☁'; c.title='Cloud / external agent — it connected to this hub on its own (a remote brain or a hand-started CLI), not launched here.'; c.style.cssText='margin:0 4px 0 0;font-size:14px;cursor:help;'; row.appendChild(c); }
+    if(a.connected && !a.managed){ const c=document.createElement('span'); c.textContent='☁'; c.title='Cloud / external harness — it connected to this hub on its own (a remote brain or a hand-started CLI), not launched here.'; c.style.cssText='margin:0 4px 0 0;font-size:14px;cursor:help;'; row.appendChild(c); }
     const nm=document.createElement('div'); nm.className='nm';
     const an=document.createElement('div'); an.className='anm'; an.textContent=a.name; nm.appendChild(an);
     if(a.description){ const ad=document.createElement('div'); ad.className='adesc'; ad.textContent=a.description; nm.appendChild(ad); }
@@ -982,7 +1035,7 @@ const SETUP_PAGE = `<!doctype html>
   function renderAgents(list){
     const sig=JSON.stringify(list); if(sig===_agentsSig) return; _agentsSig=sig;  // only rebuild when it changes
     const host=document.getElementById('agentlist'); host.innerHTML='';
-    if(!list.length){ const e=document.createElement('div'); e.className='empty'; e.textContent='No agents connected yet — add one below.'; host.appendChild(e); return; }
+    if(!list.length){ const e=document.createElement('div'); e.className='empty'; e.textContent='No harnesses connected yet — add one below.'; host.appendChild(e); return; }
     list.forEach(a=>host.appendChild(agentRow(a)));
   }
   let _calloutKey='';
@@ -990,9 +1043,9 @@ const SETUP_PAGE = `<!doctype html>
     const list=s.agents||[]; const active=s.active;
     const aOk = !!active && active.ready!==false;       // active agent connected AND able to authenticate
     const starting = list.some(a=>!a.connected);
-    renderAgents(list);
+    _lastAgents=list; renderAgents(list); syncPresets(list);
     set('ad','av', aOk, (active&&active.ready===false)||starting,
-      !list.length ? (starting?'Starting…':'No agent connected')
+      !list.length ? (starting?'Starting…':'No harness connected')
       : active ? (active.ready===false ? ('Sign-in needed — '+active.name)
                  : ('Active: '+active.name + (list.length>1?(' · +'+(list.length-1)+' more'):'')))
                : 'Connecting…');
@@ -1004,8 +1057,8 @@ const SETUP_PAGE = `<!doctype html>
     const mc=document.getElementById('manualcode'); if(mc) mc.textContent = s.pairCode || '—';
     const ext=(s.agents||[]).filter(a=>a.connected && !a.managed); const rw=document.getElementById('remotewait');
     if(rw) rw.textContent = ext.length
-      ? ('✓ '+ext.length+' remote/external agent'+(ext.length>1?'s':'')+' connected — pick one in the list above to make it active.')
-      : '⏳ Waiting for a remote agent to connect… it appears in the list above the moment it does. The port is unauthenticated by design — keep it on your tailnet only.';
+      ? ('✓ '+ext.length+' remote/external harness'+(ext.length>1?'es':'')+' connected — pick one in the list above to make it active.')
+      : '⏳ Waiting for a remote harness to connect… it appears in the list above the moment it does. The port is unauthenticated by design — keep it on your tailnet only.';
     // Reflect the SAVED relay choice in the picker on first load (so Tailscale shows selected, not Wi-Fi).
     if(!window._relaySynced && s.relayChoice){ window._relaySynced=true;
       const opt=document.querySelector('[data-relay="'+s.relayChoice+'"]');
@@ -1108,7 +1161,7 @@ const SETTINGS_PAGE = (s: SettingsInfo) => {
       <div class="sh"><span class="si">${icon("storage", 19)}</span><div><h2>This hub</h2><div class="sd">Identity &amp; local endpoints.</div></div></div>
       ${row("smartphone", "Name on your phone", s.hubName, false)}
       ${row("dashboard", "Web UI", s.webUrl)}
-      ${row("bolt", "Agent socket", s.agentSocket)}
+      ${row("bolt", "Harness socket", s.agentSocket)}
     </div>
     <div class="scard">
       <div class="sh"><span class="si">${icon("link", 19)}</span><div><h2>Connectivity</h2><div class="sd">How the phone reaches this hub.</div></div></div>
@@ -1117,9 +1170,9 @@ const SETTINGS_PAGE = (s: SettingsInfo) => {
       <div class="note">Pair a phone and switch the network it uses (Wi-Fi, Tailscale, USB) on the <a href="/">Connections</a> page.</div>
     </div>
     <div class="scard">
-      <div class="sh"><span class="si">${icon("tree", 19)}</span><div><h2>Orchestration</h2><div class="sd">Limits for agent-to-agent delegation.</div></div></div>
+      <div class="sh"><span class="si">${icon("tree", 19)}</span><div><h2>Orchestration</h2><div class="sd">Limits for harness-to-harness delegation.</div></div></div>
       ${row("tree", "Max delegation hops", String(s.maxDepth), false)}
-      <div class="note">When an agent holds the driver seat it can delegate to your other agents; this caps how deep those hops can chain. Watch them live in the Orchestration panel inside <a href="/chat">Chat</a>.</div>
+      <div class="note">When a harness holds the driver seat it can delegate to your other harnesses; this caps how deep those hops can chain. Watch them live in the Orchestration panel inside <a href="/chat">Chat</a>.</div>
     </div>
     <div class="scard">
       <div class="sh"><span class="si">${icon("info", 19)}</span><div><h2>Coming soon</h2><div class="sd">On the roadmap for this page.</div></div></div>
@@ -1195,13 +1248,13 @@ export async function startPanel(opts: StartPanelOpts = {}) {
 
   // ---------- the agent connects IN over a local WebSocket; the brain runs as its OWN process ----------
   const AGENT_PORT = opts.agentPort ?? Number(process.env.AGENT_PORT ?? 8124);
-  let agentSock: WebSocket | null = null; // the ACTIVE agent's socket — all existing routing uses this
+  let agentSock: WebSocket | null = null; // the ACTIVE harness's socket — all existing routing uses this
   let agentName: string | null = null;
   let agentReady: boolean | null = null; // null = unknown (probing); false = connected but can't auth
   let agentStatus: { label?: string; command?: string } = {};
   let agentCommands: unknown[] = []; // slash command/skill catalog the agent published, for the phone's `/` menu
   let pendingSay: ((text: string) => void) | null = null; // resolves /say with the next agent reply
-  // Phase 8: the hub can hold several agents at once. `agentSock` stays the active one (single-agent
+  // Phase 8: the hub can hold several harnesses at once. `agentSock` stays the active one (single-harness
   // behavior is unchanged); this roster tracks everyone connected so the phone can see + switch them.
   const agents = new Map<string, { ws: WebSocket; name: string; description?: string; orchestrator?: boolean }>();
   let activeAgentId: string | null = null;
@@ -1216,12 +1269,13 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   // ---- Orchestration monitor: a live tree of every delegation the hub mediates (ask_agent) + the
   // internal subagents an agent reports about itself (agent_activity). Streamed web-only over SSE
   // ("orch"); the drawer in /chat renders it. Parent linkage: orchInbound[agentId] = the node that is
-  // currently making that agent work, so a worker's own delegations/subagents nest under it. ----
+  // currently making that harness work, so a worker harness's own delegations/sub-agents nest under it. ----
   type OrchStatus = "running" | "done" | "error";
   interface OrchNode { kind: "turn" | "delegation" | "subagent" | "tool"; id: string; parentId: string | null; agentId: string; agentName: string; label: string; depth: number; status: OrchStatus; ts: number; ms?: number; reply?: string }
   const orchNodes = new Map<string, OrchNode>();
   const orchInbound = new Map<string, string>();
   const orchEmit = (n: OrchNode) => { sseBroadcast("orch", n); if (orchNodes.size > 400) { const oldest = [...orchNodes.values()].sort((a, b) => a.ts - b.ts)[0]; if (oldest) orchNodes.delete(oldest.id); } };
+  const clearOrch = () => { orchNodes.clear(); orchInbound.clear(); sseBroadcast("orch_clear", {}); };
   const isErrReply = (r?: string) => !!r && (r === "(agent disconnected)" || r === "(no reply within timeout)");
   function orchTurnStart(agentId: string, text: string) {
     const a = agents.get(agentId); if (!a) return;
@@ -1237,8 +1291,12 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   }
 
   const MAX_ASK_DEPTH = Number(process.env.MAX_ASK_DEPTH ?? 8);
+  // A delegated worker that spawns its OWN subagents routinely needs minutes, not seconds — 60s was far
+  // too tight (cold-start + nested fan-out timed out, forcing wasteful retries). Default 5 min, env-tunable.
+  const ASK_TIMEOUT_MS = Number(process.env.ASK_TIMEOUT_MS ?? 300_000);
   const delegator = makeDelegator({
     newId: () => randomUUID(),
+    timeoutMs: ASK_TIMEOUT_MS,
     send: (id, text, askId) => {
       const a = agents.get(id);
       if (!a || a.ws.readyState !== WebSocket.OPEN) throw new Error("agent not connected");
@@ -1305,7 +1363,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       ``,
       `ENDPOINT`,
       `  ${ws}`,
-      `  Plain WebSocket — no TLS, no auth. You must be able to reach this host (it's on the user's Tailscale/LAN). Open ONE connection and KEEP IT OPEN across messages — do NOT reconnect per message (that spawns duplicate ghost agents). If it drops, reconnect with backoff, one connection at a time.`,
+      `  Plain WebSocket — no TLS, no auth. You must be able to reach this host (it's on the user's Tailscale/LAN). Open ONE connection and KEEP IT OPEN across messages — do NOT reconnect per message (that spawns duplicate connections). If it drops, reconnect with backoff, one connection at a time.`,
       ``,
       `HANDSHAKE`,
       `  1. On open, send:  {"t":"hello","name":"<your name, e.g. Hermes>"}`,
@@ -1389,7 +1447,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     env.AGENT_NAME = name;
     if (opts.desc) env.AGENT_DESC = opts.desc;                 // strength shown in the roster (list_agents)
     // Orchestrator: hand this agent the hub's OWN driver seat (hub-mcp via AGENT_HUBS) so it can
-    // list_agents / ask_agent the other agents on this hub. Loopback — it's co-located with the hub.
+    // list_agents / ask_agent the other harnesses on this hub. Loopback — it's co-located with the hub.
     if (opts.orchestrator) env.AGENT_HUBS = `self=http://127.0.0.1:${process.env.PANEL_PORT ?? 8123}`;
     const child = spawn(tsxBin(), [script], { cwd: backboneDir, env });
     const m: Managed = { child, kind, name, log: "", orchestrator: !!opts.orchestrator };
@@ -1629,7 +1687,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     });
     ws.on("close", () => {
       const id = (ws as any)._agentId as string | undefined;
-      if (id) { delegator.onGone(id); agents.delete(id); verifier.remove(id); } // fail in-flight asks before dropping the worker
+      if (id) { delegator.onGone(id); agents.delete(id); verifier.remove(id); } // fail in-flight asks before dropping the worker harness
       // Skip bus.event() calls if we are tearing down — the TCP socket can fire its close event
       // after bus.close() completes (OS-level async), causing spurious "not connected" throws.
       if (_panelClosed) return;
@@ -1649,7 +1707,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       announceRoster();
     });
   });
-  logEvent("connection", `agent WebSocket on ws://127.0.0.1:${AGENT_PORT}`);
+  logEvent("connection", `harness WebSocket on ws://127.0.0.1:${AGENT_PORT}`);
 
   // ---------- phone -> hub -> agent ----------
   const histMsgs = () => conversation.slice(-100).map((t) => ({ role: t.role, text: t.text, ts: t.ts, ...(t.parts?.length ? { parts: t.parts } : {}) }));
@@ -1676,7 +1734,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     addTurn("user", text || (files.length ? `(sent ${files.length} file${files.length > 1 ? "s" : ""})` : ""), parts);
     if (agentSock && activeAgentId) {
       agentSock.send(JSON.stringify({ t: "user", text, ...(files.length ? { files } : {}) }));
-      orchTurnStart(activeAgentId, text); // root of the orchestration tree: your prompt → the driver-seat agent
+      orchTurnStart(activeAgentId, text); // root of the orchestration tree: your prompt → the driver-seat harness
     } else { bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." }); logEvent("error", "user_message but no agent connected"); }
   }
   bus.onEvent((ev) => {
@@ -1691,7 +1749,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       if (agentReady === false && agentStatus.label) bus.event("agent_status", { label: agentStatus.label });
       // Replay the slash catalog so a phone that connects after the agent still gets the `/` menu.
       if (agentCommands.length) bus.event("agent_commands", { commands: agentCommands });
-      announceRoster(); // Phase 8: tell the phone which agents are connected right now
+      announceRoster(); // Phase 8: tell the phone which harnesses are connected right now
       // The phone just (re)connected — re-fetch its capability catalog so the panel shows "Connected —
       // N actions" instead of "Paired, waiting…" (the startup fetch loop may have given up before the
       // phone re-registered, e.g. after a hub restart). Chat already works over the event path.
@@ -1700,7 +1758,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       return;
     }
     if (ev.topic === "select_agent") {
-      // Phase 8: the phone picked which connected agent should be active; route to its socket.
+      // Phase 8: the phone picked which connected harness should be active; route to its socket.
       const id = String((ev.data as { id?: unknown }).id ?? "");
       const a = agents.get(id);
       if (a) {
@@ -1886,6 +1944,16 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       });
       return;
     }
+    if (req.method === "POST" && url.pathname === "/agent/interrupt") {
+      // Stop: abort every connected harness's in-flight turn (orchestrator + any workers it delegated to).
+      // A no-op for idle harnesses, so blasting all of them is the simplest way to halt a runaway chain.
+      let n = 0;
+      for (const a of agents.values()) {
+        if (a.ws.readyState === WebSocket.OPEN) { try { a.ws.send(JSON.stringify({ t: "interrupt" })); n++; } catch { /* */ } }
+      }
+      logEvent("connection", `interrupt sent to ${n} harness(es) (from UI)`);
+      return json({ ok: true, interrupted: n });
+    }
     if (req.method === "POST" && url.pathname === "/relay-url") {
       let body = ""; req.on("data", (c) => (body += c));
       req.on("end", () => {
@@ -2020,14 +2088,15 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       return json({ messages: turns.slice(-200).map((t) => ({ role: t.role, text: t.text, ts: t.ts, ...(t.parts?.length ? { parts: t.parts } : {}) })) });
     }
     if (req.method === "GET" && url.pathname === "/commands") return json({ commands: agentCommands });
+    if (req.method === "POST" && url.pathname === "/orch/clear") { clearOrch(); return json({ ok: true }); }
     if (req.method === "POST" && (url.pathname === "/session/new" || url.pathname === "/session/select" || url.pathname === "/session/delete" || url.pathname === "/session/rename")) {
       let body = ""; req.on("data", (c) => (body += c));
       req.on("end", () => {
         try {
           const b = JSON.parse(body || "{}");
           const id = String(b.id ?? "");
-          if (url.pathname === "/session/new") newSession();
-          else if (url.pathname === "/session/select") { if (!selectSession(id)) return json({ ok: false, error: "no such session" }, 404); }
+          if (url.pathname === "/session/new") { newSession(); clearOrch(); }
+          else if (url.pathname === "/session/select") { if (!selectSession(id)) return json({ ok: false, error: "no such session" }, 404); clearOrch(); }
           else if (url.pathname === "/session/delete") deleteSession(id);
           else if (url.pathname === "/session/rename") { if (!renameSession(id, String(b.title ?? ""))) return json({ ok: false, error: "no such session" }, 404); }
           emitHistory(); emitSessions();
@@ -2060,9 +2129,9 @@ export async function startPanel(opts: StartPanelOpts = {}) {
           const r = resolveAgentId(String(agent ?? ""));
           if ("error" in r) return json(r, 404);
           // ponytail: single-hub convenience guard — only when a phone is paired is `active` the user-facing brain.
-          if (peerEdPub && r.id === activeAgentId) return json({ error: "that agent is user-facing — delegate to a worker" }, 400);
+          if (peerEdPub && r.id === activeAgentId) return json({ error: "that harness is user-facing — delegate to a worker" }, 400);
           // Loop prevention: orchestrators are invisible to each other — an orchestrator can't delegate to one.
-          if (isOrchestrator(r.id)) return json({ error: "that agent is an orchestrator — orchestrators don't delegate to each other" }, 409);
+          if (isOrchestrator(r.id)) return json({ error: "that harness is an orchestrator — orchestrators don't delegate to each other" }, 409);
           logEvent("request", `/ask → ${agents.get(r.id)?.name ?? r.id}`, { text });
           // Source attribution for the orchestration tree: hub-mcp tags the caller (x-ask-from-*); fall
           // back to the active orchestrator at depth ≤ 1 (the driver-seat brain making the first hop).
@@ -2188,8 +2257,18 @@ export async function startPanel(opts: StartPanelOpts = {}) {
           const { method, args } = JSON.parse(body || "{}");
           logEvent("request", `${method}`, args ?? {});
           const resp = await bus.request(method, args ?? {});
-          if (resp.status === "ok") logEvent("response", `${method} ok`, resp.result);
-          else logEvent("error", `${method} error`, resp.error);
+          if (resp.status === "ok") {
+            logEvent("response", `${method} ok`, resp.result);
+            // A photo/screenshot the agent just captured → surface it in the chat so the user SEES it,
+            // without the agent having to hand-craft a markdown image. (Display side; phone-mcp handles vision.)
+            const r = resp.result as { blob_id?: string; content_type?: string };
+            if (r?.blob_id && (r.content_type ?? "").startsWith("image/")) {
+              const note = method === "ui.screenshot" ? "📱 Screenshot from the phone" : "📷 Photo from the phone";
+              const parts: MsgPart[] = [{ kind: "image", blobId: r.blob_id, mime: r.content_type ?? "image/jpeg", alt: note }];
+              bus.event("assistant_message", { text: note, parts } as unknown as Record<string, unknown>);
+              addTurn("assistant", note, parts);
+            }
+          } else logEvent("error", `${method} error`, resp.error);
           json(resp);
         } catch (e) { logEvent("error", `call failed: ${String(e)}`); json({ status: "error", error: { message: String(e) } }, 500); }
       });

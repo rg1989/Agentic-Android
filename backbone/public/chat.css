@@ -170,8 +170,11 @@ svg.ic { display: block; flex: none; }
 .orchtoggle { position: relative; }
 .orchpanel { width: 0; flex: none; overflow: hidden; border-left: 1px solid var(--border); background: rgba(8,9,13,0.5); transition: width .22s ease; display: flex; flex-direction: column; min-height: 0; }
 .chatshell.orch-open .orchpanel { width: min(430px, 46vw); }
-.orchhead { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--border); flex: none; }
-.otitle { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+.orchhead { display: flex; align-items: center; padding: 13px 16px; border-bottom: 1px solid var(--border); flex: none; }
+.otitle { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; flex: 1; min-width: 0; }
+.ohbtns { display: flex; align-items: center; gap: 6px; flex: none; }
+.iconbtn:disabled { opacity: .3; cursor: default; }
+.iconbtn:disabled:hover { background: var(--surface-2); color: var(--text-dim); border-color: var(--border); }
 .olive { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); flex: none; }
 .olive.on { background: var(--ok); animation: opulse 1.4s infinite; }
 @keyframes opulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
@@ -180,6 +183,10 @@ svg.ic { display: block; flex: none; }
 .orow { display: flex; align-items: flex-start; gap: 8px; padding: 5px 8px; border-radius: 8px; }
 .orow:hover { background: var(--surface); }
 .orow.new { animation: oin .3s ease; }
+.orow.settled { opacity: .4; transition: opacity .3s ease; }
+.orow.settled:hover { opacity: .8; }
+.ocollapse { font-size: 11px; color: var(--text-faint); cursor: pointer; padding: 2px 8px; border-radius: 6px; user-select: none; }
+.ocollapse:hover { color: var(--text-dim); background: var(--surface); }
 @keyframes oin { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 .odot { flex: none; width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--text-faint); }
 .odot.running { background: var(--accent-hi); animation: opulse 1.1s infinite; }

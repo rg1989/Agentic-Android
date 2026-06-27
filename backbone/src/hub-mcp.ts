@@ -19,7 +19,7 @@ export function makeHubMcpServer(opts: { hubHttp: string; askDepth?: number; lab
 
   server.registerTool(
     "list_agents",
-    { description: "List the worker agents on this hub and their strengths. Returns id, name, description, active, kind. Prefer an agent's `id` when two share a name. Call this before ask_agent.", inputSchema: {} },
+    { description: "List the worker harnesses on this hub and their strengths. Returns id, name, description, active, kind. Prefer a harness's `id` when two share a name. Call this before ask_agent.", inputSchema: {} },
     async () => {
       const s: any = await fetch(`${HUB}/status`).then((r) => r.json()).catch((e) => ({ error: String(e) }));
       const agents = Array.isArray(s.agents)
@@ -31,7 +31,7 @@ export function makeHubMcpServer(opts: { hubHttp: string; askDepth?: number; lab
 
   server.registerTool(
     "ask_agent",
-    { description: "Delegate a subtask to a WORKER agent on this hub and get its answer. Pass the agent's `id` (preferred when names repeat) or `name`, plus the `message`. Never target the agent marked `active` on a phone-backed hub — that is the user-facing brain.", inputSchema: { agent: z.string(), message: z.string() } },
+    { description: "Delegate a subtask to a WORKER harness on this hub and get its answer. Pass the harness's `id` (preferred when names repeat) or `name`, plus the `message`. Never target the harness marked `active` on a phone-backed hub — that is the user-facing brain.", inputSchema: { agent: z.string(), message: z.string() } },
     async ({ agent, message }: { agent: string; message: string }) => {
       const r: any = await fetch(`${HUB}/ask`, {
         method: "POST",
