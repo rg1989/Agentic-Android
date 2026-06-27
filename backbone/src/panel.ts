@@ -426,8 +426,13 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
         <button class="iconbtn" id="orchclose" aria-label="Close orchestration panel">${icon("close", 18)}</button>
       </div>
     </header>
-    <div class="orchhint">Live tree of every delegation the hub mediates, plus the internal sub-agents a harness reports about itself.</div>
+    <div class="orchmodes" id="orchmodes" role="tablist" aria-label="View">
+      <button type="button" data-ov="tree" class="on" role="tab" title="File-system tree">Tree</button>
+      <button type="button" data-ov="flow" role="tab" title="Flow graph — task forward, result back">Flow</button>
+      <span class="orchmodehint">live tree of delegations + the sub-agents each harness reports</span>
+    </div>
     <div class="orchtree" id="orchtree"></div>
+    <div class="orchflow" id="orchflow" hidden></div>
   </aside>
 </div>
 <div class="orchtip" id="orchtip" hidden></div>

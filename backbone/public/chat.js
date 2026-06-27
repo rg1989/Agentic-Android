@@ -175,7 +175,7 @@
     es.addEventListener("sessions", function (e) { var d = JSON.parse(e.data); sessions = d.sessions || []; if (d.activeId) activeSession = d.activeId; renderSessions(); });
     es.addEventListener("history", function (e) { hydrate((JSON.parse(e.data).messages) || []); });
     es.addEventListener("orch", function (e) { onOrch(JSON.parse(e.data)); });
-    es.addEventListener("orch_clear", function () { orch.clear(); orchSeen.clear(); orchCollapsed.clear(); renderOrch(); updateOlive(); });
+    es.addEventListener("orch_clear", function () { orch.clear(); orchSeen.clear(); orchCollapsed.clear(); flowAuto = true; renderOrch(); updateOlive(); });
     es.onopen = function () { var rc = document.querySelector(".reconnect"); if (rc) rc.remove(); };
     es.onerror = function () { if (!document.querySelector(".reconnect")) { var rc = document.createElement("div"); rc.className = "reconnect"; rc.textContent = "reconnecting…"; document.querySelector(".cmain").appendChild(rc); } };
   }
@@ -370,14 +370,16 @@
 
   // ---------- orchestration panel (live delegation + internal-subagent tree) ----------
   var orch = new Map(), orchOpen = false, orchAutoOpened = false, orchSeen = new Set(), orchRenderQ = null, orchCollapsed = new Set();
-  var orchtip = $("orchtip");
+  var orchtip = $("orchtip"), orchflow = $("orchflow"), orchmodes = $("orchmodes");
+  var orchView = "tree"; try { orchView = localStorage.getItem("orchView") || "tree"; } catch (e) {}
+  var flowTf = { x: 0, y: 0, k: 1 }, flowAuto = true, flowContent = { w: 0, h: 0 };
   var orchpanel = $("orchpanel"), orchtree = $("orchtree"), orchtoggle = $("orchtoggle"), orchclose = $("orchclose"), orchclear = $("orchclear"), olive = $("olive");
   if (orchpanel) orchpanel.hidden = false; // visibility is driven by the .orch-open width, not [hidden]
   function openOrch() { shell.classList.add("orch-open"); orchOpen = true; if (orchtoggle) orchtoggle.classList.remove("live"); }
   function closeOrch() { shell.classList.remove("orch-open"); orchOpen = false; }
   if (orchtoggle) orchtoggle.onclick = function () { orchOpen ? closeOrch() : openOrch(); };
   if (orchclose) orchclose.onclick = closeOrch;
-  if (orchclear) orchclear.onclick = function () { orch.clear(); orchSeen.clear(); orchCollapsed.clear(); renderOrch(); updateOlive(); post("/orch/clear"); };
+  if (orchclear) orchclear.onclick = function () { orch.clear(); orchSeen.clear(); orchCollapsed.clear(); flowAuto = true; renderOrch(); updateOlive(); post("/orch/clear"); };
   function onOrch(n) {
     var prev = orch.get(n.id);
     if (prev && prev.status === "running" && n.status !== "running") flyUp(n); // value bubbles up to its parent
@@ -400,14 +402,30 @@
   // File-system tree: nested .onode boxes so CSS can draw the folder guides. A node's connector colours
   // in when it FINISHES (its result has returned up the chain); the reply rides as data-reply for the
   // hover tooltip, so the whole chain of results is readable from the tree alone.
-  function renderOrch() {
-    if (!orchtree) return;
-    if (orchclear) orchclear.disabled = !orch.size;
-    if (!orch.size) { orchtree.innerHTML = '<div class="oempty">No orchestration yet.<br>Open a session with a harness as <b>Orchestrator</b> and ask it to delegate — the live tree builds here.</div>'; return; }
+  function orchTreeData() {                       // shared parent→children index, sorted by time
     var all = [...orch.values()], childOf = {}, roots = [];
     all.forEach(function (n) { if (n.parentId && orch.has(n.parentId)) { (childOf[n.parentId] = childOf[n.parentId] || []).push(n); } else roots.push(n); });
     Object.keys(childOf).forEach(function (k) { childOf[k].sort(function (a, b) { return a.ts - b.ts; }); });
     roots.sort(function (a, b) { return a.ts - b.ts; });
+    return { childOf: childOf, roots: roots };
+  }
+  function renderOrch() {                           // dispatch to the selected view
+    if (orchclear) orchclear.disabled = !orch.size;
+    if (orchView === "flow") { if (orchtree) orchtree.hidden = true; if (orchflow) orchflow.hidden = false; renderFlow(); }
+    else { if (orchflow) orchflow.hidden = true; if (orchtree) orchtree.hidden = false; renderTree(); }
+  }
+  if (orchmodes) [].forEach.call(orchmodes.querySelectorAll("button"), function (b) {
+    b.classList.toggle("on", b.getAttribute("data-ov") === orchView);
+    b.onclick = function () {
+      orchView = b.getAttribute("data-ov"); try { localStorage.setItem("orchView", orchView); } catch (e) {}
+      [].forEach.call(orchmodes.querySelectorAll("button"), function (x) { x.classList.toggle("on", x.getAttribute("data-ov") === orchView); });
+      flowAuto = true; renderOrch();
+    };
+  });
+  function renderTree() {
+    if (!orchtree) return;
+    if (!orch.size) { orchtree.innerHTML = '<div class="oempty">No orchestration yet.<br>Open a session with a harness as <b>Orchestrator</b> and ask it to delegate — the live tree builds here.</div>'; return; }
+    var td = orchTreeData(), childOf = td.childOf, roots = td.roots;
     function nodeHtml(n) {
       var d = odisplay(n), isNew = !orchSeen.has(n.id); orchSeen.add(n.id);
       var settled = n.status !== "running", kids = childOf[n.id] || [], collapsed = orchCollapsed.has(n.id);
@@ -448,6 +466,83 @@
     });
     orchtree.addEventListener("mousemove", positionTip);
     orchtree.addEventListener("mouseout", function (e) { if (e.target.closest(".orow[data-reply]")) hideTip(); });
+  }
+
+  // ---------- flow view: same tree as nodes on a pannable/zoomable canvas; edges colour as results return ----------
+  var SVGNS = "http://www.w3.org/2000/svg";
+  function applyFlowTf() { var cv = orchflow && orchflow.querySelector(".oflow-canvas"); if (cv) cv.style.transform = "translate(" + flowTf.x + "px," + flowTf.y + "px) scale(" + flowTf.k + ")"; }
+  function fitFlow() {
+    if (!orchflow) return; var vw = orchflow.clientWidth, vh = orchflow.clientHeight;
+    if (!flowContent.w || !vw) return; var pad = 28;
+    var k = Math.max(0.06, Math.min((vw - pad * 2) / flowContent.w, (vh - pad * 2) / flowContent.h, 1.1));
+    flowTf = { k: k, x: (vw - flowContent.w * k) / 2, y: (vh - flowContent.h * k) / 2 }; applyFlowTf();
+  }
+  function zoomAround(nk, mx, my) {
+    nk = Math.min(2.5, Math.max(0.05, nk));
+    flowTf.x = mx - (mx - flowTf.x) * (nk / flowTf.k); flowTf.y = my - (my - flowTf.y) * (nk / flowTf.k); flowTf.k = nk; applyFlowTf();
+  }
+  function attachFlowControls() {
+    orchflow.addEventListener("wheel", function (e) { e.preventDefault(); flowAuto = false; var r = orchflow.getBoundingClientRect(); zoomAround(flowTf.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+    var drag = false, sx, sy, ox, oy;
+    orchflow.addEventListener("pointerdown", function (e) { if (e.target.closest(".oflow-zoom")) return; drag = true; flowAuto = false; orchflow.classList.add("grabbing"); sx = e.clientX; sy = e.clientY; ox = flowTf.x; oy = flowTf.y; orchflow.setPointerCapture(e.pointerId); });
+    orchflow.addEventListener("pointermove", function (e) { if (!drag) return; flowTf.x = ox + (e.clientX - sx); flowTf.y = oy + (e.clientY - sy); applyFlowTf(); });
+    orchflow.addEventListener("pointerup", function () { drag = false; orchflow.classList.remove("grabbing"); });
+    orchflow.querySelector(".oflow-zoom").addEventListener("click", function (e) {
+      var z = e.target.closest("[data-z]"); if (!z) return; var a = z.getAttribute("data-z");
+      if (a === "fit") { flowAuto = true; fitFlow(); } else { flowAuto = false; zoomAround(flowTf.k * (a === "in" ? 1.2 : 1 / 1.2), orchflow.clientWidth / 2, orchflow.clientHeight / 2); }
+    });
+    // re-fit when the panel opens or is resized (the width transition / splitter changes our viewport)
+    if (window.ResizeObserver) new ResizeObserver(function () { if (flowAuto) fitFlow(); else applyFlowTf(); }).observe(orchflow);
+  }
+  function renderFlow() {
+    if (!orchflow) return;
+    if (!orch.size) { orchflow.innerHTML = '<div class="oempty">No orchestration yet.<br>Switch a harness to <b>Orchestrator</b> and ask it to delegate — the flow builds here.</div>'; return; }
+    if (!orchflow.querySelector(".oflow-canvas")) {                 // one-time scaffold (canvas + zoom controls + listeners)
+      orchflow.innerHTML = "";
+      var cv = document.createElement("div"); cv.className = "oflow-canvas";
+      var svg = document.createElementNS(SVGNS, "svg"); svg.setAttribute("class", "oflow-edges"); cv.appendChild(svg);
+      var zc = document.createElement("div"); zc.className = "oflow-zoom"; zc.innerHTML = '<button data-z="in" title="Zoom in">+</button><button data-z="out" title="Zoom out">−</button><button data-z="fit" title="Fit">⛶</button>';
+      orchflow.appendChild(cv); orchflow.appendChild(zc); attachFlowControls();
+    }
+    var canvas = orchflow.querySelector(".oflow-canvas"), svg = orchflow.querySelector(".oflow-edges");
+    var td = orchTreeData(), childOf = td.childOf, roots = td.roots;
+    [].slice.call(canvas.querySelectorAll(".oflow-node")).forEach(function (e) { e.remove(); });
+    var els = {}, pos = {}, NW = 200, GX = 56, GY = 16;
+    (function build(list) { list.forEach(function (n) {
+      var d = odisplay(n), settled = n.status !== "running", reply = (settled && n.reply) ? n.reply : "";
+      var running = n.status === "running";
+      var el = document.createElement("div"); el.className = "oflow-node " + n.status;
+      el.innerHTML = '<div class="ofn-head"><span class="ofn-kind ' + n.kind + '">' + oesc(d.tag) + '</span><span class="ofn-name">' + oesc(d.name) + '</span><span class="ofn-meta' + (running ? " run" : "") + '">' + oesc(ometa(n)) + '</span></div>'
+        + (d.sub ? '<div class="ofn-task">' + oesc(d.sub) + '</div>' : "")
+        + (reply ? '<div class="ofn-reply ' + (n.status === "error" ? "error" : "") + '">' + oesc(reply) + '</div>' : "")
+        + (running ? '<div class="ofn-prog"></div>' : "");   // animated bar while there's no result yet
+      canvas.appendChild(el); els[n.id] = el;
+      build(childOf[n.id] || []);
+    }); })(roots);
+    var heights = {}; Object.keys(els).forEach(function (id) { heights[id] = els[id].offsetHeight; });
+    var yCur = 0, maxX = 0, maxY = 0;
+    function place(n, depth) {
+      var kids = childOf[n.id] || [], h = heights[n.id] || 60, x = depth * (NW + GX), cy;
+      if (!kids.length) { cy = yCur + h / 2; yCur += h + GY; }
+      else { var cs = kids.map(function (c) { return place(c, depth + 1); }); cy = (cs[0] + cs[cs.length - 1]) / 2; }
+      pos[n.id] = { x: x, y: cy - h / 2, h: h }; maxX = Math.max(maxX, x + NW); maxY = Math.max(maxY, cy - h / 2 + h);
+      return cy;
+    }
+    roots.forEach(function (r) { place(r, 0); });
+    Object.keys(pos).forEach(function (id) { els[id].style.left = pos[id].x + "px"; els[id].style.top = pos[id].y + "px"; });
+    var paths = "";
+    Object.keys(childOf).forEach(function (pid) {
+      var pp = pos[pid]; if (!pp) return;
+      childOf[pid].forEach(function (c) {
+        var cp = pos[c.id]; if (!cp) return;
+        var x1 = pp.x + NW, y1 = pp.y + pp.h / 2, x2 = cp.x, y2 = cp.y + cp.h / 2, mx = (x1 + x2) / 2;
+        var cls = c.status === "done" ? "done" : c.status === "error" ? "error" : "";
+        paths += '<path class="oflow-edge ' + cls + '" d="M' + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2 + '"/>';
+      });
+    });
+    svg.innerHTML = paths; svg.setAttribute("width", maxX + 24); svg.setAttribute("height", maxY + 24);
+    flowContent = { w: maxX, h: maxY };
+    if (flowAuto) fitFlow(); else applyFlowTf();      // auto-fit while live; once the user pans/zooms, leave them be
   }
 
   // ---------- resizable side panels: drag the splitters; widths persist; chat keeps a min width ----------
