@@ -13,6 +13,7 @@
     "agent": "tsx src/agent.ts",
     "agent:claude": "tsx src/agent-cli.ts",
     "agent:omp": "tsx src/agent-omp.ts",
+    "agent:orchestrator": "AGENT_HUBS=self=http://127.0.0.1:8123 tsx src/agent-cli.ts",
     "mcp:phone": "tsx src/phone-mcp.ts",
     "typecheck": "tsc --noEmit"
   },

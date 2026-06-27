@@ -51,7 +51,7 @@
 
 **Camera & Vision:**
 - AndroidX Camera API (camera-core, camera-camera2, camera-lifecycle, camera-view) 1.4.2 - Real-time camera preview
-- ML Kit Barcode Scanning 17.3.0 - QR code pairing scan
+- ML Kit Barcode Scanning 17.3.0 - QR code pairing scan (manual short-code pairing also supported via relay rendezvous)
 
 **Device Capabilities:**
 - Google Play Services Location 21.3.0 - GPS location queries
@@ -90,7 +90,7 @@
 
 **Environment:**
 - Config directory: `~/.agentic-android/` (or `$AGENTIC_HOME`)
-  - `agent.json` - Identity keypair (edPub/edSec), relay URL, agent brain config (provider, model, API key env var name), optional OAuth token for headless CLI auth
+  - `agent.json` - Identity keypair (edPub/edSec), relay URL, hub name (defaults to os.hostname()), agent brain config (provider, model, API key env var name), optional OAuth token for headless CLI auth
   - `panel-events.jsonl` - Event log (request, response, phone_event, agent_run, connection, config, user/assistant messages, LLM calls)
   - `conversation.jsonl` - Legacy chat history (migrated to sessions on load)
   - `sessions/` - Multiple chat sessions (one .jsonl per session), indexed in sessions.jsonl

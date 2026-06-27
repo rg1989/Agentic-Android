@@ -199,7 +199,7 @@ private fun assertCovers(text: String, kind: PreviewKind) {
 - Examples: `WakePhraseTest` (phrase extraction), `MarkdownTest` (rendering), `SpeechTextTest` (text sanitization)
 
 **Integration Tests:**
-- TypeScript: `e2e.test.ts` and `relay.test.ts` test protocol handshake and multi-peer routing
+- TypeScript: `e2e.test.ts` and `relay.test.ts` test protocol handshake, multi-peer routing, and the manual pair-code rendezvous (`POST /pair-code` → `GET /pair-code/:code`)
 - Kotlin: UI verified on-device (no integration test framework)
 
 **E2E Tests:**

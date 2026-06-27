@@ -101,13 +101,19 @@ command capture in one continuous stream (no mic handoff).
       fighting over it. Device-verified via logcat: TTS → "mic released (held by [tts])" → on done →
       "listening for wake phrase". (commit pending)
 
-## Phase 4 — Multiple agents  ← **DONE (one-active; migration device-verified)**
-- [x] **Data model**: `Agents` store — list of `AgentProfile {id, name, peerEdPub, relayUrl}` +
-      `activeId` (encrypted). One identity keypair. Legacy single pairing migrated to profile #1.
-- [x] **Pair more**: pairing appends/updates a profile (keyed by peer fingerprint) and reconnects.
-- [x] **Switch**: header picker (tap the agent name) + Settings → Agents. Switching rebuilds the
-      `BusEndpoint` (fresh registry) and reconnects; the agent's announced name is saved on the profile.
-- [x] **Manage**: Forget an agent; the active profile shows the live connection state.
+## Phase 4 — Multiple hubs  ← **DONE (multi-hub always-on; migration device-verified)**
+- [x] **Data model**: `Agents` store — list of `AgentProfile {id, name, localName?, peerEdPub, relayUrl}`
+      (each profile is a paired **hub**) + one identity keypair (encrypted). Each hub carries a `name`
+      (from the hub, default its hostname) and an optional per-phone `localName` override; the displayed
+      label is `display() = localName ?: name`. Legacy single pairing migrated to profile #1.
+- [x] **Pair more**: pairing appends/updates a profile (keyed by peer fingerprint). The phone stays
+      connected to **all** paired hubs at once — `HubConnection` owns one `BusEndpoint` + that hub's
+      roster, and `PhoneAgentService` orchestrates a `Map<hubId, HubConnection>` (no switch-to-reconnect).
+- [x] **Foreground hub**: header picker (tap the agent name) + Settings → Hubs. Re-pointing the
+      foreground hub (`switchHub`) does **not** reconnect — every paired hub is already live; the rename
+      is stored as the profile's `localName`.
+- [x] **Manage**: Forget/unpair a hub (`forgetHub`); the drawer's hub list shows each hub's live
+      online/offline state.
 - [x] (Later) keep several connected at once and route per message. → **done in Phase 8.**
 
 ## Phase H — Make the hub a real, separate service (architectural)
@@ -202,9 +208,11 @@ Feature B) stays a clean future layer on top — the data model doesn't preclude
       A 2nd agent connecting joins the roster but does NOT steal active (preserves single-agent flow);
       when the active agent leaves, the hub promotes another. (Per-agent history/media already on disk.)
 - [x] **Phone sees the roster**: hub emits `agents_roster {agents:[{id,name,active}]}` on connect/
-      change/whoami; Settings shows a "Connected to this hub" switcher (active/online) when >1 agent.
-- [x] **Switch routes at the hub**: phone sends `select_agent {id}` → hub repoints `agentSock` +
-      re-announces identity/roster. Instant, no re-pair, no reconnect.
+      change/whoami; each `HubConnection` tracks its own roster and the service unions them into
+      `allAgents`. The header picker lists agents across **all online hubs**, grouped by hub.
+- [x] **Switch routes at the hub**: `selectAgent {id}` → hub repoints `agentSock` + re-announces
+      identity/roster (within the foreground hub). Cross-hub, `selectAgentOnHub` foregrounds the
+      target's hub and routes to it. Instant, no re-pair, no reconnect.
 - [x] **Routing model decided**: 1:1-selected (active agent gets the phone's messages). Concierge
       left as a future layer.
 - [x] **State stays hub-owned**: switching just repoints the active socket; nothing is lost.
@@ -260,7 +268,7 @@ never by the ephemeral agent turn or a per-process timer.
 | Wake word on/off | 3 | [x] |
 | Wake phrase | 3 | [x] |
 | Wake sensitivity / listen timeout / boot restart | 3 | [x] |
-| Agents: list / add / switch / forget | 4 | [x] |
+| Hubs: list / pair / rename / forget | 4 | [x] |
 
 ## Phase 10 — Premium install: macOS menu-bar app  ← **planned (not started)**
 Goal: a real, premium install experience — no terminals, no scripts, no plist-editing, no TCC dance.
@@ -285,12 +293,13 @@ bundle/locate node (embed a pinned node vs require a system one); code-signing/n
 1. **Wake-word engine**: Vosk (recommended, offline/free) vs Porcupine (better, needs key). Decide
    at the start of Phase 3; no dependency added until then.
 2. **TTS**: Android built-in `TextToSpeech` (no dep) — good enough; revisit only if quality is poor.
-3. **Multiple agents simultaneously vs one-active**: ship one-active first (simplest, intuitive),
-   add concurrent later.
+3. **Multiple hubs simultaneously vs one-active**: shipped one-active first, then **moved to
+   always-on multi-hub** — the phone stays connected to every paired hub at once (Phase 4).
 
 ## Where to resume
-Pointer lives here + in `backbone/LOOP-STATE.md`. Phases 1–9 are done (one-active multi-agent at the
-hub; wake word offline via Vosk; TTS with speech-cleaning; hub-owned history; auto-reconnect; rich
+Pointer lives here + in `backbone/LOOP-STATE.md`. Phases 1–9 are done (always-on multi-hub — the phone
+stays connected to every paired hub, with a cross-hub agent picker, named hubs, and QR-or-code pairing;
+wake word offline via Vosk; TTS with speech-cleaning; hub-owned history; auto-reconnect; rich
 parts — markdown/image/file/table; send files both ways with upload progress + thumbnails; scheduler).
 **What's left:**
 - **Phase 10 — premium macOS menu-bar install** (planned, not started) — the user-facing answer to

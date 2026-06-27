@@ -38,6 +38,7 @@ data class PairingToken(
     val fp: String,
     val relayUrl: String,
     val token: String?,   // one-time TOFU token; null if the bridge sent a legacy payload
+    val hubName: String?, // the hub's own name (default = its machine hostname); null for legacy payloads
 )
 
 /**
@@ -57,6 +58,7 @@ fun decodePairingToken(raw: String): PairingToken {
         fp       = obj.getString("fp"),
         relayUrl = obj.getString("relayUrl"),
         token    = if (obj.has("token")) obj.getString("token") else null,
+        hubName  = if (obj.has("hubName")) obj.getString("hubName") else null,
     )
 }
 

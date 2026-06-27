@@ -81,6 +81,30 @@ test("blob endpoint stores E2E bytes and expires after TTL", async () => {
   await relay.close();
 });
 
+test("pair-code rendezvous: register a payload, fetch it by code, 404 after TTL", async () => {
+  const { relay, url } = await bootRelay({ pairCodeTtlMs: 60 });
+  const payload = "PAIR:eyJhIjoxfQ"; // an opaque (non-secret) pairing blob
+
+  const reg = await fetch(`${url}/pair-code`, { method: "POST", headers: { "content-type": "text/plain" }, body: payload });
+  assert.equal(reg.status, 201);
+  const { code } = (await reg.json()) as { code: string };
+  assert.match(code, /^[A-Z2-9]{8}$/, "code is 8 unambiguous chars");
+  assert.equal(relay.pairCodeCount(), 1);
+
+  // case-insensitive fetch returns the exact payload
+  const got = await fetch(`${url}/pair-code/${code.toLowerCase()}`);
+  assert.equal(got.status, 200);
+  assert.equal(await got.text(), payload);
+
+  // unknown code → 404
+  assert.equal((await fetch(`${url}/pair-code/ZZZZ2222`)).status, 404);
+
+  await delay(90); // > TTL
+  assert.equal((await fetch(`${url}/pair-code/${code}`)).status, 404);
+
+  await relay.close();
+});
+
 test("relay rejects from-spoofing (a peer forging someone else's `from`)", async () => {
   const { relay, url } = await bootRelay();
   const A = generateIdentity(),

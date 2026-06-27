@@ -10,14 +10,22 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** One paired agent. `id` is the peer fingerprint (stable per agent). `name` is what the UI shows. */
+/**
+ * One paired hub. `id` is the peer fingerprint (stable per hub). `name` is the hub's own name
+ * (announced by the hub, default = its machine hostname); `localName` is an optional per-phone override
+ * the user sets in the app. The UI shows [display].
+ */
 @Serializable
 data class AgentProfile(
     val id: String,
     val name: String,
     val peerEdPub: String,
     val relayUrl: String,
+    val localName: String? = null,
 )
+
+/** What to show for a hub: the user's local override if set, else the hub-announced name. */
+fun AgentProfile.display(): String = localName?.takeIf { it.isNotBlank() } ?: name
 
 /**
  * The phone's list of paired agents + which one is active. The phone keeps a single identity keypair
@@ -74,10 +82,12 @@ object Agents {
         return profiles.value.firstOrNull { it.id == id } ?: profiles.value.firstOrNull()
     }
 
-    /** Add or update a profile (keyed by peer fingerprint) and make it active. */
+    /** Add or update a profile (keyed by peer fingerprint) and make it active. Preserves an existing
+     *  local rename across a re-pair (the user's chosen label shouldn't vanish when they re-scan). */
     fun add(ctx: Context, name: String, peerEdPub: String, relayUrl: String): AgentProfile {
         val id = Crypto.fingerprint(peerEdPub)
-        val profile = AgentProfile(id, name, peerEdPub, relayUrl)
+        val keepLocal = profiles.value.firstOrNull { it.id == id }?.localName
+        val profile = AgentProfile(id, name, peerEdPub, relayUrl, localName = keepLocal)
         val list = profiles.value.filterNot { it.id == id } + profile
         profiles.value = list
         activeId.value = id
@@ -99,9 +109,18 @@ object Agents {
         persist(ctx, list, newActive)
     }
 
-    /** Update a profile's display name — e.g. once the agent announces its real name. */
-    fun setName(ctx: Context, id: String, name: String) {
+    /** Update the hub's own (announced) name — driven by the hub_identity event from that hub. */
+    fun setHubName(ctx: Context, id: String, name: String) {
         val list = profiles.value.map { if (it.id == id && it.name != name) it.copy(name = name) else it }
+        if (list == profiles.value) return
+        profiles.value = list
+        persist(ctx, list, activeId.value)
+    }
+
+    /** Set (or clear, when blank) the user's local override name for a hub — the in-app rename. */
+    fun setLocalName(ctx: Context, id: String, name: String) {
+        val clean = name.trim().ifBlank { null }
+        val list = profiles.value.map { if (it.id == id && it.localName != clean) it.copy(localName = clean) else it }
         if (list == profiles.value) return
         profiles.value = list
         persist(ctx, list, activeId.value)

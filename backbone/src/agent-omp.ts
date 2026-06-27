@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runAgent, type AgentAdapter } from "./agent-runner.ts";
+import { runAgent, buildHubServers, type AgentAdapter } from "./agent-runner.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HUB_HTTP = process.env.HUB_HTTP ?? "http://127.0.0.1:8123";
@@ -33,6 +33,10 @@ const SYSTEM =
   "location, device info, flashlight, ring, open apps, and more). When the user asks you to do something on " +
   "the phone, actually use those tools, then reply concisely about what happened. If the user asks where you " +
   `are running, answer truthfully: on their computer (${HOST}) via the hub — the phone is only the device you operate.`;
+const ORCH = process.env.AGENT_HUBS
+  ? " You also coordinate other agents. Use the hub_* tools: list_agents to see who is available and their strengths; ask_agent to delegate a subtask (use the agent's id when names repeat) and get its answer. For a large task, split it, delegate to the best-suited workers (in parallel when independent), then synthesize one reply. Never delegate to the agent marked active — that is you."
+  : "";
+const SYSTEM_FULL = SYSTEM + ORCH;
 
 function tsxBin(): string {
   const local = path.join(HERE, "..", "node_modules", ".bin", "tsx");
@@ -46,7 +50,7 @@ const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-agent-"));
 const sessionDir = path.join(workDir, "sessions");
 fs.writeFileSync(
   path.join(workDir, ".mcp.json"),
-  JSON.stringify({ mcpServers: { phone: { command: tsxBin(), args: [path.join(HERE, "phone-mcp.ts")], env: { HUB_HTTP } } } }, null, 2),
+  JSON.stringify({ mcpServers: { phone: { command: tsxBin(), args: [path.join(HERE, "phone-mcp.ts")], env: { HUB_HTTP } }, ...buildHubServers(process.env.AGENT_HUBS, tsxBin(), path.join(HERE, "hub-mcp.ts"), process.env.ASK_DEPTH ?? "0") } }, null, 2),
 );
 process.on("exit", () => { try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* */ } });
 
@@ -65,7 +69,7 @@ function runTurn(text: string): Promise<string> {
   return new Promise((resolve) => {
     const args = ["-p", "--auto-approve", "--session-dir", sessionDir];
     if (hasSession) args.push("--continue");            // keep the same conversation going (memory!)
-    else args.push("--append-system-prompt", SYSTEM);   // seed identity/instructions on the first turn
+    else args.push("--append-system-prompt", SYSTEM_FULL); // seed identity/instructions on the first turn
     args.push(text);
     const child = spawn(CLI, args, { cwd: workDir, env: process.env });
     // The prompt rides as an arg — close stdin so omp doesn't block waiting for piped input.
