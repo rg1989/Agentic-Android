@@ -22,10 +22,10 @@ after(() => { try { fs.rmSync(home, { recursive: true, force: true }); } catch {
 
 let relay: Relay, panel: Awaited<ReturnType<typeof startPanel>>, phone: PhoneSim, httpPort: number, agentPort: number;
 
-async function fakeAgent(name: string, opts: { description?: string; onUser?: (m: any, ws: WebSocket) => void } = {}) {
+async function fakeAgent(name: string, opts: { description?: string; orchestrator?: boolean; onUser?: (m: any, ws: WebSocket) => void } = {}) {
   const ws = new WebSocket(`ws://127.0.0.1:${agentPort}`);
   await new Promise<void>((res) => ws.on("open", () => res()));
-  ws.send(JSON.stringify({ t: "hello", name, ...(opts.description ? { description: opts.description } : {}) }));
+  ws.send(JSON.stringify({ t: "hello", name, ...(opts.description ? { description: opts.description } : {}), ...(opts.orchestrator ? { orchestrator: true } : {}) }));
   ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
     if (m.t === "selftest") { ws.send(JSON.stringify({ t: "selftest_ok", token: m.token })); return; } // pass the hub's verifier probe
@@ -85,6 +85,17 @@ test("ask resolves even if the worker is selected active mid-flight (askId routi
   worker.send(JSON.stringify({ t: "event", topic: "assistant_message", data: { text: "answer", askId: received.askId } }));
   assert.equal((await p as any).reply, "answer");
   worker.close();
+});
+
+test("an orchestrator self-declares in /status and POST /ask to it is 409 (no orchestrator→orchestrator)", async () => {
+  await fakeAgent("Boss");                                  // first connected → becomes active
+  const sub = await fakeAgent("Sub", { orchestrator: true }); // a connected orchestrator worker (not active)
+  const s = await status() as any;
+  const subEntry = s.agents.find((a: any) => a.name === "Sub");
+  assert.equal(subEntry.orchestrator, true, "hello orchestrator flag surfaces in /status");
+  const r = await fetch(`http://127.0.0.1:${httpPort}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent: subEntry.id, text: "x" }) });
+  assert.equal(r.status, 409);
+  sub.close();
 });
 
 test("ask to the active agent on a phone-backed hub is rejected; bad depth is 508", async () => {

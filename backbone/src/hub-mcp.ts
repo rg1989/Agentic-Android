@@ -23,7 +23,7 @@ export function makeHubMcpServer(opts: { hubHttp: string; askDepth?: number; lab
     async () => {
       const s: any = await fetch(`${HUB}/status`).then((r) => r.json()).catch((e) => ({ error: String(e) }));
       const agents = Array.isArray(s.agents)
-        ? s.agents.filter((a: any) => a.connected).map((a: any) => ({ id: a.id, name: a.name, description: a.description ?? null, active: !!a.active, kind: a.kind }))
+        ? s.agents.filter((a: any) => a.connected && a.orchestrator !== true).map((a: any) => ({ id: a.id, name: a.name, description: a.description ?? null, active: !!a.active, kind: a.kind }))
         : [];
       return jtext({ hub: s.hubName ?? null, agents });
     },

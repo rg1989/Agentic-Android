@@ -72,7 +72,9 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
   let beat: ReturnType<typeof setInterval> | null = null;
 
   ws.on("open", () => {
-    ws.send(JSON.stringify({ t: "hello", name: process.env.AGENT_NAME ?? adapter.name, id: process.env.AGENT_INSTANCE_ID, description: process.env.AGENT_DESC ?? adapter.description }));
+    // orchestrator = launched with AGENT_HUBS (it holds the hub's driver-seat tools). The hub uses this
+    // to hide orchestrators from each other's list_agents and to 409 /ask targeting one (loop prevention).
+    ws.send(JSON.stringify({ t: "hello", name: process.env.AGENT_NAME ?? adapter.name, id: process.env.AGENT_INSTANCE_ID, description: process.env.AGENT_DESC ?? adapter.description, orchestrator: !!process.env.AGENT_HUBS }));
     console.error(`agent "${adapter.name}" connected to hub ${HUB_WS}`);
     // Heartbeat so the hub can tell "alive" from "socket open but process dead".
     beat = setInterval(() => { try { ws.send(JSON.stringify({ t: "heartbeat" })); } catch { /* socket closing */ } }, 15000);

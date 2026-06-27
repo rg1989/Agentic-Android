@@ -241,6 +241,181 @@ function runAgent(template: string, prompt: string) {
   child.unref();
 }
 
+// ---------- shared app shell: ONE sidebar menu wraps every page so they feel like one app ----------
+const NAV = [
+  { href: "/panel", label: "Control Panel", icon: "🎛" },
+  { href: "/", label: "Connections", icon: "🔌" },
+  { href: "/chat", label: "Chat", icon: "💬" },
+  { href: "/settings", label: "Settings", icon: "⚙️" },
+];
+/** The left nav, with the current page marked active. Pure string → safe to interpolate into any page. */
+const sidebar = (active: string) => `<aside class="sidebar">
+  <div class="brand"><div class="mark" aria-hidden="true"></div><div class="bt">Agentic Android</div></div>
+  ${NAV.map((n) => `<a class="navitem${n.href === active ? " on" : ""}" href="${n.href}"><span class="ni">${n.icon}</span>${n.label}</a>`).join("\n  ")}
+</aside>`;
+/** The frame shared by every page (uses the design tokens each page already defines). */
+const SHELL_CSS = `
+  .app { display: flex; min-height: 100vh; align-items: stretch; }
+  .sidebar { width: 232px; flex: none; box-sizing: border-box; padding: 18px 14px; display: flex; flex-direction: column; gap: 4px;
+    border-right: 1px solid var(--border); background: rgba(10,11,16,0.55); position: sticky; top: 0; height: 100vh; }
+  .sidebar .brand { display: flex; align-items: center; gap: 11px; padding: 6px 8px 18px; }
+  .sidebar .brand .bt { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+  .sidebar .navitem { display: flex; align-items: center; gap: 11px; color: var(--text-dim); text-decoration: none;
+    font-size: 14px; font-weight: 540; padding: 10px 12px; border-radius: 10px; transition: background .15s, color .15s; }
+  .sidebar .navitem .ni { width: 18px; text-align: center; font-size: 14px; }
+  .sidebar .navitem:hover { background: var(--surface); color: var(--text); }
+  .sidebar .navitem.on { background: var(--accent-soft); color: var(--text); }
+  .appmain { flex: 1; min-width: 0; }
+  @media (max-width: 760px) {
+    .app { flex-direction: column; }
+    .sidebar { width: auto; height: auto; position: static; flex-direction: row; gap: 4px; overflow-x: auto;
+      border-right: 0; border-bottom: 1px solid var(--border); }
+    .sidebar .brand { display: none; }
+  }`;
+/** A minimal full page in the shell — for the simple/new pages (Chat, Settings). */
+const shellDoc = (active: string, title: string, bodyInner: string, extraCss = "") => `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agentic Android — ${title}</title>
+<style>
+  :root{color-scheme:dark;--bg:#0a0b10;--surface:#14161e;--surface-2:#1a1d27;--surface-3:#21242f;--border:rgba(255,255,255,0.07);--border-strong:rgba(255,255,255,0.13);--text:#eceef4;--text-dim:#9b9eab;--text-faint:#62656f;--accent:#6366f1;--accent-hi:#818cf8;--accent-soft:rgba(99,102,241,0.16);--ok:#34d399;--warn:#fbbf24;--err:#f87171;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;}
+  *{box-sizing:border-box;} html,body{height:100%;}
+  body{font:15px/1.6 var(--sans);margin:0;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased;}
+  .mark{width:30px;height:30px;border-radius:9px;flex:none;background:radial-gradient(circle at 30% 28%,#a5b4fc,transparent 46%),linear-gradient(145deg,#6366f1,#4f46e5 55%,#7c3aed);box-shadow:0 0 0 1px rgba(255,255,255,0.10) inset;}
+  .inner{max-width:760px;margin:0 auto;padding:34px 28px 64px;}
+  h2{font-size:20px;margin:0 0 6px;font-weight:650;letter-spacing:-0.01em;}
+  .lead{color:var(--text-dim);font-size:14px;margin:0 0 22px;}
+  .card{background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:14px;}
+  .card h3{margin:0 0 6px;font-size:15px;font-weight:600;} .card p{margin:0;color:var(--text-dim);font-size:13.5px;}
+  code{font-family:var(--mono);font-size:12.5px;background:rgba(8,9,13,0.6);border:1px solid var(--border);border-radius:7px;padding:2px 7px;}
+  a{color:var(--accent-hi);}
+  ${SHELL_CSS}
+  ${extraCss}
+</style></head>
+<body><div class="app">${sidebar(active)}<main class="appmain"><div class="inner">${bodyInner}</div></main></div></body></html>`;
+
+// ---- Chat page: hand-rolled (no library). Talks to whoever's in the driver seat via the existing /say.
+// The header dropdown picks the agent + Regular|Orchestrator mode and binds the driver seat before each
+// send (/agent/select, or spawn an orchestrator sibling via /agent/start). See the plan/spec for why.
+const CHAT_CSS = `
+  .inner{max-width:960px;height:100vh;padding:0;}
+  .chatwrap{display:flex;flex-direction:column;height:100vh;min-height:0;}
+  .chathead{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 22px;border-bottom:1px solid var(--border);flex:none;flex-wrap:wrap;}
+  .seat{display:flex;align-items:center;gap:9px;}
+  .sel{background:var(--surface-2);color:var(--text);border:1px solid var(--border-strong);border-radius:9px;padding:7px 10px;font:14px var(--sans);max-width:240px;}
+  .modeseg{display:inline-flex;border:1px solid var(--border-strong);border-radius:9px;overflow:hidden;}
+  .modeseg button{background:var(--surface);color:var(--text-dim);border:0;padding:7px 12px;font:13px var(--sans);cursor:pointer;}
+  .modeseg button.on{background:var(--accent-soft);color:var(--text);}
+  .modeseg button:disabled{opacity:.4;cursor:not-allowed;}
+  .modeseg .info{margin-left:5px;opacity:.7;}
+  .seatstatus{font-size:12.5px;color:var(--text-dim);}
+  .seatstatus .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--text-faint);margin-right:6px;vertical-align:middle;}
+  .seatstatus .dot.ok{background:var(--ok);}
+  .msgs{flex:1;min-height:0;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:11px;}
+  .msg{max-width:74%;padding:10px 13px;border-radius:13px;white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.5;}
+  .msg.user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px;}
+  .msg.bot{align-self:flex-start;background:var(--surface-2);border:1px solid var(--border);border-bottom-left-radius:4px;}
+  .msg.err{align-self:center;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.32);color:var(--err);font-size:13px;}
+  .msg.think{align-self:flex-start;color:var(--text-faint);font-size:13px;}
+  .empty{margin:auto;text-align:center;color:var(--text-dim);max-width:360px;font-size:14px;}
+  .composer{flex:none;display:flex;gap:10px;padding:14px 22px;border-top:1px solid var(--border);}
+  .composer textarea{flex:1;resize:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border-strong);border-radius:11px;padding:11px 13px;font:14px var(--sans);max-height:160px;line-height:1.5;}
+  .composer button{flex:none;background:var(--accent);color:#fff;border:0;border-radius:11px;padding:0 20px;font:14px var(--sans);font-weight:600;cursor:pointer;}
+  .composer button:disabled{opacity:.5;cursor:not-allowed;}`;
+const CHAT_BODY = `<div class="chatwrap">
+  <header class="chathead">
+    <div class="seat">
+      <select id="agentsel" class="sel"></select>
+      <div class="modeseg" id="modeseg">
+        <button type="button" data-m="regular" class="on">Regular</button>
+        <button type="button" data-m="orchestrator">Orchestrator<span class="info">ⓘ</span></button>
+      </div>
+    </div>
+    <div class="seatstatus" id="seatstatus"></div>
+  </header>
+  <div class="msgs" id="msgs"></div>
+  <form class="composer" id="composer">
+    <textarea id="inp" rows="1" placeholder="Message the agent in the driver seat…" autocomplete="off"></textarea>
+    <button type="submit" id="send">Send</button>
+  </form>
+</div>
+<script>
+(function(){
+  var msgs=document.getElementById('msgs'),inp=document.getElementById('inp'),sendBtn=document.getElementById('send');
+  var form=document.getElementById('composer'),sel=document.getElementById('agentsel'),seg=document.getElementById('modeseg'),seat=document.getElementById('seatstatus');
+  var mode='regular',roster=[],active=null,spawnedOrch={},busy=false;
+  function el(cls,text){var d=document.createElement('div');d.className=cls;if(text!=null)d.textContent=text;return d;}
+  function add(cls,text){var d=el(cls,text);var e=msgs.querySelector('.empty');if(e)e.remove();msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
+  function post(url,body){return fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json().catch(function(){return {};});});}
+  function selectedAgent(){return roster.filter(function(a){return a.id===sel.value;})[0]||null;}
+  function orchAllowed(a){if(!a)return false;if(a.orchestrator)return true;return a.kind!=='external';}
+  function syncModeButtons(){[].forEach.call(seg.querySelectorAll('button'),function(b){b.classList.toggle('on',b.getAttribute('data-m')===mode);});}
+  function renderSeat(){
+    var a=selectedAgent(),oBtn=seg.querySelector('[data-m="orchestrator"]'),allowed=orchAllowed(a);
+    oBtn.disabled=!allowed;
+    if(!allowed&&mode==='orchestrator'){mode='regular';syncModeButtons();}
+    oBtn.title=allowed?'Orchestrator: this agent takes the hub driver seat and can delegate subtasks to your other (regular) agents.':'Remote agent — start it with AGENT_HUBS set on its own host to use it as an orchestrator.';
+    seat.innerHTML='';
+    var dot=document.createElement('span');dot.className='dot'+(active&&active.ready?' ok':'');seat.appendChild(dot);
+    var t=document.createElement('span');t.textContent=active?('Driver seat: '+active.name+(active.ready===false?' (not ready)':'')):'No agent in the driver seat';seat.appendChild(t);
+  }
+  function fillAgents(){
+    sel.innerHTML='';
+    if(!roster.length){var o=document.createElement('option');o.value='';o.textContent='— no agents —';sel.appendChild(o);sel.disabled=true;return;}
+    sel.disabled=false;
+    roster.forEach(function(a){var o=document.createElement('option');o.value=a.id;o.textContent=a.name+(a.orchestrator?' ⚡':'')+(a.external?' ☁':'');sel.appendChild(o);});
+    var def=(active&&roster.some(function(a){return a.id===active.id;}))?active.id:roster[0].id;sel.value=def;
+  }
+  function updateEmpty(){
+    var e=msgs.querySelector('.empty');
+    if(msgs.querySelector('.msg')){if(e)e.remove();}
+    else{var txt=roster.length?'Pick an agent above, then say hello. Your conversation starts here.':'No agent connected. Start one in Connections and it will appear here automatically.';if(!e)msgs.appendChild(el('empty',txt));else e.textContent=txt;}
+    sendBtn.disabled=busy||!roster.length;
+  }
+  function refresh(){return fetch('/status').then(function(r){return r.json();}).then(function(s){
+    roster=(s.agents||[]).filter(function(a){return a.connected;});active=s.active||null;
+    var keep=sel.value;fillAgents();if(keep&&roster.some(function(a){return a.id===keep;}))sel.value=keep;
+    renderSeat();updateEmpty();
+  }).catch(function(){});}
+  function waitConnected(id,timeout){var start=Date.now();return new Promise(function(resolve,reject){(function poll(){
+    fetch('/status').then(function(r){return r.json();}).then(function(s){
+      if((s.agents||[]).some(function(a){return a.id===id&&a.connected;}))return resolve(id);
+      if(Date.now()-start>timeout)return reject(new Error('orchestrator did not connect in time'));
+      setTimeout(poll,500);
+    }).catch(function(){setTimeout(poll,500);});
+  })();});}
+  function ensureSeat(){
+    var a=selectedAgent();if(!a)return Promise.reject(new Error('no agent connected'));
+    if(mode==='regular'||a.orchestrator){
+      if(active&&active.id===a.id)return Promise.resolve();
+      return post('/agent/select',{id:a.id}).then(refresh);
+    }
+    var kind=a.kind||'claude',existing=spawnedOrch[kind];
+    if(existing&&roster.some(function(x){return x.id===existing;}))return post('/agent/select',{id:existing}).then(refresh);
+    return post('/agent/start',{type:kind,orchestrator:true,name:a.name+' \\u26a1'}).then(function(r){
+      if(!r||!r.ok)throw new Error((r&&r.error)||'could not start an orchestrator');
+      spawnedOrch[kind]=r.id;return waitConnected(r.id,20000);
+    }).then(function(id){return post('/agent/select',{id:id});}).then(refresh);
+  }
+  function send(text){
+    busy=true;sendBtn.disabled=true;add('msg user',text);
+    var thinking=add('msg think','…');
+    ensureSeat().then(function(){return post('/say',{text:text});}).then(function(r){
+      thinking.remove();
+      if(r&&typeof r.reply==='string')add('msg bot',r.reply);else add('msg err',(r&&r.error)||'No reply.');
+    }).catch(function(e){thinking.remove();add('msg err',String(e&&e.message||e));}).then(function(){
+      busy=false;sendBtn.disabled=!roster.length;inp.focus();
+    });
+  }
+  function autosize(){inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,160)+'px';}
+  form.addEventListener('submit',function(e){e.preventDefault();var t=inp.value.trim();if(!t||busy)return;inp.value='';autosize();send(t);});
+  inp.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}});
+  inp.addEventListener('input',autosize);
+  sel.addEventListener('change',renderSeat);
+  seg.addEventListener('click',function(e){var b=e.target.closest('button');if(!b||b.disabled)return;mode=b.getAttribute('data-m');syncModeButtons();renderSeat();});
+  refresh();setInterval(refresh,4000);inp.focus();
+})();
+</script>`;
+
 const PAGE = (caps: Cap[], relayUrl: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agentic Android — Control Panel</title>
@@ -380,7 +555,9 @@ const PAGE = (caps: Cap[], relayUrl: string) => `<!doctype html>
     margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.06); }
   .entry.open .detail { display: block; }
   .count { color: var(--text-faint); font-size: 11px; }
+  ${SHELL_CSS}
 </style></head><body>
+<div class="app">${sidebar("/panel")}<main class="appmain">
 <header>
   <div class="brand">
     <div class="mark" aria-hidden="true"></div>
@@ -491,7 +668,7 @@ document.getElementById('savecfg').onclick=async()=>{
   refresh();
 };
 loadCfg();
-</script></body></html>`;
+</script></main></div></body></html>`;
 
 /** Guided, self-service setup page — connect an agent, then pair the phone (QR). Lives at "/". */
 const SETUP_PAGE = `<!doctype html>
@@ -605,7 +782,7 @@ const SETUP_PAGE = `<!doctype html>
   button.ghost:hover { background: var(--surface-3); border-color: var(--border-strong); }
   .hint { color: var(--text-dim); font-size: 12.5px; margin-top: 8px; }
   .qrbox { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
-  .qr { background: #fff; border-radius: 14px; padding: 12px; width: 204px; height: 204px; flex: none; box-shadow: 0 12px 30px rgba(0,0,0,0.40); }
+  .qr { background: #fff; border-radius: 14px; padding: 11px; width: 184px; height: 184px; flex: none; box-shadow: 0 12px 30px rgba(0,0,0,0.40); }
   ol { margin: 6px 0 0; padding-left: 20px; } ol li { margin: 4px 0; font-size: 13.5px; color: var(--text-dim); }
   a { color: var(--accent-hi); } .foot { margin-top: 28px; font-size: 13px; color: var(--text-dim); }
   .cards { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0 6px; }
@@ -655,21 +832,58 @@ const SETUP_PAGE = `<!doctype html>
   pre { background: rgba(8,9,13,0.6); border: 1px solid var(--border); border-radius: 10px; }
   summary { color: var(--accent-hi); font-size: 13px; }
   details[open] summary { margin-bottom: 6px; }
+  ${SHELL_CSS}
+  /* connections: full-width sticky header + two-column layout, to match the Control Panel */
+  .chead { position: sticky; top: 0; z-index: 9; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    padding: 13px 26px; min-height: 56px; border-bottom: 1px solid var(--border);
+    background: rgba(10,11,16,0.72); backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px); }
+  .chead .ttl h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  .chead .ttl .csub { margin: 1px 0 0; font-size: 12px; color: var(--text-dim); }
+  .statusbar { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
+  .schip { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 7px 13px; }
+  .schip .t { font-size: 11px; color: var(--text-dim); line-height: 1.15; }
+  .schip .v { font-size: 12.5px; font-weight: 560; line-height: 1.2; }
+  .conngrid { display: flex; flex-direction: column; gap: 16px; max-width: 760px; margin: 0 auto; padding: 22px 26px 64px; }
+  .conngrid .col { display: contents; } /* flatten the old two-column wrappers → the 3 cards stack in order */
+  .conngrid .step { margin: 0; }
+  /* inline info tooltip + compact copy icon (keep cards short) */
+  .info { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 99px;
+    border: 1px solid var(--border-strong); color: var(--text-dim); font-size: 10px; font-style: normal; font-weight: 700;
+    cursor: help; position: relative; vertical-align: middle; margin-left: 5px; }
+  .info:hover, .info:focus { color: var(--text); border-color: var(--accent); outline: none; }
+  .info::after { content: attr(data-tip); position: absolute; left: 0; top: calc(100% + 8px);
+    width: max-content; max-width: 300px; background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong);
+    border-radius: 9px; padding: 9px 11px; font-size: 12px; line-height: 1.45; font-weight: 400; text-align: left;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.45); opacity: 0; visibility: hidden; transition: opacity .12s; z-index: 20; pointer-events: none; }
+  .info:hover::after, .info:focus::after { opacity: 1; visibility: visible; }
+  .copyfield { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: rgba(8,9,13,0.6); }
+  .copyfield code { border: 0; background: transparent; padding: 6px 10px; }
+  .iconbtn { background: transparent; border: 0; border-left: 1px solid var(--border); color: var(--text-dim); cursor: pointer;
+    padding: 0 9px; box-shadow: none; border-radius: 0; display: inline-flex; align-items: center; }
+  .iconbtn:hover { background: var(--surface-2); color: var(--text); filter: none; }
+  .iconbtn.ok { color: var(--ok); }
+  /* pair-your-phone: steps + manual code sit BESIDE the QR, not in their own rows */
+  .qrbox { align-items: flex-start; }
+  .qrbox .qrside { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 188px; }
+  .qrbox .qrside ol { margin: 0; }
+  .manualrow { font-size: 13px; color: var(--text-dim); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  /* roster rows show each agent's strength so you can see who does what at a glance */
+  .agentrow .nm { display: flex; flex-direction: column; gap: 1px; }
+  .agentrow .nm .anm { font-weight: 540; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agentrow .nm .adesc { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style></head>
-<body><div class="wrap">
-  <div class="hero">
-    <div class="mark" aria-hidden="true"></div>
-    <h1>Agentic Android</h1>
-  </div>
-  <p class="sub">This is the hub on your computer — the glue between your phone and your agent.</p>
-
-  <div class="status">
-    <div class="pill"><span id="ad" class="dot"></span><div><div class="t">Agent</div><div id="av" class="v">checking…</div></div></div>
-    <div class="pill"><span id="pd" class="dot"></span><div><div class="t">Phone</div><div id="pv" class="v">checking…</div></div></div>
-  </div>
-
+<body><div class="app">${sidebar("/")}<main class="appmain">
+  <header class="chead">
+    <div class="ttl"><h1>Connections</h1><div class="csub">Link your phone and your agents to this hub.</div></div>
+    <div class="statusbar">
+      <div class="schip"><span id="ad" class="dot"></span><div><div class="t">Agent</div><div id="av" class="v">checking…</div></div></div>
+      <div class="schip"><span id="pd" class="dot"></span><div><div class="t">Phone</div><div id="pv" class="v">checking…</div></div></div>
+    </div>
+  </header>
+  <div class="conngrid">
+    <div class="col">
   <div class="step" id="step1">
-    <h2><span class="num">1</span> Your agents</h2>
+    <h2>Your agents</h2>
     <p>Agents are the brains that talk to you and act on your phone. Connect one or several — then switch between them anytime, from the phone or right here.</p>
     <div id="agentlist" class="agentlist"></div>
     <div class="addbox">
@@ -695,10 +909,11 @@ const SETUP_PAGE = `<!doctype html>
       <div id="alog" class="callout" style="display:none;"></div>
     </div>
   </div>
+    </div>
+    <div class="col">
 
   <div class="step" id="step2">
-    <h2><span class="num">2</span> Pair your phone</h2>
-    <p>Open the Agentic Android app → tap <b>Pair</b> (or the agent name → <b>Pair another agent</b>) → scan this:</p>
+    <h2>Pair your phone</h2>
     <div class="hubname-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px;">
       <span class="hint" style="margin:0;">This hub's name on your phone:</span>
       <input id="hubname" placeholder="this computer" style="flex:1;min-width:150px;" />
@@ -707,16 +922,17 @@ const SETUP_PAGE = `<!doctype html>
     </div>
     <div class="qrbox">
       <img class="qr" id="qrimg" src="/pair-qr" alt="Pairing QR code" />
-      <ol>
-        <li>Scan the code in the app's pairing screen.</li>
-        <li>The phone will connect to <b id="prelay">this Mac</b>.</li>
-        <li>This panel turns green when it connects.</li>
-      </ol>
-    </div>
-    <div style="margin-top:12px;font-size:13px;color:var(--text-dim);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <span>Can't scan? Type this code in the app instead:</span>
-      <code id="manualcode" style="font-family:var(--mono);background:rgba(8,9,13,0.6);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);">…</code>
-      <button id="copymanual" class="ghost" style="padding:6px 12px;font-size:12px;">Copy</button>
+      <div class="qrside">
+        <ol>
+          <li>Scan the code in the app's pairing screen.</li>
+          <li>The phone connects to <b id="prelay">this Mac</b>.</li>
+          <li>This panel turns green when it connects.</li>
+        </ol>
+        <div class="manualrow">
+          <span>Can't scan? Enter this code:</span>
+          <span class="copyfield"><code id="manualcode" style="font-family:var(--mono);color:var(--text);">…</code><button id="copymanual" class="iconbtn" title="Copy code" aria-label="Copy code"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></span>
+        </div>
+      </div>
     </div>
     <div style="margin-top:12px;">
       <div class="hint" style="margin-bottom:6px;">How should the phone reach this hub?</div>
@@ -727,9 +943,8 @@ const SETUP_PAGE = `<!doctype html>
       </div>
       <div id="relayrow" style="display:none;gap:8px;margin:8px 0;">
         <input id="relayinput" placeholder="your Mac's Tailscale IP, e.g. 100.x.x.x" style="flex:1;min-width:0;" />
-        <button id="relayapply" style="white-space:nowrap;">Apply</button>
       </div>
-      <span id="relaystate" class="hint"></span>
+      <span id="relaystate" class="hint" style="margin:0;"></span>
     </div>
     <details style="margin-top:14px;"><summary style="cursor:pointer;font-size:13px;">Phone won't connect?</summary>
       <ul style="font-size:13px;margin:8px 0 0;padding-left:18px;">
@@ -740,9 +955,8 @@ const SETUP_PAGE = `<!doctype html>
       </ul>
     </details>
   </div>
-
-  <p class="foot">Need the raw controls + event log? <a href="/panel">Open the control panel →</a></p>
-</div>
+    </div>
+  </div>
 <script>
   let curType='claude';
   const cards=[...document.querySelectorAll('.card2')];
@@ -817,7 +1031,10 @@ const SETUP_PAGE = `<!doctype html>
     dot.className='dot '+(!a.connected?'wait':(a.active?(a.ready===false?'bad':'on'):'lit'));
     row.appendChild(dot);
     if(a.connected && !a.managed){ const c=document.createElement('span'); c.textContent='☁'; c.title='Cloud / external agent — it connected to this hub on its own (a remote brain or a hand-started CLI), not launched here.'; c.style.cssText='margin:0 4px 0 0;font-size:14px;cursor:help;'; row.appendChild(c); }
-    const nm=document.createElement('div'); nm.className='nm'; nm.textContent=a.name; row.appendChild(nm);
+    const nm=document.createElement('div'); nm.className='nm';
+    const an=document.createElement('div'); an.className='anm'; an.textContent=a.name; nm.appendChild(an);
+    if(a.description){ const ad=document.createElement('div'); ad.className='adesc'; ad.textContent=a.description; nm.appendChild(ad); }
+    row.appendChild(nm);
     if(!a.connected){ const b=document.createElement('span'); b.className='badge'; b.textContent='starting…'; row.appendChild(b); }
     else if(a.active){ const b=document.createElement('span'); b.className='badge act'; b.textContent='Active'; row.appendChild(b); }
     else { const btn=document.createElement('button'); btn.className='ghost'; btn.textContent='Set active'; btn.onclick=()=>setActive(a.id); row.appendChild(btn); }
@@ -879,12 +1096,13 @@ const SETUP_PAGE = `<!doctype html>
       relayInput.focus();
     } else setRelay(kind);
   });
-  relayInput.addEventListener('keydown', e=>{ if(e.key==='Enter') setRelay(relayInput.value); });
-  document.getElementById('relayapply').onclick=()=>setRelay(relayInput.value);
+  // Auto-apply: commit on blur or Enter — no Apply button.
+  relayInput.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); relayInput.blur(); } });
+  relayInput.addEventListener('change', ()=>{ if(relayInput.value.trim()) setRelay(relayInput.value); });
   async function setRelay(value){
     const st=document.getElementById('relaystate'); st.textContent='saving…';
     try{ const r=await (await fetch('/relay-url',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({value})})).json();
-      if(r.ok){ st.textContent='✓ saved as '+(r.phoneRelay||value)+' — re-scan the QR to apply'; document.getElementById('qrimg').src='/pair-qr?t='+Date.now(); } else { st.textContent=r.error||'failed'; } }
+      if(r.ok){ st.textContent='✓ saved'; document.getElementById('qrimg').src='/pair-qr?t='+Date.now(); setTimeout(()=>{ if(st.textContent==='✓ saved') st.textContent=''; },1600); } else { st.textContent=r.error||'failed'; } }
     catch(e){ st.textContent='failed'; }
   }
   const _hn=document.getElementById('hubname');
@@ -897,9 +1115,9 @@ const SETUP_PAGE = `<!doctype html>
     };
   }
   const _cm=document.getElementById('copymanual');
-  if(_cm) _cm.onclick=()=>{ const t=document.getElementById('manualcode').textContent; if(navigator.clipboard&&t&&t!=='—'&&t!=='…') navigator.clipboard.writeText(t); const o=_cm.textContent; _cm.textContent='Copied'; setTimeout(()=>{_cm.textContent=o;},1200); };
+  if(_cm) _cm.onclick=()=>{ const t=document.getElementById('manualcode').textContent; if(navigator.clipboard&&t&&t!=='—'&&t!=='…') navigator.clipboard.writeText(t); const o=_cm.innerHTML; _cm.innerHTML='✓'; _cm.classList.add('ok'); setTimeout(()=>{_cm.innerHTML=o;_cm.classList.remove('ok');},1200); };
   setInterval(poll,2000); poll();
-</script></body></html>`;
+</script></main></div></body></html>`;
 
 export interface StartPanelOpts {
   identity?: Identity; peerEdPub?: string; relayUrl?: string;
@@ -957,11 +1175,14 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   let pendingSay: ((text: string) => void) | null = null; // resolves /say with the next agent reply
   // Phase 8: the hub can hold several agents at once. `agentSock` stays the active one (single-agent
   // behavior is unchanged); this roster tracks everyone connected so the phone can see + switch them.
-  const agents = new Map<string, { ws: WebSocket; name: string; description?: string }>();
+  const agents = new Map<string, { ws: WebSocket; name: string; description?: string; orchestrator?: boolean }>();
   let activeAgentId: string | null = null;
   // `external` = the agent dialed in on its own (a remote/cloud brain or a hand-started CLI), i.e. the
   // hub didn't spawn it. The phone + web show a cloud icon for these.
-  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, description: a.description, active: id === activeAgentId, external: !managed.has(id), verified: verifier.status(id) ?? "verifying" }));
+  // `orchestrator` = it holds this hub's driver seat (list_agents/ask_agent). Authoritative source is the
+  // managed-spawn flag; external agents self-declare it in their hello. Used for loop prevention.
+  const isOrchestrator = (id: string) => managed.get(id)?.orchestrator ?? !!agents.get(id)?.orchestrator;
+  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, description: a.description, active: id === activeAgentId, external: !managed.has(id), orchestrator: isOrchestrator(id), verified: verifier.status(id) ?? "verifying" }));
   const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
 
   const MAX_ASK_DEPTH = Number(process.env.MAX_ASK_DEPTH ?? 8);
@@ -1070,7 +1291,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   // ---- managed agent processes: start/stop brains from the setup UI (no terminal). SEVERAL at once. ----
   // Each managed child is keyed by an instanceId we pass in via env; the agent echoes it in its hello so
   // its roster entry uses the SAME id — that lets the UI stop exactly the agent the user picked.
-  type Managed = { child: ChildProcess; kind: string; name: string; log: string };
+  type Managed = { child: ChildProcess; kind: string; name: string; log: string; orchestrator: boolean };
   const managed = new Map<string, Managed>();
   const backboneDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
   const tsxBin = () => { const b = path.join(backboneDir, "node_modules", ".bin", "tsx"); return fs.existsSync(b) ? b : "tsx"; };
@@ -1089,7 +1310,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   }
   /** Spawn another agent process (additive — does NOT stop existing ones). Returns its instanceId.
    *  kind: "claude" (your Claude) · "basic" (built-in) · "other" (any CLI; opts.phone picks the runner). */
-  function spawnAgent(kind: string, command?: string, opts: { name?: string; phone?: boolean } = {}): string {
+  function spawnAgent(kind: string, command?: string, opts: { name?: string; phone?: boolean; orchestrator?: boolean; desc?: string } = {}): string {
     const instanceId = randomUUID();
     let env: NodeJS.ProcessEnv = { ...process.env };
     let script = "src/agent.ts";                                  // basic (keyword) agent
@@ -1104,8 +1325,12 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     const name = uniqueAgentName(baseName);
     env.AGENT_INSTANCE_ID = instanceId;
     env.AGENT_NAME = name;
+    if (opts.desc) env.AGENT_DESC = opts.desc;                 // strength shown in the roster (list_agents)
+    // Orchestrator: hand this agent the hub's OWN driver seat (hub-mcp via AGENT_HUBS) so it can
+    // list_agents / ask_agent the other agents on this hub. Loopback — it's co-located with the hub.
+    if (opts.orchestrator) env.AGENT_HUBS = `self=http://127.0.0.1:${process.env.PANEL_PORT ?? 8123}`;
     const child = spawn(tsxBin(), [script], { cwd: backboneDir, env });
-    const m: Managed = { child, kind, name, log: "" };
+    const m: Managed = { child, kind, name, log: "", orchestrator: !!opts.orchestrator };
     const cap = (d: Buffer) => { m.log = (m.log + d.toString()).slice(-3000); };
     child.stdout?.on("data", cap); child.stderr?.on("data", cap);
     child.on("exit", (code) => { m.log += `\n[agent process exited: ${code}]`; });
@@ -1260,7 +1485,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
         // process share one id (the UI can then stop it). External agents get a fresh id.
         const id = (typeof m.id === "string" && m.id) ? m.id : randomUUID();
         (ws as any)._agentId = id;
-        agents.set(id, { ws, name, description });
+        agents.set(id, { ws, name, description, orchestrator: m.orchestrator === true });
         // Become the active agent only if there isn't a live one already (preserves single-agent flow).
         if (!agentSock || !activeAgentId || !agents.has(activeAgentId)) {
           activeAgentId = id; agentSock = ws; agentName = name;
@@ -1461,6 +1686,16 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     if (req.method === "GET" && url.pathname === "/panel") {
       res.setHeader("content-type", "text/html"); res.end(PAGE(caps, cfg.relayUrl)); return;
     }
+    if (req.method === "GET" && url.pathname === "/chat") {
+      res.setHeader("content-type", "text/html"); res.end(shellDoc("/chat", "Chat", CHAT_BODY, CHAT_CSS)); return;
+    }
+    if (req.method === "GET" && url.pathname === "/settings") {
+      const body = `<h2>Settings</h2>
+        <p class="lead">Configuration lives here. Read-only for now — editable controls land as features need them.</p>
+        <div class="card"><h3>This hub</h3><p>Hub UI &amp; HTTP: <code>http://127.0.0.1:${PORT}</code><br>Agent socket: <code>:${process.env.AGENT_PORT ?? 8124}</code><br>Relay: <code>${cfg.relayUrl}</code><br>Max delegation depth (orchestrator hops): <code>${MAX_ASK_DEPTH}</code></p></div>
+        <div class="card"><h3>Coming soon</h3><p>Relay/connectivity, hub name, per-agent defaults, consent policy, and orchestration limits — editable here.</p></div>`;
+      res.setHeader("content-type", "text/html"); res.end(shellDoc("/settings", "Settings", body)); return;
+    }
     if (req.method === "GET" && url.pathname === "/status") {
       // Every agent the hub knows: connected ones (the roster) + any managed child still starting up.
       const connectedIds = new Set(agents.keys());
@@ -1468,11 +1703,11 @@ export async function startPanel(opts: StartPanelOpts = {}) {
         ...rosterList().map((a) => ({
           id: a.id, name: a.name, description: a.description, active: a.active, connected: true,
           ready: a.active ? agentReady : null, managed: managed.has(a.id), kind: managed.get(a.id)?.kind ?? "external",
-          verified: a.verified, reason: verifier.reason(a.id) ?? null,
+          orchestrator: a.orchestrator, verified: a.verified, reason: verifier.reason(a.id) ?? null,
         })),
         ...[...managed.entries()].filter(([id]) => !connectedIds.has(id)).map(([id, m]) => ({
           id, name: m.name, active: false, connected: false, ready: null, managed: true, kind: m.kind,
-          verified: "verifying" as const, reason: null,
+          orchestrator: m.orchestrator, verified: "verifying" as const, reason: null,
         })),
       ];
       void ensurePairCode().then((pairCode) => json({
@@ -1515,7 +1750,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       let body = ""; req.on("data", (c) => (body += c));
       req.on("end", async () => {
         try {
-          const { type, command, name, phone } = JSON.parse(body || "{}");
+          const { type, command, name, phone, orchestrator, desc } = JSON.parse(body || "{}");
           const kind = String(type ?? "basic");
           const cmd = String(command ?? "").trim();
           const wantsPhone = phone !== false; // default: Claude-Code-compatible (full phone control)
@@ -1528,8 +1763,8 @@ export async function startPanel(opts: StartPanelOpts = {}) {
             const probe = await probeClaude(cmd.split(/\s+/)[0] || "claude");
             if (!probe.ok) return json({ ok: false, error: probe.message, command: probe.command });
           }
-          const id = spawnAgent(kind, cmd, { name: typeof name === "string" ? name : undefined, phone: wantsPhone });
-          logEvent("connection", `started agent process: ${kind}${cmd ? ` (${cmd})` : ""} phone=${wantsPhone} (${id})`);
+          const id = spawnAgent(kind, cmd, { name: typeof name === "string" ? name : undefined, phone: wantsPhone, orchestrator: !!orchestrator, desc: typeof desc === "string" ? desc : undefined });
+          logEvent("connection", `started agent process: ${kind}${orchestrator ? " [orchestrator]" : ""}${cmd ? ` (${cmd})` : ""} phone=${wantsPhone} (${id})`);
           json({ ok: true, id });
         } catch (e) { json({ ok: false, error: String(e) }, 500); }
       });
@@ -1648,6 +1883,8 @@ export async function startPanel(opts: StartPanelOpts = {}) {
           if ("error" in r) return json(r, 404);
           // ponytail: single-hub convenience guard — only when a phone is paired is `active` the user-facing brain.
           if (peerEdPub && r.id === activeAgentId) return json({ error: "that agent is user-facing — delegate to a worker" }, 400);
+          // Loop prevention: orchestrators are invisible to each other — an orchestrator can't delegate to one.
+          if (isOrchestrator(r.id)) return json({ error: "that agent is an orchestrator — orchestrators don't delegate to each other" }, 409);
           logEvent("request", `/ask → ${agents.get(r.id)?.name ?? r.id}`, { text });
           const reply = await delegator.ask(r.id, String(text ?? ""));
           logEvent("response", "/ask reply", { reply });
