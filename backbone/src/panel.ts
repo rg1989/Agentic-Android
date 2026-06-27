@@ -261,7 +261,29 @@ const sidebar = (active: string) => `<aside class="sidebar">
   <div class="brand"><div class="mark" aria-hidden="true"></div><div class="bt">Agentic Android</div></div>
   ${NAV.map((n) => `<a class="navitem${n.href === active ? " on" : ""}" href="${n.href}"><span class="ni">${n.icon}</span>${n.label}</a>`).join("\n  ")}
 </aside>`;
-/** The frame shared by every page (uses the design tokens each page already defines). */
+/** Canonical base — design tokens, document reset, body, and the brand mark — defined ONCE and
+ *  included by every page so the shared shell (sidebar, header, logo) is pixel-identical across
+ *  navigation. Each page layers its own component styles on top of this. */
+const BASE_CSS = `
+  :root{color-scheme:dark;
+    --bg:#0a0b10;--surface:#14161e;--surface-2:#1a1d27;--surface-3:#21242f;
+    --border:rgba(255,255,255,0.07);--border-strong:rgba(255,255,255,0.13);
+    --text:#eceef4;--text-dim:#9b9eab;--text-faint:#62656f;
+    --accent:#6366f1;--accent-hi:#818cf8;--accent-soft:rgba(99,102,241,0.16);
+    --ok:#34d399;--warn:#fbbf24;--err:#f87171;
+    --radius:14px;--radius-sm:10px;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;}
+  *{box-sizing:border-box;} html,body{height:100%;}
+  body{font:15px/1.6 var(--sans);margin:0;color:var(--text);background:var(--bg);
+    background-image:radial-gradient(1100px 560px at 78% -12%,rgba(99,102,241,0.10),transparent 62%);
+    -webkit-font-smoothing:antialiased;}
+  .mark{width:30px;height:30px;border-radius:9px;flex:none;position:relative;
+    background:radial-gradient(circle at 30% 28%,#a5b4fc,transparent 46%),linear-gradient(145deg,#6366f1,#4f46e5 55%,#7c3aed);
+    box-shadow:0 0 0 1px rgba(255,255,255,0.10) inset,0 6px 18px rgba(79,70,229,0.40);}
+  .mark::after{content:"";position:absolute;inset:0;border-radius:inherit;
+    background:radial-gradient(circle at 72% 78%,rgba(255,255,255,0.22),transparent 40%);}`;
+/** The frame shared by every page — geometry only; tokens + mark come from BASE_CSS. */
 const SHELL_CSS = `
   .app { display: flex; min-height: 100vh; align-items: stretch; }
   .sidebar { width: 232px; flex: none; box-sizing: border-box; padding: 18px 14px; display: flex; flex-direction: column; gap: 4px;
@@ -285,10 +307,7 @@ const shellDoc = (active: string, title: string, bodyInner: string, extraCss = "
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agentic Android — ${title}</title>
 <style>
-  :root{color-scheme:dark;--bg:#0a0b10;--surface:#14161e;--surface-2:#1a1d27;--surface-3:#21242f;--border:rgba(255,255,255,0.07);--border-strong:rgba(255,255,255,0.13);--text:#eceef4;--text-dim:#9b9eab;--text-faint:#62656f;--accent:#6366f1;--accent-hi:#818cf8;--accent-soft:rgba(99,102,241,0.16);--ok:#34d399;--warn:#fbbf24;--err:#f87171;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;}
-  *{box-sizing:border-box;} html,body{height:100%;}
-  body{font:15px/1.6 var(--sans);margin:0;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased;}
-  .mark{width:30px;height:30px;border-radius:9px;flex:none;background:radial-gradient(circle at 30% 28%,#a5b4fc,transparent 46%),linear-gradient(145deg,#6366f1,#4f46e5 55%,#7c3aed);box-shadow:0 0 0 1px rgba(255,255,255,0.10) inset;}
+  ${BASE_CSS}
   .inner{max-width:760px;margin:0 auto;padding:34px 28px 64px;}
   h2{font-size:20px;margin:0 0 6px;font-weight:650;letter-spacing:-0.01em;}
   .lead{color:var(--text-dim);font-size:14px;margin:0 0 22px;}
@@ -324,6 +343,9 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
         </div>
       </div>
       <div class="seatstatus" id="seatstatus" aria-live="polite"></div>
+      <button class="iconbtn orchtoggle" id="orchtoggle" aria-label="Orchestration panel" title="Orchestration — watch delegations live">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v4M5 17v-2a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2"/></svg>
+      </button>
     </header>
     <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Conversation"></div>
     <button class="jump" id="jump" hidden>↓ Latest</button>
@@ -339,6 +361,14 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
       <input type="file" id="filein" multiple hidden>
     </div>
   </section>
+  <aside class="orchpanel" id="orchpanel" aria-label="Orchestration" hidden>
+    <header class="orchhead">
+      <div class="otitle"><span class="olive" id="olive"></span>Orchestration</div>
+      <button class="iconbtn" id="orchclose" aria-label="Close orchestration panel">✕</button>
+    </header>
+    <div class="orchhint">Live tree of every delegation the hub mediates, plus the internal subagents an agent reports about itself.</div>
+    <div class="orchtree" id="orchtree"></div>
+  </aside>
 </div>
 <script src="/public/vendor/marked.min.js"></script>
 <script src="/public/vendor/purify.min.js"></script>
@@ -349,35 +379,7 @@ const PAGE = (caps: Cap[], relayUrl: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agentic Android — Control Panel</title>
 <style>
-  :root {
-    color-scheme: dark;
-    --bg: #0a0b10;
-    --surface: #14161e;
-    --surface-2: #1a1d27;
-    --surface-3: #21242f;
-    --border: rgba(255,255,255,0.07);
-    --border-strong: rgba(255,255,255,0.13);
-    --text: #eceef4;
-    --text-dim: #9b9eab;
-    --text-faint: #62656f;
-    --accent: #6366f1;
-    --accent-hi: #818cf8;
-    --accent-soft: rgba(99,102,241,0.16);
-    --ok: #34d399;
-    --warn: #fbbf24;
-    --err: #f87171;
-    --radius: 14px;
-    --radius-sm: 10px;
-    --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-    --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    font: 14px/1.5 var(--sans); margin: 0; color: var(--text); background: var(--bg);
-    background-image: radial-gradient(1100px 560px at 78% -12%, rgba(99,102,241,0.10), transparent 62%);
-    -webkit-font-smoothing: antialiased;
-  }
+  ${BASE_CSS}
   header {
     position: sticky; top: 0; z-index: 10; padding: 14px 24px; min-height: 56px;
     border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
@@ -385,15 +387,6 @@ const PAGE = (caps: Cap[], relayUrl: string) => `<!doctype html>
     backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px);
   }
   .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-  .mark {
-    width: 30px; height: 30px; border-radius: 9px; flex: none; position: relative;
-    background:
-      radial-gradient(circle at 30% 28%, #a5b4fc, transparent 46%),
-      linear-gradient(145deg, #6366f1, #4f46e5 55%, #7c3aed);
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.10) inset, 0 6px 18px rgba(79,70,229,0.40);
-  }
-  .mark::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
-    background: radial-gradient(circle at 72% 78%, rgba(255,255,255,0.22), transparent 40%); }
   h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
   .sub { color: var(--text-dim); font-size: 12px; margin-top: 1px; }
   .sub .mono { font-family: var(--mono); color: var(--text); opacity: 0.85; }
@@ -604,48 +597,9 @@ const SETUP_PAGE = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agentic Android — Setup</title>
 <style>
-  :root {
-    color-scheme: dark;
-    --bg: #0a0b10;
-    --surface: #14161e;
-    --surface-2: #1a1d27;
-    --surface-3: #21242f;
-    --border: rgba(255,255,255,0.07);
-    --border-strong: rgba(255,255,255,0.13);
-    --text: #eceef4;
-    --text-dim: #9b9eab;
-    --text-faint: #62656f;
-    --accent: #6366f1;
-    --accent-hi: #818cf8;
-    --accent-soft: rgba(99,102,241,0.16);
-    --ok: #34d399;
-    --warn: #fbbf24;
-    --err: #f87171;
-    --radius: 16px;
-    --radius-sm: 11px;
-    --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-    --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    font: 15px/1.6 var(--sans); margin: 0; color: var(--text); background: var(--bg);
-    background-image:
-      radial-gradient(900px 480px at 80% -8%, rgba(99,102,241,0.12), transparent 62%),
-      radial-gradient(700px 420px at 8% 4%, rgba(124,58,237,0.08), transparent 60%);
-    -webkit-font-smoothing: antialiased;
-  }
+  ${BASE_CSS}
   .wrap { max-width: 720px; margin: 0 auto; padding: 40px 22px 64px; }
   .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; }
-  .mark {
-    width: 40px; height: 40px; border-radius: 12px; flex: none; position: relative;
-    background:
-      radial-gradient(circle at 30% 28%, #a5b4fc, transparent 46%),
-      linear-gradient(145deg, #6366f1, #4f46e5 55%, #7c3aed);
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.10) inset, 0 8px 22px rgba(79,70,229,0.40);
-  }
-  .mark::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
-    background: radial-gradient(circle at 72% 78%, rgba(255,255,255,0.22), transparent 40%); }
   h1 { font-size: 26px; margin: 0; font-weight: 700; letter-spacing: -0.02em; }
   .sub { color: var(--text-dim); margin: 2px 0 26px; font-size: 14px; }
   .status { display: flex; gap: 12px; margin-bottom: 26px; flex-wrap: wrap; }
@@ -1125,6 +1079,29 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, description: a.description, active: id === activeAgentId, external: !managed.has(id), orchestrator: isOrchestrator(id), verified: verifier.status(id) ?? "verifying" }));
   const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
 
+  // ---- Orchestration monitor: a live tree of every delegation the hub mediates (ask_agent) + the
+  // internal subagents an agent reports about itself (agent_activity). Streamed web-only over SSE
+  // ("orch"); the drawer in /chat renders it. Parent linkage: orchInbound[agentId] = the node that is
+  // currently making that agent work, so a worker's own delegations/subagents nest under it. ----
+  type OrchStatus = "running" | "done" | "error";
+  interface OrchNode { kind: "turn" | "delegation" | "subagent" | "tool"; id: string; parentId: string | null; agentId: string; agentName: string; label: string; depth: number; status: OrchStatus; ts: number; ms?: number; reply?: string }
+  const orchNodes = new Map<string, OrchNode>();
+  const orchInbound = new Map<string, string>();
+  const orchEmit = (n: OrchNode) => { sseBroadcast("orch", n); if (orchNodes.size > 400) { const oldest = [...orchNodes.values()].sort((a, b) => a.ts - b.ts)[0]; if (oldest) orchNodes.delete(oldest.id); } };
+  const isErrReply = (r?: string) => !!r && (r === "(agent disconnected)" || r === "(no reply within timeout)");
+  function orchTurnStart(agentId: string, text: string) {
+    const a = agents.get(agentId); if (!a) return;
+    const id = "turn-" + randomUUID();
+    const node: OrchNode = { kind: "turn", id, parentId: null, agentId, agentName: a.name, label: text || "(message)", depth: 0, status: "running", ts: Date.now() };
+    orchNodes.set(id, node); orchInbound.set(agentId, id); orchEmit(node);
+  }
+  function orchTurnSettle(agentId: string, reply: string) {
+    const id = orchInbound.get(agentId); if (!id) return;
+    const node = orchNodes.get(id);
+    if (node && node.kind === "turn") { node.status = "done"; node.ms = Date.now() - node.ts; node.reply = reply.slice(0, 400); orchEmit(node); }
+    orchInbound.delete(agentId);
+  }
+
   const MAX_ASK_DEPTH = Number(process.env.MAX_ASK_DEPTH ?? 8);
   const delegator = makeDelegator({
     newId: () => randomUUID(),
@@ -1132,6 +1109,17 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       const a = agents.get(id);
       if (!a || a.ws.readyState !== WebSocket.OPEN) throw new Error("agent not connected");
       a.ws.send(JSON.stringify({ t: "user", text, askId }));
+    },
+    onEvent: (e) => {
+      if (e.phase === "start") {
+        const fromId = String(e.meta?.fromId ?? "") || activeAgentId || "";
+        const node: OrchNode = { kind: "delegation", id: e.askId, parentId: orchInbound.get(fromId) ?? null, agentId: e.agentId, agentName: agents.get(e.agentId)?.name ?? e.agentId, label: e.text, depth: Number(e.meta?.depth ?? 1), status: "running", ts: Date.now() };
+        orchNodes.set(e.askId, node); orchInbound.set(e.agentId, e.askId); orchEmit(node);
+      } else {
+        const node = orchNodes.get(e.askId);
+        if (node) { node.status = isErrReply(e.reply) ? "error" : "done"; node.ms = e.ms; node.reply = (e.reply ?? "").slice(0, 400); orchEmit(node); }
+        orchInbound.delete(e.agentId);
+      }
     },
   });
   /** Resolve an agent selector (id wins; else unique case-insensitive name). */
@@ -1477,11 +1465,31 @@ export async function startPanel(opts: StartPanelOpts = {}) {
           const askId = typeof (data as any).askId === "string" ? (data as any).askId : undefined;
           // A reply echoing a live askId is a delegated sub-answer → route to the waiter, stay quiet.
           if (id && delegator.onReply(id, askId, String(data.text ?? ""))) return;
+          if (id) orchTurnSettle(id, String(data.text ?? "")); // the driver-seat agent's final reply closes the turn root
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
           const parts = Array.isArray((data as any).parts) ? ((data as any).parts as MsgPart[]) : undefined;
           addTurn("assistant", String(data.text ?? ""), parts);
           pendingSay?.(String(data.text ?? "")); pendingSay = null;
+        }
+        else if (topic === "agent_activity") {
+          // The agent narrates its OWN internals (e.g. Claude Task subagents + tool calls) so the
+          // orchestration tree can show within-agent children, not just hub-mediated delegations.
+          const fromId = (ws as any)._agentId as string | undefined;
+          if (!fromId) return;
+          const act = data as { id?: unknown; parentId?: unknown; kind?: unknown; name?: unknown; detail?: unknown; status?: unknown; error?: unknown; reply?: unknown };
+          const nodeId = fromId + ":" + String(act.id ?? randomUUID());
+          const parentId = act.parentId ? fromId + ":" + String(act.parentId) : (orchInbound.get(fromId) ?? null);
+          if (act.status === "end") {
+            const node = orchNodes.get(nodeId);
+            if (node) { node.status = act.error ? "error" : "done"; node.ms = Date.now() - node.ts; if (act.reply) node.reply = String(act.reply).slice(0, 400); orchEmit(node); }
+          } else {
+            const kind = act.kind === "subagent" ? "subagent" : "tool";
+            const parentDepth = parentId ? orchNodes.get(parentId)?.depth : undefined;
+            const label = String(act.name ?? "work") + (kind === "subagent" && act.detail ? ": " + String(act.detail) : "");
+            const node: OrchNode = { kind, id: nodeId, parentId, agentId: fromId, agentName: agents.get(fromId)?.name ?? fromId, label, depth: (parentDepth ?? 0) + 1, status: "running", ts: Date.now() };
+            orchNodes.set(nodeId, node); orchEmit(node);
+          }
         }
       }
     });
@@ -1532,8 +1540,10 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       } catch (e) { logEvent("error", `failed to save attached file ${p.name}`, { error: String(e) }); }
     }
     addTurn("user", text || (files.length ? `(sent ${files.length} file${files.length > 1 ? "s" : ""})` : ""), parts);
-    if (agentSock) agentSock.send(JSON.stringify({ t: "user", text, ...(files.length ? { files } : {}) }));
-    else { bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." }); logEvent("error", "user_message but no agent connected"); }
+    if (agentSock && activeAgentId) {
+      agentSock.send(JSON.stringify({ t: "user", text, ...(files.length ? { files } : {}) }));
+      orchTurnStart(activeAgentId, text); // root of the orchestration tree: your prompt → the driver-seat agent
+    } else { bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." }); logEvent("error", "user_message but no agent connected"); }
   }
   bus.onEvent((ev) => {
     if (ev.topic === "whoami") {
@@ -1844,6 +1854,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       sseSend(res, "history", { messages: histMsgs() });
       if (agentCommands.length) sseSend(res, "agent_commands", { commands: agentCommands });
       if (agentStatus.label || agentReady != null) sseSend(res, "agent_status", { label: agentStatus.label ?? null, ready: agentReady });
+      for (const n of orchNodes.values()) sseSend(res, "orch", n); // replay the live orchestration tree
       const hb = setInterval(() => { try { res.write(": ping\n\n"); } catch { /* */ } }, 15000);
       req.on("close", () => { clearInterval(hb); sseClients.delete(res); });
       return;
@@ -1911,7 +1922,12 @@ export async function startPanel(opts: StartPanelOpts = {}) {
           // Loop prevention: orchestrators are invisible to each other — an orchestrator can't delegate to one.
           if (isOrchestrator(r.id)) return json({ error: "that agent is an orchestrator — orchestrators don't delegate to each other" }, 409);
           logEvent("request", `/ask → ${agents.get(r.id)?.name ?? r.id}`, { text });
-          const reply = await delegator.ask(r.id, String(text ?? ""));
+          // Source attribution for the orchestration tree: hub-mcp tags the caller (x-ask-from-*); fall
+          // back to the active orchestrator at depth ≤ 1 (the driver-seat brain making the first hop).
+          const depth = Number(req.headers["x-ask-depth"] ?? 1);
+          const fromId = String(req.headers["x-ask-from-id"] ?? "") || (depth <= 1 ? activeAgentId ?? "" : "");
+          const fromName = String(req.headers["x-ask-from-name"] ?? "") || agents.get(fromId)?.name || "";
+          const reply = await delegator.ask(r.id, String(text ?? ""), { fromId, fromName, depth });
           logEvent("response", "/ask reply", { reply });
           json({ reply });
         } catch (e) { json({ error: String(e) }, 500); }

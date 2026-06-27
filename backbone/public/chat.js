@@ -160,6 +160,7 @@
     es.addEventListener("agent_identity", function (e) { renderSeat(); });
     es.addEventListener("sessions", function (e) { var d = JSON.parse(e.data); sessions = d.sessions || []; if (d.activeId) activeSession = d.activeId; renderSessions(); });
     es.addEventListener("history", function (e) { hydrate((JSON.parse(e.data).messages) || []); });
+    es.addEventListener("orch", function (e) { onOrch(JSON.parse(e.data)); });
     es.onopen = function () { var rc = document.querySelector(".reconnect"); if (rc) rc.remove(); };
     es.onerror = function () { if (!document.querySelector(".reconnect")) { var rc = document.createElement("div"); rc.className = "reconnect"; rc.textContent = "reconnecting…"; document.querySelector(".cmain").appendChild(rc); } };
   }
@@ -351,6 +352,66 @@
 
   // ---------- helpers ----------
   function post(url, body) { return fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(function (r) { return r.json().catch(function () { return {}; }); }); }
+
+  // ---------- orchestration panel (live delegation + internal-subagent tree) ----------
+  var orch = new Map(), orchOpen = false, orchAutoOpened = false, orchSeen = new Set(), orchRenderQ = null;
+  var orchpanel = $("orchpanel"), orchtree = $("orchtree"), orchtoggle = $("orchtoggle"), orchclose = $("orchclose"), olive = $("olive");
+  if (orchpanel) orchpanel.hidden = false; // visibility is driven by the .orch-open width, not [hidden]
+  function openOrch() { shell.classList.add("orch-open"); orchOpen = true; if (orchtoggle) orchtoggle.classList.remove("live"); }
+  function closeOrch() { shell.classList.remove("orch-open"); orchOpen = false; }
+  if (orchtoggle) orchtoggle.onclick = function () { orchOpen ? closeOrch() : openOrch(); };
+  if (orchclose) orchclose.onclick = closeOrch;
+  function onOrch(n) {
+    var prev = orch.get(n.id);
+    if (prev && prev.status === "running" && n.status !== "running") flyUp(n); // value bubbles up to its parent
+    orch.set(n.id, n);
+    var real = n.kind === "delegation" || n.kind === "subagent";
+    if (real && !orchOpen && !orchAutoOpened) { orchAutoOpened = true; openOrch(); }      // surface it on first real fan-out
+    else if (real && !orchOpen && orchtoggle) orchtoggle.classList.add("live");
+    scheduleOrchRender(); updateOlive();
+  }
+  function updateOlive() { if (olive) olive.classList.toggle("on", [].some.call(orch.values ? [...orch.values()] : [], function (x) { return x.status === "running"; })); }
+  function scheduleOrchRender() { if (orchRenderQ) return; orchRenderQ = requestAnimationFrame(function () { orchRenderQ = null; renderOrch(); }); }
+  function odisplay(n) {
+    if (n.kind === "turn") return { tag: "you", name: n.agentName, sub: n.label };
+    if (n.kind === "delegation") return { tag: "delegate", name: n.agentName, sub: n.label };
+    if (n.kind === "subagent") { var p = (n.label || "").split(": "); return { tag: "subagent", name: p[0] || "subagent", sub: p.slice(1).join(": ") }; }
+    return { tag: "tool", name: n.label || "tool", sub: "" };
+  }
+  function ometa(n) { if (n.status === "running") return "…"; if (n.ms == null) return ""; return n.ms < 1000 ? n.ms + "ms" : (n.ms / 1000).toFixed(1) + "s"; }
+  function oesc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function renderOrch() {
+    if (!orchtree) return;
+    if (!orch.size) { orchtree.innerHTML = '<div class="oempty">No orchestration yet.<br>Open a session with an agent as <b>Orchestrator</b> and ask it to delegate — the live tree builds here.</div>'; return; }
+    var all = [...orch.values()], childOf = {}, roots = [];
+    all.forEach(function (n) { if (n.parentId && orch.has(n.parentId)) { (childOf[n.parentId] = childOf[n.parentId] || []).push(n); } else roots.push(n); });
+    Object.keys(childOf).forEach(function (k) { childOf[k].sort(function (a, b) { return a.ts - b.ts; }); });
+    roots.sort(function (a, b) { return a.ts - b.ts; });
+    var rows = [];
+    function walk(n, depth) {
+      var d = odisplay(n), isNew = !orchSeen.has(n.id); orchSeen.add(n.id);
+      var val = (n.status !== "running" && n.reply) ? '<div class="ovalue ' + n.status + '">' + (n.status === "error" ? "⚠ " : "") + oesc(n.reply.slice(0, 80)) + '</div>' : '';
+      rows.push('<div class="orow' + (isNew ? ' new' : '') + '" id="orow_' + n.id + '" style="margin-left:' + (depth * 16) + 'px">'
+        + '<div class="odot ' + n.status + '"></div><div class="obody"><div class="oline">'
+        + '<span class="okind ' + n.kind + '">' + oesc(d.tag) + '</span><span class="oname">' + oesc(d.name) + '</span><span class="ometa">' + oesc(ometa(n)) + '</span></div>'
+        + (d.sub ? '<div class="olabel">' + oesc(d.sub) + '</div>' : '') + val + '</div></div>');
+      (childOf[n.id] || []).forEach(function (c) { walk(c, depth + 1); });
+    }
+    roots.forEach(function (r) { walk(r, 0); });
+    orchtree.innerHTML = rows.join("");
+  }
+  function flyUp(n) {
+    if (!n.parentId || !n.reply) return;
+    var childEl = document.getElementById("orow_" + n.id), parentEl = document.getElementById("orow_" + n.parentId);
+    if (!childEl || !parentEl) return;
+    var c = childEl.getBoundingClientRect(), p = parentEl.getBoundingClientRect();
+    var chip = document.createElement("div"); chip.className = "ofly"; chip.textContent = n.reply.slice(0, 36);
+    chip.style.left = (c.left + 14) + "px"; chip.style.top = c.top + "px";
+    document.body.appendChild(chip);
+    requestAnimationFrame(function () { chip.style.transform = "translate(" + (p.left - c.left) + "px," + (p.top - c.top) + "px)"; });
+    setTimeout(function () { chip.style.opacity = "0"; }, 650);
+    setTimeout(function () { chip.remove(); }, 1250);
+  }
 
   // Test/automation hook: render a turn into the thread (used by the headless-Chrome E2E to exercise the
   // real render pipeline with content the built-in agents don't produce). Harmless — it only appends DOM.

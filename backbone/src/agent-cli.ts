@@ -13,7 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
-import { runAgent, buildHubServers, type AgentAdapter } from "./agent-runner.ts";
+import { runAgent, buildHubServers, type AgentAdapter, type TurnContext } from "./agent-runner.ts";
+import { parseClaudeEvent, makeLineParser } from "./parse-claude-stream.ts";
 export { buildPrompt } from "./agent-runner.ts"; // shared with the other agents (and unit-tested here)
 
 /** The headless token saved via the setup UI (~/.agentic-android/agent.json brain.oauthToken). */
@@ -189,10 +190,21 @@ let sessionId: string | undefined;
 /** Start a fresh conversation (e.g. on /clear or /reset). */
 function resetSession() { sessionId = undefined; }
 
-/** Run one turn through the user's CLI agent. Defaults assume `claude -p` JSON output. */
-function runTurn(text: string): Promise<string> {
+/** Resolve a stream-json/json `result` into a reply string, applying auth + stale-session handling. */
+function settleReply(text: string, isError: boolean, resolve: (s: string) => void) {
+  if (!isError) return resolve(text || "(no reply)");
+  const msg = text || "unknown";
+  if (sessionId && /session|resume|no conversation|not found/i.test(msg)) resetSession();
+  resolve(NEEDS_LOGIN.test(msg) ? LOGIN_HELP : `Agent error: ${msg}`);
+}
+
+/** Run one turn through the user's CLI agent. When the hub is watching internals (ctx.onActivity),
+ *  use `--output-format stream-json` so we can narrate Task subagents + tool calls; else cheap `json`. */
+function runTurn(text: string, ctx?: TurnContext): Promise<string> {
   return new Promise((resolve) => {
-    const args = ["-p", "--output-format", "json", "--mcp-config", mcpConfig(), "--dangerously-skip-permissions"];
+    const watch = !!ctx?.onActivity;
+    const fmt = watch ? ["stream-json", "--verbose"] : ["json"];
+    const args = ["-p", "--output-format", ...fmt, "--mcp-config", mcpConfig(), "--dangerously-skip-permissions"];
     if (sessionId) args.push("--resume", sessionId);      // continue the same conversation (memory!)
     else args.push("--append-system-prompt", SYSTEM_FULL); // seed identity/instructions on the first turn
     args.push(text);
@@ -200,20 +212,33 @@ function runTurn(text: string): Promise<string> {
     // The prompt rides as an arg — close stdin so the CLI doesn't block 3s waiting for piped input.
     try { child.stdin?.end(); } catch { /* */ }
     let out = "", err = "";
-    child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => resolve(`Couldn't run "${CLI}": ${String(e)}. Is it installed and logged in?`));
+
+    if (watch) {
+      let finalText: string | null = null, isErr = false, sid: string | undefined, lastText = "";
+      const feed = makeLineParser((obj) => {
+        const ev = parseClaudeEvent(obj);
+        for (const a of ev.activities) ctx!.onActivity!(a);
+        if (ev.text) lastText = ev.text;
+        if (ev.sessionId) sid = ev.sessionId;
+        if (ev.final) { finalText = ev.final.text || lastText; isErr = !!ev.final.isError; if (ev.final.sessionId) sid = ev.final.sessionId; }
+      });
+      child.stdout.on("data", (d) => feed(d.toString()));
+      child.on("close", () => {
+        if (sid) sessionId = sid;
+        if (finalText == null) return resolve(lastText.trim() || err.trim() || "(no reply)");
+        settleReply(finalText, isErr, resolve);
+      });
+      return;
+    }
+
+    child.stdout.on("data", (d) => (out += d));
     child.on("close", () => {
       try {
         const j = JSON.parse(out);
         if (typeof j.session_id === "string") sessionId = j.session_id; // remember the thread for next turn
-        if (j.is_error) {
-          const msg = String(j.result ?? "unknown");
-          // A stale/expired session can't be resumed — drop it so the next turn starts cleanly.
-          if (sessionId && /session|resume|no conversation|not found/i.test(msg)) resetSession();
-          if (NEEDS_LOGIN.test(msg)) resolve(LOGIN_HELP);
-          else resolve(`Agent error: ${msg}`);
-        } else resolve(String(j.result ?? "(no reply)"));
+        settleReply(String(j.result ?? "(no reply)"), j.is_error === true, resolve);
       } catch {
         resolve(out.trim() || err.trim() || "(no reply)");
       }

@@ -11,7 +11,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
-export function makeHubMcpServer(opts: { hubHttp: string; askDepth?: number; label?: string }): McpServer {
+export function makeHubMcpServer(opts: { hubHttp: string; askDepth?: number; label?: string; fromId?: string; fromName?: string }): McpServer {
   const HUB = opts.hubHttp;
   const depth = opts.askDepth ?? 0;
   const server = new McpServer({ name: opts.label ? `hub:${opts.label}` : "hub", version: "0.1.0" });
@@ -35,7 +35,11 @@ export function makeHubMcpServer(opts: { hubHttp: string; askDepth?: number; lab
     async ({ agent, message }: { agent: string; message: string }) => {
       const r: any = await fetch(`${HUB}/ask`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-ask-depth": String(depth + 1) },
+        headers: {
+          "content-type": "application/json", "x-ask-depth": String(depth + 1),
+          ...(opts.fromId ? { "x-ask-from-id": opts.fromId } : {}),
+          ...(opts.fromName ? { "x-ask-from-name": opts.fromName } : {}),
+        },
         body: JSON.stringify({ agent, text: message }),
       }).then((x) => x.json()).catch((e) => ({ error: String(e) }));
       return jtext(r.reply != null ? { reply: r.reply } : r);
@@ -47,7 +51,7 @@ export function makeHubMcpServer(opts: { hubHttp: string; askDepth?: number; lab
 
 async function main() {
   const hubHttp = process.env.HUB_HTTP ?? "http://127.0.0.1:8123";
-  const server = makeHubMcpServer({ hubHttp, askDepth: Number(process.env.ASK_DEPTH ?? 0), label: process.env.HUB_LABEL });
+  const server = makeHubMcpServer({ hubHttp, askDepth: Number(process.env.ASK_DEPTH ?? 0), label: process.env.HUB_LABEL, fromId: process.env.FROM_ID, fromName: process.env.FROM_NAME });
   await server.connect(new StdioServerTransport());
   process.stderr.write(`hub-mcp: hub ${hubHttp}\n`);
 }

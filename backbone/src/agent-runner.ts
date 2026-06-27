@@ -23,7 +23,12 @@ export function buildHubServers(agentHubs: string | undefined, tsxBin: string, h
     const label = pair.slice(0, eq).trim();
     const hubUrl = pair.slice(eq + 1).trim();
     if (!label || !hubUrl) continue;
-    out[`hub_${label}`] = { command: tsxBin, args: [hubMcpPath], env: { HUB_HTTP: hubUrl, HUB_LABEL: label, ASK_DEPTH: askDepth } };
+    // Pass the orchestrator's own identity through (when known) so its ask_agent calls are attributed to
+    // it in the hub's orchestration tree (x-ask-from-*), giving exact parent→child linkage when nested.
+    const env: Record<string, string> = { HUB_HTTP: hubUrl, HUB_LABEL: label, ASK_DEPTH: askDepth };
+    if (process.env.AGENT_INSTANCE_ID) env.FROM_ID = process.env.AGENT_INSTANCE_ID;
+    if (process.env.AGENT_NAME) env.FROM_NAME = process.env.AGENT_NAME;
+    out[`hub_${label}`] = { command: tsxBin, args: [hubMcpPath], env };
   }
   return out;
 }
@@ -34,6 +39,12 @@ export type AttachedFile = { path: string; name: string; mime?: string; size?: n
 /** Result of an adapter's startup auth check. ok=false surfaces a remediation on the phone + web. */
 export interface ProbeResult { ok: boolean; label?: string; command?: string }
 
+/** A within-agent activity the adapter can report mid-turn (subagent spawn / tool call) for the
+ *  hub's orchestration tree. The hub nests these under the agent via `parentId` (a prior activity id). */
+export interface AgentActivity { id: string; parentId?: string | null; kind: "subagent" | "tool"; name: string; detail?: string; status: "start" | "end"; error?: boolean; reply?: string }
+/** Per-turn context handed to runTurn so it can stream internal activity back to the hub. */
+export interface TurnContext { onActivity?: (a: AgentActivity) => void }
+
 /** The brain behind an agent. Only `name` + `runTurn` are required; everything else is an opt-in hook. */
 export interface AgentAdapter {
   /** Display name announced to the hub (env AGENT_NAME overrides this at runtime). */
@@ -42,8 +53,8 @@ export interface AgentAdapter {
   description?: string;
   /** One-time startup check: can this brain actually answer here? Omit = assumed ready. */
   probe?(): Promise<ProbeResult>;
-  /** Run a single user turn; resolve with the reply text to send back to the phone. */
-  runTurn(prompt: string): Promise<string>;
+  /** Run a single user turn; resolve with the reply text. `ctx.onActivity` (optional) reports internals. */
+  runTurn(prompt: string, ctx?: TurnContext): Promise<string>;
   /** Start a fresh conversation (e.g. the user typed /clear). No-op if the brain is stateless. */
   reset?(): void;
   /** After the socket opens: publish anything one-time (e.g. a slash-command catalog). */
@@ -104,7 +115,7 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
     const prompt = buildPrompt(text, files);
     if (!prompt.trim()) return; // empty event — don't poke the brain with nothing
     status({ label: "Thinking…" });
-    void adapter.runTurn(prompt).then((reply) => {
+    void adapter.runTurn(prompt, { onActivity: (a) => emit("agent_activity", a as unknown as Record<string, unknown>) }).then((reply) => {
       // Self-heal readiness from the REAL result so a fixed/broken auth flips on the next message.
       const fail = adapter.authFailed?.(reply) ?? null;
       status(fail ? { label: fail.label, ready: false, command: fail.command } : { label: "Ready", ready: true });
