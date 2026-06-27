@@ -18,6 +18,7 @@
 - **ponytail discipline:** smallest diff that works; mark deliberate ceilings with `// ponytail:` comments.
 - **Model ids unchanged:** leave agent defaults (`claude-opus-4-8`) as-is.
 - **Spec:** `docs/superpowers/specs/2026-06-27-agent-orchestrator-driver-seat-design.md` is the source of truth; §-references below point into it.
+- **Line numbers are approximate.** All `panel.ts`/`agent-runner.ts` line references were taken against an earlier tree; concurrent WIP (hub naming, manual pairing, `agent-verify`) shifted `panel.ts` by ~+180 lines. **Match every `Replace … with:` block by its verbatim OLD-snippet content, not by line number** — the OLD snippets were re-verified current as of HEAD `5e0256f`. If an OLD snippet does not match, STOP and report (do not guess a nearby line).
 
 ---
 
@@ -331,6 +332,7 @@ test("an agent can connect and /say round-trips through it (regression)", async 
   ws.send(JSON.stringify({ t: "hello", name: "Echo" }));
   ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
+    if (m.t === "selftest") { ws.send(JSON.stringify({ t: "selftest_ok", token: m.token })); return; } // pass the hub's verifier probe
     if (m.t === "user") ws.send(JSON.stringify({ t: "event", topic: "assistant_message", data: { text: `echo:${m.text}` } }));
   });
   await delay(50);
@@ -428,6 +430,18 @@ with:
   const agentWss = new WebSocketServer({ port: AGENT_PORT, host: process.env.AGENT_HOST ?? HOST });
 ```
 
+3c-2. Capture the verifier sweep interval so `close()` can stop it (else the test leaks an open handle). The agent-verify WIP added, just above the `agentWss` line, `  setInterval(() => verifier.sweep(), 10000);`. Replace it:
+
+```ts
+  setInterval(() => verifier.sweep(), 10000);
+```
+
+with:
+
+```ts
+  const sweepTimer = setInterval(() => verifier.sweep(), 10000);
+```
+
 3d. The HTTP port — replace line `1354`:
 
 ```ts
@@ -455,6 +469,7 @@ with (awaits the bind so callers know it's up; `HOST`-bound; returns a handle; a
     http: server,
     agentWss,
     async close() {
+      clearInterval(sweepTimer);
       await new Promise<void>((r) => agentWss.close(() => r()));
       await new Promise<void>((r) => server.close(() => r()));
       bus.close();
@@ -532,7 +547,11 @@ async function fakeAgent(name: string, opts: { description?: string; onUser?: (m
   const ws = new WebSocket(`ws://127.0.0.1:${agentPort}`);
   await new Promise<void>((res) => ws.on("open", () => res()));
   ws.send(JSON.stringify({ t: "hello", name, ...(opts.description ? { description: opts.description } : {}) }));
-  ws.on("message", (raw) => { const m = JSON.parse(raw.toString()); if (m.t === "user" && opts.onUser) opts.onUser(m, ws); });
+  ws.on("message", (raw) => {
+    const m = JSON.parse(raw.toString());
+    if (m.t === "selftest") { ws.send(JSON.stringify({ t: "selftest_ok", token: m.token })); return; } // pass the hub's verifier probe
+    if (m.t === "user" && opts.onUser) opts.onUser(m, ws);
+  });
   await delay(30);
   return ws;
 }
@@ -779,10 +798,12 @@ import { makeDelegator } from "./delegate.ts";
     }
 ```
 
-3c. `backbone/src/panel.ts` — askId reply routing in the `assistant_message` branch (`~1213`). Replace:
+3c. `backbone/src/panel.ts` — askId reply routing in the `assistant_message` branch. The branch already declares `const id` and calls `verifier.onAlive(id)` (from the agent-verify WIP) — reuse that `id`, do not redeclare. Replace:
 
 ```ts
         else if (topic === "assistant_message") {
+          const id = (ws as any)._agentId as string | undefined;
+          if (id) verifier.onAlive(id); // a real reply proves the loop works → self-heal to "verified"
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
           const parts = Array.isArray((data as any).parts) ? ((data as any).parts as MsgPart[]) : undefined;
@@ -795,10 +816,11 @@ with:
 
 ```ts
         else if (topic === "assistant_message") {
-          const aid = (ws as any)._agentId as string | undefined;
+          const id = (ws as any)._agentId as string | undefined;
+          if (id) verifier.onAlive(id); // a real reply proves the loop works → self-heal to "verified"
           const askId = typeof (data as any).askId === "string" ? (data as any).askId : undefined;
           // A reply echoing a live askId is a delegated sub-answer → route to the waiter, stay quiet.
-          if (aid && delegator.onReply(aid, askId, String(data.text ?? ""))) return;
+          if (id && delegator.onReply(id, askId, String(data.text ?? ""))) return;
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
           const parts = Array.isArray((data as any).parts) ? ((data as any).parts as MsgPart[]) : undefined;
@@ -807,18 +829,18 @@ with:
         }
 ```
 
-3d. `backbone/src/panel.ts` — `onGone` in the close handler (`~1222`). Replace:
+3d. `backbone/src/panel.ts` — `onGone` in the agent ws close handler. The line already deletes from `agents` and calls `verifier.remove(id)` (agent-verify WIP). Replace:
 
 ```ts
       const id = (ws as any)._agentId as string | undefined;
-      if (id) agents.delete(id);
+      if (id) { agents.delete(id); verifier.remove(id); }
 ```
 
 with:
 
 ```ts
       const id = (ws as any)._agentId as string | undefined;
-      if (id) { delegator.onGone(id); agents.delete(id); } // fail any in-flight asks before dropping the worker
+      if (id) { delegator.onGone(id); agents.delete(id); verifier.remove(id); } // fail in-flight asks before dropping the worker
 ```
 
 3e. `backbone/src/panel.ts` — don't repurpose a socket with outstanding asks. There are **two** target sites, both the line `activeAgentId = id; agentSock = a.ws; agentName = a.name;` (the `select_agent` phone handler at `1277`, and the `/agent/select` HTTP route at `1430`). Insert the guard immediately before **each** (mind the differing indentation — 8 spaces at `1277`, 10 at `1430`). The hello-handler reassignment at `1189` uses `agentSock = ws` (not `a.ws`) and is **not** a target.
