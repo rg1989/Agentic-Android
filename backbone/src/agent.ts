@@ -51,6 +51,7 @@ async function main() {
   const ws = new WebSocket(HUB);
 
   // The brain reaches the phone only through the hub (request a capability / emit an event).
+  let currentAskId: string | undefined; // the hub serializes per-agent, so one turn is in flight at a time
   const hubBus: AgentBus = {
     request(method, params = {}) {
       const id = String(nextId++);
@@ -63,7 +64,10 @@ async function main() {
         ws.send(JSON.stringify({ t: "tool", id, method, params }));
       });
     },
-    event(topic, data = {}) { ws.send(JSON.stringify({ t: "event", topic, data })); },
+    event(topic, data = {}) {
+      const d = topic === "assistant_message" && currentAskId ? { ...data, askId: currentAskId } : data;
+      ws.send(JSON.stringify({ t: "event", topic, data: d }));
+    },
   };
 
   const runBrain = makeBrain({
@@ -86,6 +90,7 @@ async function main() {
       const r = pending.get(m.id);
       if (r) { pending.delete(m.id); r({ status: m.status, result: m.result, error: m.error }); }
     } else if (m.t === "user") {
+      currentAskId = typeof m.askId === "string" ? m.askId : undefined;
       // Surface any attached files to the brain as a path + mime it can open/act on.
       const files = Array.isArray(m.files) ? m.files : [];
       const note = files

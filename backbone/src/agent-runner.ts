@@ -77,11 +77,12 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
     if (m.t === "diag") { console.error(`hub diagnostic: ${m.problem}\n  remedy: ${m.remedy}`); return; }
     if (m.t !== "user") return; // phone-mcp fetches the catalog itself; nothing else to handle here
     const text = String(m.text ?? "");
+    const askId = typeof m.askId === "string" ? m.askId : undefined;
     const files: AttachedFile[] = Array.isArray(m.files) ? m.files : [];
     // Let the user start a fresh conversation (a no-op reset for stateless adapters).
     if (!files.length && /^\/(clear|reset|new)\s*$/i.test(text.trim())) {
       adapter.reset?.();
-      emit("assistant_message", { text: "Started a fresh conversation — earlier messages are forgotten." });
+      emit("assistant_message", { text: "Started a fresh conversation — earlier messages are forgotten.", ...(askId ? { askId } : {}) });
       return;
     }
     const prompt = buildPrompt(text, files);
@@ -91,7 +92,7 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
       // Self-heal readiness from the REAL result so a fixed/broken auth flips on the next message.
       const fail = adapter.authFailed?.(reply) ?? null;
       status(fail ? { label: fail.label, ready: false, command: fail.command } : { label: "Ready", ready: true });
-      emit("assistant_message", { text: reply });
+      emit("assistant_message", { text: reply, ...(askId ? { askId } : {}) });
     });
   });
 

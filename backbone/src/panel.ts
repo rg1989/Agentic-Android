@@ -25,6 +25,7 @@ import { BusEndpoint } from "./peer.ts";
 import type { MsgPart } from "./parts.ts";
 import { Scheduler, type Task } from "./scheduler.ts";
 import { Verifier } from "./agent-verify.ts";
+import { makeDelegator } from "./delegate.ts";
 import { randomUUID } from "node:crypto";
 
 interface Cap { method: string; sensitivity: string; summary: string }
@@ -963,6 +964,24 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, description: a.description, active: id === activeAgentId, external: !managed.has(id), verified: verifier.status(id) ?? "verifying" }));
   const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
 
+  const MAX_ASK_DEPTH = Number(process.env.MAX_ASK_DEPTH ?? 8);
+  const delegator = makeDelegator({
+    newId: () => randomUUID(),
+    send: (id, text, askId) => {
+      const a = agents.get(id);
+      if (!a || a.ws.readyState !== WebSocket.OPEN) throw new Error("agent not connected");
+      a.ws.send(JSON.stringify({ t: "user", text, askId }));
+    },
+  });
+  /** Resolve an agent selector (id wins; else unique case-insensitive name). */
+  const resolveAgentId = (sel: string): { id: string } | { error: string; available: { id: string; name: string }[] } => {
+    const list = [...agents].map(([id, a]) => ({ id, name: a.name }));
+    if (agents.has(sel)) return { id: sel };
+    const byName = list.filter((a) => a.name.toLowerCase() === sel.toLowerCase());
+    if (byName.length === 1) return { id: byName[0].id };
+    return { error: byName.length > 1 ? `ambiguous agent name "${sel}" — use an id` : `no agent "${sel}"`, available: list };
+  };
+
   /** Where a remote/cloud agent dials in: same host the phone reaches, on the agent port. */
   const agentWsUrl = () => { try { const u = new URL(phoneRelayUrl(cfg.relayUrl)); return `ws://${u.hostname}:${AGENT_PORT}`; } catch { return `ws://127.0.0.1:${AGENT_PORT}`; } };
   /** Where a remote agent fetches the hub's own files (same host the phone reaches, on the panel port). */
@@ -992,7 +1011,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       `You are being connected as the "brain" for an Agentic-Android hub — a self-hosted bridge that lets you see and control the user's Android phone (camera, screen read/tap, location, SMS, notifications, apps, and more). Open ONE persistent WebSocket to the hub, then answer the user's chat messages and drive the phone with tool calls. Implement exactly this protocol.`,
       ``,
       `EASIEST PATH — JUST RUN THE HUB'S CLIENT (strongly preferred; skip everything below if you can run a shell command)`,
-      `  The hub already hosts a ready-made client that implements this whole protocol correctly — persistent loop, heartbeat, self-test, reconnect. Run it in the BACKGROUND (set MODEL_CMD to the CLI that runs YOUR model; it receives the user's message as the last argument and must print the reply to stdout):`,
+      `  The hub hosts its OWN tested, known-good client that implements this whole protocol correctly — persistent loop, heartbeat, self-test, reconnect. Prefer it over writing your own; bugs are fixed centrally so it stays correct. Run it in the BACKGROUND. MODEL_CMD must be a CLI that takes the user's message as its LAST positional argument and prints the reply to stdout (e.g. 'claude -p' or 'hermes -z'):`,
       `    ${bootstrapOneLiner()}`,
       `  That's it — it stays running and answers every message on its own. Only implement the manual protocol below if you genuinely cannot run that command.`,
       ``,
@@ -1290,6 +1309,9 @@ export async function startPanel(opts: StartPanelOpts = {}) {
         else if (topic === "assistant_message") {
           const id = (ws as any)._agentId as string | undefined;
           if (id) verifier.onAlive(id); // a real reply proves the loop works → self-heal to "verified"
+          const askId = typeof (data as any).askId === "string" ? (data as any).askId : undefined;
+          // A reply echoing a live askId is a delegated sub-answer → route to the waiter, stay quiet.
+          if (id && delegator.onReply(id, askId, String(data.text ?? ""))) return;
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
           const parts = Array.isArray((data as any).parts) ? ((data as any).parts as MsgPart[]) : undefined;
@@ -1300,7 +1322,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     });
     ws.on("close", () => {
       const id = (ws as any)._agentId as string | undefined;
-      if (id) { agents.delete(id); verifier.remove(id); }
+      if (id) { delegator.onGone(id); agents.delete(id); verifier.remove(id); } // fail in-flight asks before dropping the worker
       // Skip bus.event() calls if we are tearing down — the TCP socket can fire its close event
       // after bus.close() completes (OS-level async), causing spurious "not connected" throws.
       if (_panelClosed) return;
@@ -1616,6 +1638,24 @@ export async function startPanel(opts: StartPanelOpts = {}) {
         .catch((e) => { res.statusCode = 502; res.end(String(e)); });
       return;
     }
+    if (req.method === "POST" && url.pathname === "/ask") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", async () => {
+        try {
+          const { agent, text } = JSON.parse(body || "{}");
+          if (Number(req.headers["x-ask-depth"] ?? 0) > MAX_ASK_DEPTH) return json({ error: "ask depth exceeded" }, 508);
+          const r = resolveAgentId(String(agent ?? ""));
+          if ("error" in r) return json(r, 404);
+          // ponytail: single-hub convenience guard — only when a phone is paired is `active` the user-facing brain.
+          if (peerEdPub && r.id === activeAgentId) return json({ error: "that agent is user-facing — delegate to a worker" }, 400);
+          logEvent("request", `/ask → ${agents.get(r.id)?.name ?? r.id}`, { text });
+          const reply = await delegator.ask(r.id, String(text ?? ""));
+          logEvent("response", "/ask reply", { reply });
+          json({ reply });
+        } catch (e) { json({ error: String(e) }, 500); }
+      });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/say") {
       let body = ""; req.on("data", (c) => (body += c));
       req.on("end", async () => {
@@ -1741,9 +1781,11 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   return {
     http: server,
     agentWss,
+    delegator,
     async close() {
       _panelClosed = true;
       clearInterval(sweepTimer);
+      for (const c of agentWss.clients) { try { c.terminate(); } catch { /* already gone */ } } // drop agents so close() (and the event loop) can settle
       await new Promise<void>((r) => agentWss.close(() => r()));
       await new Promise<void>((r) => server.close(() => r()));
       bus.close();
