@@ -29,6 +29,9 @@ data class RosterAgent(
     val external: Boolean = false,
     val hubId: String = "",
     val hubName: String = "",
+    // Hub's verdict on whether this agent really answers: "verifying" | "verified" | "failed" | "stale".
+    // Defaults to "verified" so older hubs that don't send it don't show a false alarm.
+    val verified: String = "verified",
 )
 
 /** A chat session with the agent (Phase: multi-session). */

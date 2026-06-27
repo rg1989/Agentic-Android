@@ -29,7 +29,9 @@ PORT=$RELAY_PORT nohup pnpm -s relay > "$LOG_DIR/relay.log" 2>&1 &
 sleep 2
 
 echo "› hub    on http://127.0.0.1:8123  (agent socket :8124)"
-nohup pnpm -s hub > "$LOG_DIR/hub.log" 2>&1 &
+# Bind all interfaces so the phone (over Tailscale) and remote/cloud agents can reach :8123/:8124.
+# Localhost agents still work. Override with PANEL_HOST=127.0.0.1 to keep it local-only.
+PANEL_HOST="${PANEL_HOST:-0.0.0.0}" nohup pnpm -s hub > "$LOG_DIR/hub.log" 2>&1 &
 sleep 3
 if ! grep -q "panel: http" "$LOG_DIR/hub.log" 2>/dev/null; then
   echo "  ⚠ hub didn't start — see $LOG_DIR/hub.log (most likely: not paired yet; pair a phone once)."

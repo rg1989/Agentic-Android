@@ -65,7 +65,8 @@ test("a real reply self-heals an already-failed agent", () => {
 test("a verified, heartbeat-aware agent goes stale when beats stop, and revives on a fresh beat", () => {
   const h = harness({ heartbeatGraceMs: 45000 });
   h.v.onConnect("a", "Hermes");
-  h.v.onHeartbeat("a"); // alive + proves it's heartbeat-aware
+  h.v.onAlive("a"); // selftest_ok → verified (heartbeat alone proves liveness, not the reply path)
+  h.v.onHeartbeat("a"); // now also heartbeat-aware
   assert.equal(h.v.status("a"), "verified");
   h.advance(50000);
   h.v.sweep();

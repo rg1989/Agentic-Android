@@ -395,15 +395,29 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val dotColor = if (!paired) Color(0xFF9AA0A6) else if (connected) Color(0xFF34C759) else Color(0xFFFFB020)
+                                    // Primary signal = the hub link (`connected`). The agent verdict only DOWNGRADES
+                                    // the display when there's POSITIVE bad news (failed/stale = red, verifying = amber).
+                                    // A null/unknown verdict (lookup miss, hub-switch race, old hub) must NOT override a
+                                    // live link — otherwise the header sticks on "connecting…" while chat works fine.
+                                    // (Failures still reach the user via the hub's chat diagnostic, independent of this badge.)
+                                    val vstate = activeId?.let { id -> allAgents.firstOrNull { it.hubId == id && it.active }?.verified }
+                                    val dotColor = when {
+                                        !paired -> Color(0xFF9AA0A6)
+                                        !connected -> Color(0xFFFFB020)
+                                        vstate == "failed" || vstate == "stale" -> Color(0xFFFF3B30)
+                                        vstate == "verifying" -> Color(0xFFFFB020)
+                                        else -> Color(0xFF34C759) // verified, or no agent verdict — the hub link is up
+                                    }
                                     Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
                                     Spacer(Modifier.width(5.dp))
                                     Text(
                                         when {
                                             !paired -> "not paired"
-                                            connected -> "connected"
-                                            !connectionEnabled -> "offline"
-                                            else -> "connecting…"
+                                            !connected -> if (!connectionEnabled) "offline" else "connecting…"
+                                            vstate == "failed" -> "not responding"
+                                            vstate == "stale" -> "unresponsive"
+                                            vstate == "verifying" -> "verifying…"
+                                            else -> "connected"
                                         },
                                         style = MaterialTheme.typography.labelSmall, color = Color.Gray,
                                     )
@@ -422,12 +436,20 @@ class MainActivity : ComponentActivity() {
                                     )
                                     agentsOnHub.forEach { a ->
                                         val globallyActive = a.hubId == activeId && a.active
+                                        // Tint the agent icon by the hub's verdict: red = failing/stale self-test,
+                                        // amber = still verifying, normal = verified.
+                                        val vColor = when (a.verified) {
+                                            "failed", "stale" -> Color(0xFFFF3B30)
+                                            "verifying" -> Color(0xFFFFB020)
+                                            else -> androidx.compose.material3.LocalContentColor.current
+                                        }
                                         DropdownMenuItem(
                                             text = { Text(a.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                             leadingIcon = {
                                                 Icon(
                                                     if (a.external) Icons.Rounded.Cloud else Icons.Rounded.SmartToy,
                                                     contentDescription = if (a.external) "Cloud agent — connects from elsewhere" else "Local agent",
+                                                    tint = vColor,
                                                 )
                                             },
                                             trailingIcon = { if (globallyActive) Icon(Icons.Rounded.Check, contentDescription = "active") },

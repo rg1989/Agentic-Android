@@ -163,6 +163,7 @@ class HubConnection(
                         external = (o["external"] as? JsonPrimitive)?.content == "true",
                         hubId = profile.id,
                         hubName = hubLabel,
+                        verified = (o["verified"] as? JsonPrimitive)?.content ?: "verified",
                     )
                 }.orEmpty()
                 roster.value = list
