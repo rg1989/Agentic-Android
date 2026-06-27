@@ -843,33 +843,9 @@ with:
       if (id) { delegator.onGone(id); agents.delete(id); verifier.remove(id); } // fail in-flight asks before dropping the worker
 ```
 
-3e. `backbone/src/panel.ts` — don't repurpose a socket with outstanding asks. There are **two** target sites, both the line `activeAgentId = id; agentSock = a.ws; agentName = a.name;` (the `select_agent` phone handler at `1277`, and the `/agent/select` HTTP route at `1430`). Insert the guard immediately before **each** (mind the differing indentation — 8 spaces at `1277`, 10 at `1430`). The hello-handler reassignment at `1189` uses `agentSock = ws` (not `a.ws`) and is **not** a target.
+3e. **(removed — no `select_agent` guard is needed).** An earlier draft failed a socket's in-flight asks (`delegator.onGone(id)`) when the phone made that worker active mid-ask. But the **askId reply routing in 3c already handles the active-flip correctly**: a delegated reply is matched by its `askId` and routed quietly to the waiter *regardless* of whether the worker became active — it never reaches the phone, and the ask resolves with the real answer. Adding `onGone` here would instead prematurely resolve the in-flight ask with `"(agent disconnected)"`, breaking the "ask resolves even if the worker is selected active mid-flight" test. **Leave `select_agent` (`activeAgentId = id; agentSock = a.ws; …`) and `/agent/select` unchanged.** (The redundant guard was the F3/F7 belt-and-suspenders made obsolete by askId routing.)
 
-At `1277`, replace:
-
-```ts
-        activeAgentId = id; agentSock = a.ws; agentName = a.name;
-```
-
-with:
-
-```ts
-        if (delegator.pending(id) > 0) delegator.onGone(id); // fail its asks rather than route them to the user
-        activeAgentId = id; agentSock = a.ws; agentName = a.name;
-```
-
-At `1430`, replace:
-
-```ts
-          activeAgentId = id; agentSock = a.ws; agentName = a.name;
-```
-
-with:
-
-```ts
-          if (delegator.pending(id) > 0) delegator.onGone(id); // fail its asks rather than route them to the user
-          activeAgentId = id; agentSock = a.ws; agentName = a.name;
-```
+3f-teardown. `backbone/src/panel.ts` — `startPanel().close()` must terminate any still-connected agent sockets, else a test (or shutdown) that leaves an agent connected keeps the event loop alive and hangs the suite. In `close()`, before closing the servers, add: `for (const c of agentWss.clients) { try { c.terminate(); } catch { /* */ } }`. This is correct production shutdown behavior too.
 
 3f. `backbone/src/panel.ts` — expose the delegator on the return object (Task 2's `return { http, agentWss, async close() {...} }`):
 
