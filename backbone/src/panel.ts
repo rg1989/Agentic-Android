@@ -919,10 +919,6 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   await bus.connect();
   logEvent("connection", `connected to relay ${relayUrl}`, { relayUrl });
   let _panelClosed = false;
-  // Guard bus.event() so it silently no-ops after close() instead of throwing "not connected".
-  // This prevents spurious uncaughtException events when agent sockets close during teardown.
-  const _realBusEvent = bus.event.bind(bus);
-  bus.event = (topic, data) => { if (!_panelClosed) try { _realBusEvent(topic, data); } catch { /* closed */ } };
 
   // ---------- pairing payload (shared by the QR + the manual code) ----------
   /** The exact string the phone needs to pair: a "PAIR:"-prefixed base64url blob of the hub's identity. */
@@ -1304,6 +1300,9 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     ws.on("close", () => {
       const id = (ws as any)._agentId as string | undefined;
       if (id) { agents.delete(id); verifier.remove(id); }
+      // Skip bus.event() calls if we are tearing down — the TCP socket can fire its close event
+      // after bus.close() completes (OS-level async), causing spurious "not connected" throws.
+      if (_panelClosed) return;
       if (agentSock === ws) {
         // The active agent left — promote another connected one, or go empty.
         const next = [...agents.entries()][0];
@@ -1744,9 +1743,9 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     async close() {
       _panelClosed = true;
       clearInterval(sweepTimer);
-      bus.close();
       await new Promise<void>((r) => agentWss.close(() => r()));
       await new Promise<void>((r) => server.close(() => r()));
+      bus.close();
     },
   };
 }
