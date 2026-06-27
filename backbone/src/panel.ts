@@ -956,11 +956,11 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   let pendingSay: ((text: string) => void) | null = null; // resolves /say with the next agent reply
   // Phase 8: the hub can hold several agents at once. `agentSock` stays the active one (single-agent
   // behavior is unchanged); this roster tracks everyone connected so the phone can see + switch them.
-  const agents = new Map<string, { ws: WebSocket; name: string }>();
+  const agents = new Map<string, { ws: WebSocket; name: string; description?: string }>();
   let activeAgentId: string | null = null;
   // `external` = the agent dialed in on its own (a remote/cloud brain or a hand-started CLI), i.e. the
   // hub didn't spawn it. The phone + web show a cloud icon for these.
-  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, active: id === activeAgentId, external: !managed.has(id), verified: verifier.status(id) ?? "verifying" }));
+  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, description: a.description, active: id === activeAgentId, external: !managed.has(id), verified: verifier.status(id) ?? "verifying" }));
   const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
 
   /** Where a remote/cloud agent dials in: same host the phone reaches, on the agent port. */
@@ -1236,11 +1236,12 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
       if (m.t === "hello") {
         const name = String(m.name ?? "agent");
+        const description = typeof m.description === "string" ? m.description : undefined;
         // A managed agent echoes the instanceId we spawned it with → reuse it so its roster entry and its
         // process share one id (the UI can then stop it). External agents get a fresh id.
         const id = (typeof m.id === "string" && m.id) ? m.id : randomUUID();
         (ws as any)._agentId = id;
-        agents.set(id, { ws, name });
+        agents.set(id, { ws, name, description });
         // Become the active agent only if there isn't a live one already (preserves single-agent flow).
         if (!agentSock || !activeAgentId || !agents.has(activeAgentId)) {
           activeAgentId = id; agentSock = ws; agentName = name;
@@ -1443,7 +1444,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       const connectedIds = new Set(agents.keys());
       const list = [
         ...rosterList().map((a) => ({
-          id: a.id, name: a.name, active: a.active, connected: true,
+          id: a.id, name: a.name, description: a.description, active: a.active, connected: true,
           ready: a.active ? agentReady : null, managed: managed.has(a.id), kind: managed.get(a.id)?.kind ?? "external",
           verified: a.verified, reason: verifier.reason(a.id) ?? null,
         })),

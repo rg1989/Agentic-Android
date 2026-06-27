@@ -24,6 +24,8 @@ export interface ProbeResult { ok: boolean; label?: string; command?: string }
 export interface AgentAdapter {
   /** Display name announced to the hub (env AGENT_NAME overrides this at runtime). */
   name: string;
+  /** One-line strength shown in the hub roster so an orchestrator can delegate by strength. */
+  description?: string;
   /** One-time startup check: can this brain actually answer here? Omit = assumed ready. */
   probe?(): Promise<ProbeResult>;
   /** Run a single user turn; resolve with the reply text to send back to the phone. */
@@ -56,7 +58,7 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
   let beat: ReturnType<typeof setInterval> | null = null;
 
   ws.on("open", () => {
-    ws.send(JSON.stringify({ t: "hello", name: process.env.AGENT_NAME ?? adapter.name, id: process.env.AGENT_INSTANCE_ID }));
+    ws.send(JSON.stringify({ t: "hello", name: process.env.AGENT_NAME ?? adapter.name, id: process.env.AGENT_INSTANCE_ID, description: process.env.AGENT_DESC ?? adapter.description }));
     console.error(`agent "${adapter.name}" connected to hub ${HUB_WS}`);
     // Heartbeat so the hub can tell "alive" from "socket open but process dead".
     beat = setInterval(() => { try { ws.send(JSON.stringify({ t: "heartbeat" })); } catch { /* socket closing */ } }, 15000);
