@@ -151,6 +151,14 @@ function addTurn(role: ChatTurn["role"], text: string, parts?: MsgPart[]) {
     persistSessionsIndex();
   }
 }
+function renameSession(id: string, title: string): boolean {
+  const s = sessions.find((x) => x.id === id);
+  if (!s) return false;
+  const t = trimTitle(title);
+  if (t && t !== "New chat") s.title = t;
+  persistSessionsIndex();
+  return true;
+}
 /** Sessions list for the phone (newest first) + which is active. */
 function sessionsPayload() {
   return { sessions: [...sessions].sort((a, b) => b.lastTs - a.lastTs).map((s) => ({ id: s.id, title: s.title, ts: s.lastTs })), activeId: activeSessionId };
@@ -293,128 +301,49 @@ const shellDoc = (active: string, title: string, bodyInner: string, extraCss = "
 </style></head>
 <body><div class="app">${sidebar(active)}<main class="appmain"><div class="inner">${bodyInner}</div></main></div></body></html>`;
 
-// ---- Chat page: hand-rolled (no library). Talks to whoever's in the driver seat via the existing /say.
-// The header dropdown picks the agent + Regular|Orchestrator mode and binds the driver seat before each
-// send (/agent/select, or spawn an orchestrator sibling via /agent/start). See the plan/spec for why.
-const CHAT_CSS = `
-  .inner{max-width:960px;height:100vh;padding:0;}
-  .chatwrap{display:flex;flex-direction:column;height:100vh;min-height:0;}
-  .chathead{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 22px;border-bottom:1px solid var(--border);flex:none;flex-wrap:wrap;}
-  .seat{display:flex;align-items:center;gap:9px;}
-  .sel{background:var(--surface-2);color:var(--text);border:1px solid var(--border-strong);border-radius:9px;padding:7px 10px;font:14px var(--sans);max-width:240px;}
-  .modeseg{display:inline-flex;border:1px solid var(--border-strong);border-radius:9px;overflow:hidden;}
-  .modeseg button{background:var(--surface);color:var(--text-dim);border:0;padding:7px 12px;font:13px var(--sans);cursor:pointer;}
-  .modeseg button.on{background:var(--accent-soft);color:var(--text);}
-  .modeseg button:disabled{opacity:.4;cursor:not-allowed;}
-  .modeseg .info{margin-left:5px;opacity:.7;}
-  .seatstatus{font-size:12.5px;color:var(--text-dim);}
-  .seatstatus .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--text-faint);margin-right:6px;vertical-align:middle;}
-  .seatstatus .dot.ok{background:var(--ok);}
-  .msgs{flex:1;min-height:0;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:11px;}
-  .msg{max-width:74%;padding:10px 13px;border-radius:13px;white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.5;}
-  .msg.user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px;}
-  .msg.bot{align-self:flex-start;background:var(--surface-2);border:1px solid var(--border);border-bottom-left-radius:4px;}
-  .msg.err{align-self:center;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.32);color:var(--err);font-size:13px;}
-  .msg.think{align-self:flex-start;color:var(--text-faint);font-size:13px;}
-  .empty{margin:auto;text-align:center;color:var(--text-dim);max-width:360px;font-size:14px;}
-  .composer{flex:none;display:flex;gap:10px;padding:14px 22px;border-top:1px solid var(--border);}
-  .composer textarea{flex:1;resize:none;background:var(--surface-2);color:var(--text);border:1px solid var(--border-strong);border-radius:11px;padding:11px 13px;font:14px var(--sans);max-height:160px;line-height:1.5;}
-  .composer button{flex:none;background:var(--accent);color:#fff;border:0;border-radius:11px;padding:0 20px;font:14px var(--sans);font-weight:600;cursor:pointer;}
-  .composer button:disabled{opacity:.5;cursor:not-allowed;}`;
-const CHAT_BODY = `<div class="chatwrap">
-  <header class="chathead">
-    <div class="seat">
-      <select id="agentsel" class="sel"></select>
-      <div class="modeseg" id="modeseg">
-        <button type="button" data-m="regular" class="on">Regular</button>
-        <button type="button" data-m="orchestrator">Orchestrator<span class="info">ⓘ</span></button>
+// ---- Chat page: a full client (sessions, slash menu, files, rich render, live SSE). The HTML skeleton
+// lives here; all CSS + logic are served as static files from backbone/public/ via GET /public/* so the
+// ~500-line client isn't trapped in a template literal. See docs/.../2026-06-27-web-chat-spec.md.
+const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.css">
+<link rel="stylesheet" href="/public/chat.css">
+<div class="chatshell">
+  <aside class="sx" id="sx" aria-label="Chats">
+    <div class="sxhead"><button class="newchat" id="newchat">＋ New chat</button></div>
+    <div class="sxsearch"><input id="sxsearch" placeholder="Search chats…" autocomplete="off" aria-label="Search chats"></div>
+    <div class="sxlist" id="sxlist"></div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+  <section class="cmain">
+    <header class="chathead">
+      <button class="iconbtn drawer" id="drawer" aria-label="Toggle chat list">☰</button>
+      <div class="seat">
+        <select id="agentsel" class="sel" aria-label="Agent"></select>
+        <div class="modeseg" id="modeseg" role="tablist" aria-label="Agent mode">
+          <button type="button" data-m="regular" class="on" role="tab">Regular</button>
+          <button type="button" data-m="orchestrator" role="tab">Orchestrator<span class="info">ⓘ</span></button>
+        </div>
       </div>
+      <div class="seatstatus" id="seatstatus" aria-live="polite"></div>
+    </header>
+    <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Conversation"></div>
+    <button class="jump" id="jump" hidden>↓ Latest</button>
+    <div class="composer-wrap">
+      <div class="chips" id="chips"></div>
+      <div class="slash" id="slash" role="listbox" hidden></div>
+      <form class="composer" id="composer">
+        <button type="button" class="iconbtn attach" id="attach" aria-label="Attach file">＋</button>
+        <textarea id="inp" rows="1" placeholder="Message the agent…   ( / for commands, Shift+Enter for newline )" autocomplete="off" aria-label="Message"></textarea>
+        <button type="submit" id="send">Send</button>
+        <button type="button" id="stop" hidden>Stop</button>
+      </form>
+      <input type="file" id="filein" multiple hidden>
     </div>
-    <div class="seatstatus" id="seatstatus"></div>
-  </header>
-  <div class="msgs" id="msgs"></div>
-  <form class="composer" id="composer">
-    <textarea id="inp" rows="1" placeholder="Message the agent in the driver seat…" autocomplete="off"></textarea>
-    <button type="submit" id="send">Send</button>
-  </form>
+  </section>
 </div>
-<script>
-(function(){
-  var msgs=document.getElementById('msgs'),inp=document.getElementById('inp'),sendBtn=document.getElementById('send');
-  var form=document.getElementById('composer'),sel=document.getElementById('agentsel'),seg=document.getElementById('modeseg'),seat=document.getElementById('seatstatus');
-  var mode='regular',roster=[],active=null,spawnedOrch={},busy=false;
-  function el(cls,text){var d=document.createElement('div');d.className=cls;if(text!=null)d.textContent=text;return d;}
-  function add(cls,text){var d=el(cls,text);var e=msgs.querySelector('.empty');if(e)e.remove();msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
-  function post(url,body){return fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json().catch(function(){return {};});});}
-  function selectedAgent(){return roster.filter(function(a){return a.id===sel.value;})[0]||null;}
-  function orchAllowed(a){if(!a)return false;if(a.orchestrator)return true;return a.kind!=='external';}
-  function syncModeButtons(){[].forEach.call(seg.querySelectorAll('button'),function(b){b.classList.toggle('on',b.getAttribute('data-m')===mode);});}
-  function renderSeat(){
-    var a=selectedAgent(),oBtn=seg.querySelector('[data-m="orchestrator"]'),allowed=orchAllowed(a);
-    oBtn.disabled=!allowed;
-    if(!allowed&&mode==='orchestrator'){mode='regular';syncModeButtons();}
-    oBtn.title=allowed?'Orchestrator: this agent takes the hub driver seat and can delegate subtasks to your other (regular) agents.':'Remote agent — start it with AGENT_HUBS set on its own host to use it as an orchestrator.';
-    seat.innerHTML='';
-    var dot=document.createElement('span');dot.className='dot'+(active&&active.ready?' ok':'');seat.appendChild(dot);
-    var t=document.createElement('span');t.textContent=active?('Driver seat: '+active.name+(active.ready===false?' (not ready)':'')):'No agent in the driver seat';seat.appendChild(t);
-  }
-  function fillAgents(){
-    sel.innerHTML='';
-    if(!roster.length){var o=document.createElement('option');o.value='';o.textContent='— no agents —';sel.appendChild(o);sel.disabled=true;return;}
-    sel.disabled=false;
-    roster.forEach(function(a){var o=document.createElement('option');o.value=a.id;o.textContent=a.name+(a.orchestrator?' ⚡':'')+(a.external?' ☁':'');sel.appendChild(o);});
-    var def=(active&&roster.some(function(a){return a.id===active.id;}))?active.id:roster[0].id;sel.value=def;
-  }
-  function updateEmpty(){
-    var e=msgs.querySelector('.empty');
-    if(msgs.querySelector('.msg')){if(e)e.remove();}
-    else{var txt=roster.length?'Pick an agent above, then say hello. Your conversation starts here.':'No agent connected. Start one in Connections and it will appear here automatically.';if(!e)msgs.appendChild(el('empty',txt));else e.textContent=txt;}
-    sendBtn.disabled=busy||!roster.length;
-  }
-  function refresh(){return fetch('/status').then(function(r){return r.json();}).then(function(s){
-    roster=(s.agents||[]).filter(function(a){return a.connected;});active=s.active||null;
-    var keep=sel.value;fillAgents();if(keep&&roster.some(function(a){return a.id===keep;}))sel.value=keep;
-    renderSeat();updateEmpty();
-  }).catch(function(){});}
-  function waitConnected(id,timeout){var start=Date.now();return new Promise(function(resolve,reject){(function poll(){
-    fetch('/status').then(function(r){return r.json();}).then(function(s){
-      if((s.agents||[]).some(function(a){return a.id===id&&a.connected;}))return resolve(id);
-      if(Date.now()-start>timeout)return reject(new Error('orchestrator did not connect in time'));
-      setTimeout(poll,500);
-    }).catch(function(){setTimeout(poll,500);});
-  })();});}
-  function ensureSeat(){
-    var a=selectedAgent();if(!a)return Promise.reject(new Error('no agent connected'));
-    if(mode==='regular'||a.orchestrator){
-      if(active&&active.id===a.id)return Promise.resolve();
-      return post('/agent/select',{id:a.id}).then(refresh);
-    }
-    var kind=a.kind||'claude',existing=spawnedOrch[kind];
-    if(existing&&roster.some(function(x){return x.id===existing;}))return post('/agent/select',{id:existing}).then(refresh);
-    return post('/agent/start',{type:kind,orchestrator:true,name:a.name+' \\u26a1'}).then(function(r){
-      if(!r||!r.ok)throw new Error((r&&r.error)||'could not start an orchestrator');
-      spawnedOrch[kind]=r.id;return waitConnected(r.id,20000);
-    }).then(function(id){return post('/agent/select',{id:id});}).then(refresh);
-  }
-  function send(text){
-    busy=true;sendBtn.disabled=true;add('msg user',text);
-    var thinking=add('msg think','…');
-    ensureSeat().then(function(){return post('/say',{text:text});}).then(function(r){
-      thinking.remove();
-      if(r&&typeof r.reply==='string')add('msg bot',r.reply);else add('msg err',(r&&r.error)||'No reply.');
-    }).catch(function(e){thinking.remove();add('msg err',String(e&&e.message||e));}).then(function(){
-      busy=false;sendBtn.disabled=!roster.length;inp.focus();
-    });
-  }
-  function autosize(){inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,160)+'px';}
-  form.addEventListener('submit',function(e){e.preventDefault();var t=inp.value.trim();if(!t||busy)return;inp.value='';autosize();send(t);});
-  inp.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}});
-  inp.addEventListener('input',autosize);
-  sel.addEventListener('change',renderSeat);
-  seg.addEventListener('click',function(e){var b=e.target.closest('button');if(!b||b.disabled)return;mode=b.getAttribute('data-m');syncModeButtons();renderSeat();});
-  refresh();setInterval(refresh,4000);inp.focus();
-})();
-</script>`;
+<script src="/public/vendor/marked.min.js"></script>
+<script src="/public/vendor/purify.min.js"></script>
+<script src="/public/vendor/highlight.min.js"></script>
+<script src="/public/chat.js"></script>`;
 
 const PAGE = (caps: Cap[], relayUrl: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1139,6 +1068,17 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   logEvent("connection", `connected to relay ${relayUrl}`, { relayUrl });
   let _panelClosed = false;
 
+  // ---- Server-Sent Events: the web chat is a live peer of the phone. Instead of touching every
+  // bus.event() call site, we wrap bus.event ONCE so every hub→client event also fans out to browsers
+  // over GET /stream. The browser mirrors exactly what the phone receives over the relay. ----
+  const sseClients = new Set<http.ServerResponse>();
+  const sseSend = (res: http.ServerResponse, topic: string, data: unknown) => {
+    try { res.write(`event: ${topic}\ndata: ${JSON.stringify(data ?? {})}\n\n`); } catch { /* client gone */ }
+  };
+  const sseBroadcast = (topic: string, data: unknown) => { for (const r of sseClients) sseSend(r, topic, data); };
+  const _busEventRaw = bus.event.bind(bus);
+  (bus as unknown as { event: (t: string, d: unknown) => void }).event = (topic, data) => { sseBroadcast(topic, data); return _busEventRaw(topic, data as Record<string, unknown>); };
+
   // ---------- pairing payload (shared by the QR + the manual code) ----------
   /** The exact string the phone needs to pair: a "PAIR:"-prefixed base64url blob of the hub's identity. */
   const pairPayload = () => "PAIR:" + Buffer.from(JSON.stringify({
@@ -1573,6 +1513,28 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   const histMsgs = () => conversation.slice(-100).map((t) => ({ role: t.role, text: t.text, ts: t.ts, ...(t.parts?.length ? { parts: t.parts } : {}) }));
   const emitHistory = () => bus.event("history", { messages: histMsgs() });
   const emitSessions = () => bus.event("sessions", sessionsPayload());
+  // One user→agent delivery path shared by the phone (relay user_message) and the web chat (POST
+  // /ask-async): persist attached file blobs to disk, record the turn, forward to the active agent.
+  // The reply returns asynchronously via the agent WS → bus.event("assistant_message") → phone + SSE.
+  async function deliverUserMessage(text: string, parts?: MsgPart[]) {
+    logEvent("user_message", text, { text, parts });
+    const files: { path: string; name: string; mime?: string; size?: number }[] = [];
+    for (const p of parts ?? []) {
+      if (p.kind !== "file") continue;
+      try {
+        const bytes = await bus.getBlob(p.blobId);
+        fs.mkdirSync(filesDir(), { recursive: true });
+        const safe = p.name.replace(/[^\w.\-]+/g, "_") || "file";
+        const fp = path.join(filesDir(), `${Date.now()}_${safe}`);
+        fs.writeFileSync(fp, bytes);
+        files.push({ path: fp, name: p.name, mime: p.mime, size: bytes.length });
+        logEvent("phone_event", `saved attached file ${p.name} (${bytes.length} bytes)`, { path: fp });
+      } catch (e) { logEvent("error", `failed to save attached file ${p.name}`, { error: String(e) }); }
+    }
+    addTurn("user", text || (files.length ? `(sent ${files.length} file${files.length > 1 ? "s" : ""})` : ""), parts);
+    if (agentSock) agentSock.send(JSON.stringify({ t: "user", text, ...(files.length ? { files } : {}) }));
+    else { bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." }); logEvent("error", "user_message but no agent connected"); }
+  }
   bus.onEvent((ev) => {
     if (ev.topic === "whoami") {
       bus.event("agent_identity", { name: agentName ?? "No agent connected", relay: cfg.relayUrl });
@@ -1624,31 +1586,8 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     }
     if (ev.topic === "user_message") {
       const d = ev.data as { text?: unknown; parts?: unknown };
-      const text = String(d.text ?? "");
       const parts = Array.isArray(d.parts) ? (d.parts as MsgPart[]) : undefined;
-      logEvent("user_message", text, { text, parts });
-      // Persist any attached file blobs to disk so the agent gets a real local path + mime to open.
-      void (async () => {
-        const files: { path: string; name: string; mime?: string; size?: number }[] = [];
-        for (const p of parts ?? []) {
-          if (p.kind !== "file") continue;
-          try {
-            const bytes = await bus.getBlob(p.blobId);
-            fs.mkdirSync(filesDir(), { recursive: true });
-            const safe = p.name.replace(/[^\w.\-]+/g, "_") || "file";
-            const fp = path.join(filesDir(), `${Date.now()}_${safe}`);
-            fs.writeFileSync(fp, bytes);
-            files.push({ path: fp, name: p.name, mime: p.mime, size: bytes.length });
-            logEvent("phone_event", `saved attached file ${p.name} (${bytes.length} bytes)`, { path: fp });
-          } catch (e) { logEvent("error", `failed to save attached file ${p.name}`, { error: String(e) }); }
-        }
-        addTurn("user", text || (files.length ? `(sent ${files.length} file${files.length > 1 ? "s" : ""})` : ""), parts);
-        if (agentSock) agentSock.send(JSON.stringify({ t: "user", text, ...(files.length ? { files } : {}) }));
-        else {
-          bus.event("assistant_message", { text: "No agent is connected. Start one on the machine: `pnpm agent`." });
-          logEvent("error", "user_message but no agent connected");
-        }
-      })();
+      void deliverUserMessage(String(d.text ?? ""), parts);
       return;
     }
     logEvent("phone_event", `phone event: ${ev.topic}`, ev.data);
@@ -1687,7 +1626,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       res.setHeader("content-type", "text/html"); res.end(PAGE(caps, cfg.relayUrl)); return;
     }
     if (req.method === "GET" && url.pathname === "/chat") {
-      res.setHeader("content-type", "text/html"); res.end(shellDoc("/chat", "Chat", CHAT_BODY, CHAT_CSS)); return;
+      res.setHeader("content-type", "text/html"); res.end(shellDoc("/chat", "Chat", CHAT_BODY)); return;
     }
     if (req.method === "GET" && url.pathname === "/settings") {
       const body = `<h2>Settings</h2>
@@ -1869,8 +1808,94 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     if (req.method === "GET" && url.pathname === "/catalog") { void refreshCatalog().then(() => json(caps)); return; }
     if (req.method === "GET" && url.pathname.startsWith("/blob/")) {
       const id = url.pathname.slice("/blob/".length);
-      bus.getBlob(id).then((bytes) => { res.setHeader("content-type", "image/jpeg"); res.end(Buffer.from(bytes)); })
-        .catch((e) => { res.statusCode = 502; res.end(String(e)); });
+      const mime = url.searchParams.get("mime") || "image/jpeg"; // legacy default keeps existing image refs working
+      const name = url.searchParams.get("name");
+      const download = url.searchParams.get("download");
+      bus.getBlob(id).then((bytes) => {
+        res.setHeader("content-type", mime);
+        if (download) res.setHeader("content-disposition", `attachment${name ? `; filename="${name.replace(/[^\w.\- ]+/g, "_")}"` : ""}`);
+        res.end(Buffer.from(bytes));
+      }).catch((e) => { res.statusCode = 502; res.end(String(e)); });
+      return;
+    }
+    // ---- Web-chat backend: static vendored libs, live SSE stream, non-blocking send, sessions, files ----
+    if (req.method === "GET" && url.pathname.startsWith("/public/")) {
+      const publicDir = path.join(backboneDir, "public");
+      const full = path.normalize(path.join(publicDir, decodeURIComponent(url.pathname.slice("/public/".length))));
+      if (full !== publicDir && !full.startsWith(publicDir + path.sep)) { res.statusCode = 403; res.end("forbidden"); return; }
+      fs.readFile(full, (err, buf) => {
+        if (err) { res.statusCode = 404; res.end("not found"); return; }
+        const ext = path.extname(full).toLowerCase();
+        const ct = ext === ".js" ? "application/javascript; charset=utf-8" : ext === ".css" ? "text/css; charset=utf-8"
+          : ext === ".svg" ? "image/svg+xml" : ext === ".json" ? "application/json" : ext === ".woff2" ? "font/woff2" : "application/octet-stream";
+        res.setHeader("content-type", ct); res.setHeader("cache-control", "max-age=3600"); res.end(buf);
+      });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/stream") {
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", "x-accel-buffering": "no" });
+      res.write(": connected\n\n");
+      sseClients.add(res);
+      // Replay current state to THIS browser only (mirrors the phone's whoami replay), so a fresh tab
+      // hydrates immediately without a separate poll.
+      sseSend(res, "agent_identity", { name: agentName ?? "No agent connected" });
+      sseSend(res, "agents_roster", { agents: rosterList() });
+      sseSend(res, "sessions", sessionsPayload());
+      sseSend(res, "history", { messages: histMsgs() });
+      if (agentCommands.length) sseSend(res, "agent_commands", { commands: agentCommands });
+      if (agentStatus.label || agentReady != null) sseSend(res, "agent_status", { label: agentStatus.label ?? null, ready: agentReady });
+      const hb = setInterval(() => { try { res.write(": ping\n\n"); } catch { /* */ } }, 15000);
+      req.on("close", () => { clearInterval(hb); sseClients.delete(res); });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/ask-async") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { text, parts } = JSON.parse(body || "{}");
+          if (!agentSock) return json({ ok: false, error: "no agent connected" }, 503);
+          void deliverUserMessage(String(text ?? ""), Array.isArray(parts) ? (parts as MsgPart[]) : undefined);
+          json({ ok: true });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/sessions") return json(sessionsPayload());
+    if (req.method === "GET" && url.pathname === "/history") {
+      const id = url.searchParams.get("id");
+      const turns = id ? readTurns(sessionFilePath(id)) : conversation;
+      return json({ messages: turns.slice(-200).map((t) => ({ role: t.role, text: t.text, ts: t.ts, ...(t.parts?.length ? { parts: t.parts } : {}) })) });
+    }
+    if (req.method === "GET" && url.pathname === "/commands") return json({ commands: agentCommands });
+    if (req.method === "POST" && (url.pathname === "/session/new" || url.pathname === "/session/select" || url.pathname === "/session/delete" || url.pathname === "/session/rename")) {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const b = JSON.parse(body || "{}");
+          const id = String(b.id ?? "");
+          if (url.pathname === "/session/new") newSession();
+          else if (url.pathname === "/session/select") { if (!selectSession(id)) return json({ ok: false, error: "no such session" }, 404); }
+          else if (url.pathname === "/session/delete") deleteSession(id);
+          else if (url.pathname === "/session/rename") { if (!renameSession(id, String(b.title ?? ""))) return json({ ok: false, error: "no such session" }, 404); }
+          emitHistory(); emitSessions();
+          json({ ok: true, ...sessionsPayload() });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/upload") {
+      const name = url.searchParams.get("name") ?? "file";
+      const mime = url.searchParams.get("mime") || String(req.headers["content-type"] ?? "application/octet-stream");
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(c as Buffer));
+      req.on("end", async () => {
+        try {
+          const bytes = new Uint8Array(Buffer.concat(chunks));
+          if (!bytes.length) return json({ ok: false, error: "empty upload" }, 400);
+          const { blob_id } = await bus.putBlob(bytes, mime);
+          json({ ok: true, blobId: blob_id, name, mime, size: bytes.length });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
       return;
     }
     if (req.method === "POST" && url.pathname === "/ask") {
