@@ -132,6 +132,11 @@ make open      # → http://127.0.0.1:8123
 
 Other commands: `make stop`, `make restart`, `make logs`, `make install`.
 
+> **Prefer `make` / `./start.sh`** — they `cd` into `backbone` and start the whole stack for you. The
+> lower-level `pnpm` scripts (`pnpm hub`, `pnpm relay`, `pnpm agent:claude`, `pnpm agent:orchestrator`,
+> `pnpm test`) run from the **repo root** (via root-`package.json` proxies) **or** from `backbone/` —
+> just don't run a single process and expect the others; that's what `start.sh` wires together.
+
 ### 2. Build and install the phone app
 
 Plug in the phone (USB debugging on, accept the prompt), then:
