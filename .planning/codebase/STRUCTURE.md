@@ -19,7 +19,7 @@ Agentic-Android/
 │   │   ├── phone-mcp.ts          # MCP server for ANY MCP host
 │   │   ├── parts.ts              # Rich message types (markdown, table, image, file)
 │   │   ├── phone-sim.ts          # Phone simulator for testing
-│   │   ├── pairing.ts            # Pairing handshake protocol
+│   │   ├── pairing.ts            # Pairing handshake (QR + manual code)
 │   │   ├── scheduler.ts          # Hub-owned task scheduler
 │   │   ├── bridge.ts             # (Legacy or internal)
 │   │   └── ...
@@ -38,7 +38,8 @@ Agentic-Android/
 │   ├── app/
 │   │   ├── src/main/java/com/agenticandroid/
 │   │   │   ├── MainActivity.kt                # Compose chat UI
-│   │   │   ├── PhoneAgentService.kt           # Foreground service (relay connection)
+│   │   │   ├── PhoneAgentService.kt           # Foreground service (orchestrates all hub connections)
+│   │   │   ├── HubConnection.kt               # Per-hub connection (one BusEndpoint + roster/online state)
 │   │   │   ├── BusEndpoint.kt                 # Relay client (Kotlin mirror)
 │   │   │   ├── Crypto.kt                      # E2E encryption (libsodium)
 │   │   │   ├── Capabilities.kt                # Registry + Tier-1 implementations
@@ -107,9 +108,10 @@ Agentic-Android/
 - Key files: `relay.ts`, `panel.ts`, `agent.ts`, `brain.ts`, `peer.ts`, `protocol.ts`, `crypto.ts`
 
 **backbone/src/ (Implementation)**
-- `relay.ts`: Untrusted message router (Q2/Q5). Stateless; only sees fingerprints. WebSocket + HTTP for blobs.
+- `relay.ts`: Untrusted message router (Q2/Q5). Stateless; only sees fingerprints. WebSocket + HTTP for blobs. Also hosts the pair-code rendezvous (`POST /pair-code` → 8-char code; `GET /pair-code/:code` → non-secret pairing payload, ~10 min TTL).
 - `panel.ts`: Hub — owns phone connection, agent roster, chat sessions, media, event log, scheduler. HTTP `:8123` + WebSocket `:8124`.
 - `peer.ts`: BusEndpoint class — unified relay client used by phone, hub, and agents. Handshake, E2E encryption, request/response correlation.
+- `panel.ts` (web UI): hub control panel. Shows QR + manual pairing code (`host/CODE`), hub name editor (`POST /hub-name`). Hub name defaults to `os.hostname()`, stored as `hubName` in agent.json.
 - `protocol.ts`: Zod schemas for Envelope (relay-visible) and InnerMessage (E2E). parseFrame(), encodeInner(), newId().
 - `crypto.ts`: libsodium wrapper. generateIdentity(), fingerprint(), sign/verify (relay auth), sealFor/openFrom (E2E encryption), sealString/openString (JSON convenience).
 - `agent.ts`: Agent entry point. Connects to hub WebSocket, receives messages, calls makeBrain(), correlates tool requests, reports status.
@@ -118,15 +120,15 @@ Agentic-Android/
 - `phone-mcp.ts`: MCP stdio server. Exposes phone capabilities as Model Context Protocol tools. Fetches catalog from hub, proxies tool calls via HTTP.
 - `parts.ts`: Rich message types. MsgPart (markdown, image, file, table). AssistantMessage (text + optional parts). spokenText() for TTS.
 - `scheduler.ts`: Hub-owned task manager. Deferred and recurring actions. Persists to disk. Survives hub restart.
-- `pairing.ts`: Pairing handshake (generating shared identity, QR encoding).
+- `pairing.ts`: Pairing handshake (generating shared identity, QR encoding, manual pair-code). Payload carries the hub name and a `hub_identity` event.
 - `phone-sim.ts`: Phone mock for testing (simulator).
 - `bridge.ts`: (Internal or legacy, check recent commits for status).
 
 **backbone/test/ (Test Suites)**
-- `relay.test.ts`: Relay handshake, routing, offline queue, blob storage.
+- `relay.test.ts`: Relay handshake, routing, offline queue, blob storage, pair-code rendezvous.
 - `agent-cli.test.ts`: Agent CLI message round-trip.
 - `e2e.test.ts`: Full-stack: phone → relay → hub → agent → reply.
-- `pairing.test.ts`: Pairing QR generation.
+- `pairing.test.ts`: Pairing QR generation and manual pair-code.
 - `crypto.test.ts`: Ed25519, fingerprinting, E2E encryption round-trips.
 - `scheduler.test.ts`: Scheduler persistence and timing.
 
@@ -136,9 +138,10 @@ Agentic-Android/
 **android/app/src/main/java/com/agenticandroid/ (Kotlin Android App)**
 
 **Top-level UI & Services:**
-- `MainActivity.kt`: Compose chat UI. Entry point. Message list, input field, media picker, session switcher, settings drawer.
-- `PhoneAgentService.kt`: Foreground service (prevents system kill). Holds relay connection. Implements `onRequest` handler (consent dispatch).
-- `SettingsActivity.kt`: Settings screen. Relay URL, wake-word toggle, agent switcher, connection enable/disable.
+- `MainActivity.kt`: Compose chat UI. Entry point. Message list, input field, media picker, session switcher, settings drawer. Drawer hub list is info-only (online/offline dots, no switching); header agent picker lists agents across all online hubs (grouped by hub, via `selectAgentOnHub`).
+- `PhoneAgentService.kt`: Foreground service (prevents system kill). Orchestrates a `Map<hubId, HubConnection>` — stays connected to all paired hubs at once. Implements `onRequest` handler (consent dispatch). API: `switchHub`/`switchAgent` (re-point foreground hub, no reconnect), `selectAgent`, `selectAgentOnHub`, `forgetHub`, `ensureConnections`. State flows: `onlineHubs`, `allAgents`, `unreadHubs`.
+- `HubConnection.kt`: One paired hub's connection. Owns its BusEndpoint plus that hub's roster and online state. A hub is "online" only once it answers the phone's whoami (a live relay socket alone is not enough).
+- `SettingsActivity.kt`: Settings screen. Relay URL, wake-word toggle, connection enable/disable, and Hubs section (rename a hub via local label, Forget/unpair via `forgetHub`, Pair another hub).
 
 **Networking & Crypto:**
 - `BusEndpoint.kt`: Relay client (Kotlin mirror of `backbone/src/peer.ts`). Handshake, E2E encryption, request correlation.
@@ -150,7 +153,7 @@ Agentic-Android/
 - `Consent.kt`: Consent policy (DENY/ASK/ALLOW). Per-agent trust state, per-method sensitivity.
 
 **State & Persistence:**
-- `Agents.kt`: Multi-agent roster. Which agents paired, which is active.
+- `Agents.kt`: Multi-agent roster + paired-hub records. `AgentProfile` holds the hub `name` (from pairing) and an optional per-phone `localName`; `display()` = `localName ?: name`.
 - `SettingsStore.kt`: UI state (relay URL, wake-word enabled, connection toggle). Flows for reactive updates.
 - `MsgPart.kt`: Rich message rendering (markdown, image, file, table).
 
@@ -179,6 +182,7 @@ Agentic-Android/
 **Subdirectories:**
 - `capabilities/registerTier1.kt`: Tier-1 capability registration (camera, location, SMS, notifications).
 - `pairing/Confirmer.kt`: User consent modal (Compose).
+- `pairing/PairingActivity.kt`, `pairing/Pairing.kt`: Pairing screen — scan QR or "Enter code instead" to redeem a manual pair-code.
 - `voice/TextToSpeech.kt`: TTS provider abstraction.
 - `automation/`: UI automation helpers (if any).
 
@@ -221,7 +225,7 @@ Agentic-Android/
 
 **Configuration:**
 - Phone pairing identity: `~/.agentic-android/agent.json` (JSON, contains `phone.edPub/edSec/fp` and `hub.edPub/edSec/fp`)
-- Hub config: `~/.agentic-android/agent.json` (shares with phone; agent settings, relay URL, brain config)
+- Hub config: `~/.agentic-android/agent.json` (shares with phone; agent settings, relay URL, brain config, `hubName`)
 - Chat history: `~/.agentic-android/sessions/*.jsonl` (per-session turns)
 - Event log: `~/.agentic-android/panel-events.jsonl` (hub audit log)
 - Scheduled tasks: `~/.agentic-android/scheduled-tasks.jsonl` (persistent scheduler state)

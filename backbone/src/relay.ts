@@ -13,6 +13,7 @@
  *   scale past one node. Blob auth = random-id-as-capability; mark: add a per-blob signature if needed.
  */
 import http from "node:http";
+import { randomInt } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { parseFrame, type Envelope } from "./protocol.ts";
 import { fingerprint, verify, randomId, ready as cryptoReady } from "./crypto.ts";
@@ -26,6 +27,8 @@ export interface RelayOptions {
   maxQueuePerPeer?: number;
   /** Blob TTL in ms. */
   blobTtlMs?: number;
+  /** Manual-pairing-code rendezvous TTL in ms (default 10 min). */
+  pairCodeTtlMs?: number;
   /** Max WS message bytes (control channel stays small; media goes via blobs). */
   maxPayloadBytes?: number;
 }
@@ -42,18 +45,31 @@ export interface Relay {
   readonly peers: Map<string, PeerState>;
   queueDepth(fp: string): number;
   blobCount(): number;
+  pairCodeCount(): number;
 }
+
+// Manual pairing code: short + human-typable. Unambiguous alphabet (no 0/O/1/I/L) so a code read off
+// the hub screen and typed into the phone doesn't get garbled. 8 chars over 31 symbols ≈ 40 bits.
+const PAIR_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+function makePairCode(len = 8): string {
+  let s = "";
+  for (let i = 0; i < len; i++) s += PAIR_CODE_ALPHABET[randomInt(PAIR_CODE_ALPHABET.length)];
+  return s;
+}
+interface PairCode { payload: string; expires: number }
 
 export function createRelay(opts: RelayOptions = {}): Relay {
   const maxQueue = opts.maxQueuePerPeer ?? 1000;
   const blobTtl = opts.blobTtlMs ?? 5 * 60_000;
+  const pairCodeTtl = opts.pairCodeTtlMs ?? 10 * 60_000;
   const maxPayload = opts.maxPayloadBytes ?? 256 * 1024;
 
   const peers = new Map<string, PeerState>(); // fp -> connected+authed socket
   const queues = new Map<string, Envelope[]>(); // fp -> pending envelopes (offline)
   const blobs = new Map<string, { data: Buffer; expires: number }>();
+  const pairCodes = new Map<string, PairCode>(); // short code -> pairing payload (manual pairing)
 
-  const httpServer = http.createServer((req, res) => handleHttp(req, res, blobs, blobTtl));
+  const httpServer = http.createServer((req, res) => handleHttp(req, res, { blobs, blobTtl, pairCodes, pairCodeTtl }));
   const wss = new WebSocketServer({ server: httpServer, maxPayload });
 
   function deliverOrQueue(env: Envelope) {
@@ -136,10 +152,11 @@ export function createRelay(opts: RelayOptions = {}): Relay {
     ws.on("error", () => {});
   });
 
-  // TTL sweeper for blobs.
+  // TTL sweeper for blobs + pairing codes.
   const sweeper = setInterval(() => {
     const now = Date.now();
     for (const [id, b] of blobs) if (b.expires <= now) blobs.delete(id);
+    for (const [code, c] of pairCodes) if (c.expires <= now) pairCodes.delete(code);
   }, 30_000);
   sweeper.unref?.();
 
@@ -147,6 +164,7 @@ export function createRelay(opts: RelayOptions = {}): Relay {
     peers,
     queueDepth: (fp) => queues.get(fp)?.length ?? 0,
     blobCount: () => blobs.size,
+    pairCodeCount: () => pairCodes.size,
     async listen(port = 0) {
       await cryptoReady();
       await new Promise<void>((resolve) => httpServer.listen(port, resolve));
@@ -162,8 +180,58 @@ export function createRelay(opts: RelayOptions = {}): Relay {
   };
 }
 
+interface HttpCtx {
+  blobs: Map<string, { data: Buffer; expires: number }>;
+  blobTtl: number;
+  pairCodes: Map<string, PairCode>;
+  pairCodeTtl: number;
+}
+
+function handleHttp(req: http.IncomingMessage, res: http.ServerResponse, ctx: HttpCtx) {
+  const pathname = (req.url ?? "").split("?")[0];
+  if (pathname === "/pair-code" || pathname.startsWith("/pair-code/")) return handlePairCode(req, res, pathname, ctx);
+  return handleBlob(req, res, ctx.blobs, ctx.blobTtl);
+}
+
+// ---------- manual-pairing-code rendezvous ----------
+// The hub PUTs its (non-secret) pairing payload here and shows the short code beside the QR; the phone
+// fetches the payload by typing that code. Same trust model as the QR (which is also a non-secret blob
+// anyone glancing at the screen can read), just delivered by a short code instead of the camera.
+// ponytail: in-memory + TTL, no auth. Guessing an 8-char code in the TTL window is the ceiling; tighten
+//   the alphabet/length or add per-code single-use if pairing ever carries a secret.
+function handlePairCode(req: http.IncomingMessage, res: http.ServerResponse, pathname: string, ctx: HttpCtx) {
+  // Register: POST /pair-code with the payload as the body → { code }.
+  if (pathname === "/pair-code" && req.method === "POST") {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > 8 * 1024) { res.writeHead(413).end("too large"); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on("end", () => {
+      if (res.writableEnded) return;
+      const payload = Buffer.concat(chunks).toString("utf8").trim();
+      if (!payload) { res.writeHead(400).end("empty payload"); return; }
+      const code = makePairCode();
+      ctx.pairCodes.set(code, { payload, expires: Date.now() + ctx.pairCodeTtl });
+      res.writeHead(201, { "content-type": "application/json" }).end(JSON.stringify({ code, ttlMs: ctx.pairCodeTtl }));
+    });
+    return;
+  }
+  // Fetch: GET /pair-code/CODE → the payload (plain text). Case-insensitive so the user can type lower-case.
+  const m = pathname.match(/^\/pair-code\/([A-Za-z0-9]{4,16})$/);
+  if (m && req.method === "GET") {
+    const c = ctx.pairCodes.get(m[1].toUpperCase());
+    if (!c || c.expires <= Date.now()) { res.writeHead(404).end("not found"); return; }
+    res.writeHead(200, { "content-type": "text/plain; charset=utf-8" }).end(c.payload);
+    return;
+  }
+  res.writeHead(404).end("not found");
+}
+
 // ---------- blob endpoints (out-of-band media) ----------
-function handleHttp(
+function handleBlob(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   blobs: Map<string, { data: Buffer; expires: number }>,

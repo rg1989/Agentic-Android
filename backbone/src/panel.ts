@@ -24,6 +24,7 @@ import { ready } from "./crypto.ts";
 import { BusEndpoint } from "./peer.ts";
 import type { MsgPart } from "./parts.ts";
 import { Scheduler, type Task } from "./scheduler.ts";
+import { Verifier } from "./agent-verify.ts";
 import { randomUUID } from "node:crypto";
 
 interface Cap { method: string; sensitivity: string; summary: string }
@@ -205,6 +206,19 @@ function phoneRelayUrl(cfgRelayUrl: string): string {
 function saveRelayChoice(value: string) {
   const cfg = loadCfg();
   if (value === "auto") delete cfg.phoneRelayUrl; else cfg.phoneRelayUrl = value;
+  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
+}
+
+/** This hub's display name, shown on the phone. Defaults to the machine hostname (e.g. "macbook"),
+ *  trimming the trailing ".local" Bonjour suffix. Configurable in the web UI. */
+function hubName(): string {
+  try { const v = loadCfg().hubName; if (typeof v === "string" && v.trim()) return v.trim(); } catch { /* */ }
+  return os.hostname().replace(/\.local$/i, "");
+}
+function saveHubName(name: string) {
+  const cfg = loadCfg();
+  const v = String(name ?? "").trim();
+  if (v) cfg.hubName = v; else delete cfg.hubName; // empty → fall back to hostname
   fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
 }
 
@@ -684,6 +698,12 @@ const SETUP_PAGE = `<!doctype html>
   <div class="step" id="step2">
     <h2><span class="num">2</span> Pair your phone</h2>
     <p>Open the Agentic Android app → tap <b>Pair</b> (or the agent name → <b>Pair another agent</b>) → scan this:</p>
+    <div class="hubname-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px;">
+      <span class="hint" style="margin:0;">This hub's name on your phone:</span>
+      <input id="hubname" placeholder="this computer" style="flex:1;min-width:150px;" />
+      <button id="hubnamesave" class="ghost" style="padding:8px 12px;">Save</button>
+      <span id="hubnamestate" class="hint" style="margin:0;"></span>
+    </div>
     <div class="qrbox">
       <img class="qr" id="qrimg" src="/pair-qr" alt="Pairing QR code" />
       <ol>
@@ -691,6 +711,11 @@ const SETUP_PAGE = `<!doctype html>
         <li>The phone will connect to <b id="prelay">this Mac</b>.</li>
         <li>This panel turns green when it connects.</li>
       </ol>
+    </div>
+    <div style="margin-top:12px;font-size:13px;color:var(--text-dim);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span>Can't scan? Type this code in the app instead:</span>
+      <code id="manualcode" style="font-family:var(--mono);background:rgba(8,9,13,0.6);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);">…</code>
+      <button id="copymanual" class="ghost" style="padding:6px 12px;font-size:12px;">Copy</button>
     </div>
     <div style="margin-top:12px;">
       <div class="hint" style="margin-bottom:6px;">How should the phone reach this hub?</div>
@@ -820,6 +845,8 @@ const SETUP_PAGE = `<!doctype html>
     document.getElementById('step1').classList.toggle('done',aOk);
     document.getElementById('step2').classList.toggle('done',s.phone.connected);
     if(s.phoneRelay){ const pr=document.getElementById('prelay'); if(pr) pr.textContent=s.phoneRelay; }
+    const hn=document.getElementById('hubname'); if(hn && document.activeElement!==hn && hn.dataset.dirty!=='1' && s.hubName) hn.value=s.hubName;
+    const mc=document.getElementById('manualcode'); if(mc) mc.textContent = s.pairCode || '—';
     const ext=(s.agents||[]).filter(a=>a.connected && !a.managed); const rw=document.getElementById('remotewait');
     if(rw) rw.textContent = ext.length
       ? ('✓ '+ext.length+' remote/external agent'+(ext.length>1?'s':'')+' connected — pick one in the list above to make it active.')
@@ -859,6 +886,17 @@ const SETUP_PAGE = `<!doctype html>
       if(r.ok){ st.textContent='✓ saved as '+(r.phoneRelay||value)+' — re-scan the QR to apply'; document.getElementById('qrimg').src='/pair-qr?t='+Date.now(); } else { st.textContent=r.error||'failed'; } }
     catch(e){ st.textContent='failed'; }
   }
+  const _hn=document.getElementById('hubname');
+  if(_hn){ _hn.addEventListener('input',()=>{_hn.dataset.dirty='1';});
+    document.getElementById('hubnamesave').onclick=async()=>{
+      const st=document.getElementById('hubnamestate'); st.textContent='saving…';
+      try{ const r=await (await fetch('/hub-name',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:_hn.value})})).json();
+        if(r.ok){ st.textContent='✓ saved'; _hn.dataset.dirty=''; if(r.hubName) _hn.value=r.hubName; document.getElementById('qrimg').src='/pair-qr?t='+Date.now(); }
+        else st.textContent=r.error||'failed'; }catch(e){ st.textContent='failed'; }
+    };
+  }
+  const _cm=document.getElementById('copymanual');
+  if(_cm) _cm.onclick=()=>{ const t=document.getElementById('manualcode').textContent; if(navigator.clipboard&&t&&t!=='—'&&t!=='…') navigator.clipboard.writeText(t); const o=_cm.textContent; _cm.textContent='Copied'; setTimeout(()=>{_cm.textContent=o;},1200); };
   setInterval(poll,2000); poll();
 </script></body></html>`;
 
@@ -875,6 +913,32 @@ async function main() {
   await bus.connect();
   logEvent("connection", `connected to relay ${cfg.relayUrl}`, { relayUrl: cfg.relayUrl });
 
+  // ---------- pairing payload (shared by the QR + the manual code) ----------
+  /** The exact string the phone needs to pair: a "PAIR:"-prefixed base64url blob of the hub's identity. */
+  const pairPayload = () => "PAIR:" + Buffer.from(JSON.stringify({
+    edPub: cfg.self.edPub, fp: cfg.self.fp, relayUrl: phoneRelayUrl(cfg.relayUrl), hubName: hubName(),
+  })).toString("base64url");
+  /** host:port the phone dials to reach this hub's relay (for the manual-code prefix). */
+  const phoneHost = () => { try { return new URL(phoneRelayUrl(cfg.relayUrl)).host; } catch { return ""; } };
+
+  // Manual pairing code: park the (non-secret) pairing payload at the relay so the phone can pair by
+  // typing a short code instead of scanning. Cached + refreshed before expiry; invalidated whenever the
+  // payload changes (relay address or hub name). The displayed code is "host/CODE" — the phone splits it
+  // to learn where to fetch the payload (it isn't paired yet, so it can't know the host otherwise).
+  let pairCodeCache: { code: string; host: string; expires: number } | null = null;
+  const invalidatePairCode = () => { pairCodeCache = null; };
+  async function ensurePairCode(): Promise<string | null> {
+    const now = Date.now();
+    if (pairCodeCache && pairCodeCache.expires > now + 60_000) return `${pairCodeCache.host}/${pairCodeCache.code}`;
+    try {
+      const r = await fetch(`${cfg.relayUrl}/pair-code`, { method: "POST", headers: { "content-type": "text/plain" }, body: pairPayload() });
+      if (!r.ok) return null;
+      const { code, ttlMs } = await r.json() as { code: string; ttlMs?: number };
+      pairCodeCache = { code, host: phoneHost(), expires: now + (ttlMs ?? 600_000) };
+      return `${pairCodeCache.host}/${pairCodeCache.code}`;
+    } catch { return null; }
+  }
+
   // ---------- the agent connects IN over a local WebSocket; the brain runs as its OWN process ----------
   const AGENT_PORT = Number(process.env.AGENT_PORT ?? 8124);
   let agentSock: WebSocket | null = null; // the ACTIVE agent's socket — all existing routing uses this
@@ -889,17 +953,46 @@ async function main() {
   let activeAgentId: string | null = null;
   // `external` = the agent dialed in on its own (a remote/cloud brain or a hand-started CLI), i.e. the
   // hub didn't spawn it. The phone + web show a cloud icon for these.
-  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, active: id === activeAgentId, external: !managed.has(id) }));
+  const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, active: id === activeAgentId, external: !managed.has(id), verified: verifier.status(id) ?? "verifying" }));
   const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
 
   /** Where a remote/cloud agent dials in: same host the phone reaches, on the agent port. */
   const agentWsUrl = () => { try { const u = new URL(phoneRelayUrl(cfg.relayUrl)); return `ws://${u.hostname}:${AGENT_PORT}`; } catch { return `ws://127.0.0.1:${AGENT_PORT}`; } };
+  /** Where a remote agent fetches the hub's own files (same host the phone reaches, on the panel port). */
+  const agentHttpUrl = () => { const p = process.env.PANEL_PORT ?? 8123; try { const u = new URL(phoneRelayUrl(cfg.relayUrl)); return `http://${u.hostname}:${p}`; } catch { return `http://127.0.0.1:${p}`; } };
+  /** The "impossible to get wrong" one-liner: fetch + run the hub's ready-made client on the remote box. */
+  const bootstrapOneLiner = () => `curl -fsSL ${agentHttpUrl()}/agent-bootstrap | MODEL_CMD='claude -p' AGENT_NAME='Hermes' sh`;
+  /** The shell script /agent-bootstrap serves: download the stdlib python client and exec it. */
+  const bootstrapScript = () => [
+    `#!/bin/sh`,
+    `# Agentic-Android — one-line remote-agent bootstrap. Fetches the hub's own client and runs it.`,
+    `# Usage:  curl -fsSL ${agentHttpUrl()}/agent-bootstrap | MODEL_CMD='your-model-cli' sh`,
+    `set -eu`,
+    `HUB="\${HUB:-${agentWsUrl()}}"`,
+    `NAME="\${AGENT_NAME:-Hermes}"`,
+    `if [ -z "\${MODEL_CMD:-}" ]; then echo "Set MODEL_CMD to the CLI that runs your model, e.g.  MODEL_CMD='claude -p'  (it gets the user's message as the last argument and must print the reply to stdout)."; exit 1; fi`,
+    `DEST="\${TMPDIR:-/tmp}/agentic-client.py"`,
+    `curl -fsSL "${agentHttpUrl()}/agent-client.py" -o "$DEST"`,
+    `echo "Agentic-Android client → $HUB   (model: $MODEL_CMD)"`,
+    `exec python3 "$DEST" --hub "$HUB" --name "$NAME" --cmd "$MODEL_CMD"`,
+    ``,
+  ].join("\n");
   /** A copy-paste prompt the user hands to a remote/cloud agent so it connects + actually replies.
    *  Built here (not in the page template) so the protocol text isn't mangled by template escaping. */
   const remoteAgentPrompt = () => {
     const ws = agentWsUrl();
     return [
       `You are being connected as the "brain" for an Agentic-Android hub — a self-hosted bridge that lets you see and control the user's Android phone (camera, screen read/tap, location, SMS, notifications, apps, and more). Open ONE persistent WebSocket to the hub, then answer the user's chat messages and drive the phone with tool calls. Implement exactly this protocol.`,
+      ``,
+      `EASIEST PATH — JUST RUN THE HUB'S CLIENT (strongly preferred; skip everything below if you can run a shell command)`,
+      `  The hub already hosts a ready-made client that implements this whole protocol correctly — persistent loop, heartbeat, self-test, reconnect. Run it in the BACKGROUND (set MODEL_CMD to the CLI that runs YOUR model; it receives the user's message as the last argument and must print the reply to stdout):`,
+      `    ${bootstrapOneLiner()}`,
+      `  That's it — it stays running and answers every message on its own. Only implement the manual protocol below if you genuinely cannot run that command.`,
+      ``,
+      `CRITICAL — THIS IS A LONG-RUNNING PROGRAM, NOT A ONE-OFF CHAT REPLY (read this first)`,
+      `  Do NOT just open the socket, say "ready", and end your turn. The instant your turn ends, nothing is reading the socket — the next user message arrives unread and the user is stuck on "Sending…" forever. This is the #1 failure: the hub shows you "connected" (you handshook) but you never answer.`,
+      `  Therefore you MUST WRITE AND RUN a small long-lived client program — a script/daemon you launch in the BACKGROUND so it keeps running after your turn ends. That program, not you, holds the socket and loops forever: on each {t:"user"} frame it calls your model to produce a reply and sends it back ON ITS OWN, with no further prompting from anyone, message after message, until the user stops it.`,
+      `  "Hold the socket open across messages" means a process that stays alive — NOT you re-reading a frame within a single reply. If you cannot keep a background process running, you cannot be this brain: say so plainly instead of half-connecting and going silent.`,
       ``,
       `ENDPOINT`,
       `  ${ws}`,
@@ -908,6 +1001,11 @@ async function main() {
       `HANDSHAKE`,
       `  1. On open, send:  {"t":"hello","name":"<your name, e.g. Hermes>"}`,
       `  2. The hub sends your tool catalog:  {"t":"ready","catalog":[ {"method":"...","summary":"..."}, ... ]}  (may be re-sent as {"t":"catalog",...}). These are the phone capabilities you can call.`,
+      ``,
+      `LIVENESS — the hub checks you're really there (this is how it catches the silent failure above)`,
+      `  - Right after connecting the hub sends  {"t":"selftest","token":"..."}  — reply IMMEDIATELY (from code, not your model) with  {"t":"selftest_ok","token":"<same token>"}. If you don't within a few seconds, the hub marks you broken and tells the user you're not really answering.`,
+      `  - Send a  {"t":"heartbeat"}  frame every ~15s from your loop so the hub knows your process is still alive (a dead process can leave the socket open).`,
+      `  - If anything is wrong the hub sends  {"t":"diag","problem":"...","remedy":"..."}  — read it; it tells you exactly what to fix.`,
       ``,
       `WHEN THE USER SENDS A MESSAGE  (the step most clients miss — without it the user sees "sending…" forever)`,
       `  The hub pushes:  {"t":"user","text":"<what the user typed>","files":[{"name","mime","path"}]?}`,
@@ -939,7 +1037,7 @@ async function main() {
       `        reply = think(m.text, catalog, callTool)   # callTool sends {t:"tool",...}, awaits {t:"result",...}`,
       `        send {t:"event", topic:"assistant_message", data:{text: reply}}`,
       ``,
-      `Confirm you can (1) hold one open socket, (2) receive {t:"user"} frames, and (3) reply with the assistant_message event — then tell the user you're connected and ready.`,
+      `Confirm a long-lived background process is now running that (1) holds one open socket, (2) loops reading {t:"user"} frames and replies to EVERY one with an assistant_message event WITHOUT being prompted again, and (3) survives across many messages and reconnects if the socket drops — then tell the user you're connected and ready. If it's only alive for this one turn, do not claim you're ready.`,
     ].join("\n");
   };
 
@@ -1105,6 +1203,26 @@ async function main() {
   };
   const isSchedulerTool = (m: string) => m === "schedule" || m === "list_scheduled" || m === "cancel_scheduled";
 
+  // Verify every agent actually answers (not just "socket opened") — turns the silent "connected but
+  // never replies" failure into a visible, explained one. The diagnostic goes 3 ways: the event log, a
+  // {t:"diag"} frame to the agent (so it can self-correct), and an assistant_message into the chat.
+  const verifier = new Verifier({
+    now: () => Date.now(),
+    setTimer: (ms, fn) => setTimeout(fn, ms),
+    clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    remedy: `The easy fix: run the hub's ready-made client on that machine — it stays running and answers every message automatically:\n  ${bootstrapOneLiner()}\n(Set MODEL_CMD to your model's CLI. Or copy the full prompt from the hub's setup page.)`,
+    onChange: () => announceRoster(),
+    onDiagnose: (d) => {
+      logEvent("error", `agent "${d.name}" failed verification: ${d.problem}`, d);
+      const sock = agents.get(d.agentId)?.ws;
+      if (sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ t: "diag", problem: d.problem, remedy: d.remedy }));
+      const text = `⚠️ ${d.name} isn't really answering: ${d.problem}\n\n${d.remedy}`;
+      bus.event("assistant_message", { text });
+      addTurn("assistant", text);
+    },
+  });
+  setInterval(() => verifier.sweep(), 10000);
+
   const agentWss = new WebSocketServer({ port: AGENT_PORT });
   agentWss.on("connection", (ws) => {
     ws.on("message", (raw) => {
@@ -1123,8 +1241,20 @@ async function main() {
           bus.event("agent_identity", { name: agentName });
         }
         logEvent("connection", `agent connected: "${name}" (${agents.size} online)`);
+        verifier.onConnect(id, name);
         announceRoster();
         ws.send(JSON.stringify({ t: "ready", catalog: agentCatalog() }));
+        // Probe the REAL message path: a working client answers selftest_ok in code (no LLM turn). No
+        // answer in time → the agent gets flagged "failing self-test" instead of a silent green dot.
+        const selftestToken = randomUUID();
+        (ws as any)._selftestToken = selftestToken;
+        ws.send(JSON.stringify({ t: "selftest", token: selftestToken }));
+      } else if (m.t === "selftest_ok") {
+        const id = (ws as any)._agentId as string | undefined;
+        if (id && m.token === (ws as any)._selftestToken) verifier.onAlive(id);
+      } else if (m.t === "heartbeat") {
+        const id = (ws as any)._agentId as string | undefined;
+        if (id) verifier.onHeartbeat(id);
       } else if (m.t === "tool") {
         const method = String(m.method);
         if (isSchedulerTool(method)) {
@@ -1148,6 +1278,8 @@ async function main() {
           logEvent("connection", `agent published ${agentCommands.length} slash commands`);
         }
         else if (topic === "assistant_message") {
+          const id = (ws as any)._agentId as string | undefined;
+          if (id) verifier.onAlive(id); // a real reply proves the loop works → self-heal to "verified"
           bus.event("assistant_message", data);
           logEvent("assistant_message", String(data.text ?? "").slice(0, 200), data);
           const parts = Array.isArray((data as any).parts) ? ((data as any).parts as MsgPart[]) : undefined;
@@ -1158,7 +1290,7 @@ async function main() {
     });
     ws.on("close", () => {
       const id = (ws as any)._agentId as string | undefined;
-      if (id) agents.delete(id);
+      if (id) { agents.delete(id); verifier.remove(id); }
       if (agentSock === ws) {
         // The active agent left — promote another connected one, or go empty.
         const next = [...agents.entries()][0];
@@ -1184,6 +1316,7 @@ async function main() {
   bus.onEvent((ev) => {
     if (ev.topic === "whoami") {
       bus.event("agent_identity", { name: agentName ?? "No agent connected", relay: cfg.relayUrl });
+      bus.event("hub_identity", { name: hubName(), fp: cfg.self.fp }); // the hub's own (machine) name, for the phone's hub list
       // Replay the active session + the session list so the phone shows history on (re)connect.
       emitHistory();
       emitSessions();
@@ -1300,12 +1433,14 @@ async function main() {
         ...rosterList().map((a) => ({
           id: a.id, name: a.name, active: a.active, connected: true,
           ready: a.active ? agentReady : null, managed: managed.has(a.id), kind: managed.get(a.id)?.kind ?? "external",
+          verified: a.verified, reason: verifier.reason(a.id) ?? null,
         })),
         ...[...managed.entries()].filter(([id]) => !connectedIds.has(id)).map(([id, m]) => ({
           id, name: m.name, active: false, connected: false, ready: null, managed: true, kind: m.kind,
+          verified: "verifying" as const, reason: null,
         })),
       ];
-      return json({
+      void ensurePairCode().then((pairCode) => json({
         agents: list,
         active: activeAgentId ? { id: activeAgentId, name: agentName, ready: agentReady, status: agentStatus.label ?? null, command: agentStatus.command ?? null } : null,
         phone: { connected: caps.length > 0, caps: caps.length },
@@ -1315,12 +1450,30 @@ async function main() {
         // Where a REMOTE agent (cloud box, another machine) dials in — same host the phone reaches, agent port.
         agentWs: agentWsUrl(),
         relayChoice: (() => { try { const v = loadCfg().phoneRelayUrl; return typeof v === "string" && v.trim() ? (v === "usb" ? "usb" : "anywhere") : "auto"; } catch { return "auto"; } })(),
-      });
+        hubName: hubName(),         // this hub's name, shown on the phone
+        pairCode: pairCode,         // "host/CODE" for manual pairing, or null if the relay didn't answer
+      }));
+      return; // async response above — don't fall through to the other routes / the 404 tail
     }
     if (req.method === "GET" && url.pathname === "/remote-prompt") {
       res.setHeader("content-type", "text/plain; charset=utf-8");
       res.setHeader("cache-control", "no-store");
       res.end(remoteAgentPrompt());
+      return;
+    }
+    // The "impossible to get wrong" path: a remote box runs `curl .../agent-bootstrap | MODEL_CMD=... sh`,
+    // which fetches /agent-client.py and execs it. The client speaks the full protocol correctly.
+    if (req.method === "GET" && url.pathname === "/agent-bootstrap") {
+      res.setHeader("content-type", "text/x-shellscript; charset=utf-8");
+      res.setHeader("cache-control", "no-store");
+      res.end(bootstrapScript());
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/agent-client.py") {
+      res.setHeader("content-type", "text/x-python; charset=utf-8");
+      res.setHeader("cache-control", "no-store");
+      try { res.end(fs.readFileSync(path.join(backboneDir, "examples", "agent-client.py"))); }
+      catch { res.statusCode = 500; res.end("# agent-client.py is missing on the hub"); }
       return;
     }
     if (req.method === "POST" && url.pathname === "/agent/start") {
@@ -1392,8 +1545,23 @@ async function main() {
             } catch { return json({ ok: false, error: "Couldn't read that address — try your Tailscale IP, e.g. 100.x.x.x" }); }
           }
           saveRelayChoice(v);
+          invalidatePairCode(); // the phone-facing address changed → re-register the manual code
           logEvent("config", `phone relay set to ${v}`);
           json({ ok: true, phoneRelay: phoneRelayUrl(cfg.relayUrl) });
+        } catch (e) { json({ ok: false, error: String(e) }, 500); }
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/hub-name") {
+      let body = ""; req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { name } = JSON.parse(body || "{}");
+          saveHubName(String(name ?? ""));
+          invalidatePairCode(); // hub name rides in the pairing payload → re-register the manual code
+          bus.event("hub_identity", { name: hubName(), fp: cfg.self.fp }); // push the new name to the connected phone live
+          logEvent("config", `hub name set to "${hubName()}"`);
+          json({ ok: true, hubName: hubName() });
         } catch (e) { json({ ok: false, error: String(e) }, 500); }
       });
       return;
@@ -1413,7 +1581,7 @@ async function main() {
       return;
     }
     if (req.method === "GET" && url.pathname === "/pair-qr") {
-      const token = "PAIR:" + Buffer.from(JSON.stringify({ edPub: cfg.self.edPub, fp: cfg.self.fp, relayUrl: phoneRelayUrl(cfg.relayUrl) })).toString("base64url");
+      const token = pairPayload();
       QRCode.toString(token, { type: "svg", margin: 1, width: 220 })
         .then((svg) => { res.setHeader("content-type", "image/svg+xml"); res.end(svg); })
         .catch((e) => { res.statusCode = 500; res.end(String(e)); });

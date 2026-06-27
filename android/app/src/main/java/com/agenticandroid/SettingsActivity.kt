@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -117,6 +118,7 @@ class SettingsActivity : ComponentActivity() {
                 val roster by PhoneAgentService.roster.collectAsState()
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
+                val onlineHubs by PhoneAgentService.onlineHubs.collectAsState()
 
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                     Row(
@@ -173,11 +175,42 @@ class SettingsActivity : ComponentActivity() {
                     HorizontalDivider()
 
                     var tab by remember { mutableStateOf(0) }
+                    var renaming by remember { mutableStateOf<AgentProfile?>(null) }
                     val tabTitles = listOf("General", "Theme", "Voice", "Actions")
                     TabRow(selectedTabIndex = tab) {
                         tabTitles.forEachIndexed { i, title ->
                             Tab(selected = tab == i, onClick = { tab = i }, text = { Text(title) })
                         }
+                    }
+
+                    // Rename a hub (a per-phone label; blank falls back to the hub's own announced name).
+                    renaming?.let { target ->
+                        var newName by remember(target.id) { mutableStateOf(target.localName ?: "") }
+                        AlertDialog(
+                            onDismissRequest = { renaming = null },
+                            title = { Text("Rename hub") },
+                            text = {
+                                Column {
+                                    Text(
+                                        "Shown only on this phone. Leave blank to use the hub's own name (${target.name}).",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = newName, onValueChange = { newName = it },
+                                        singleLine = true, label = { Text("Name") },
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    Agents.setLocalName(this@SettingsActivity, target.id, newName)
+                                    renaming = null
+                                }) { Text("Save") }
+                            },
+                            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+                        )
                     }
 
                     LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
@@ -192,31 +225,35 @@ class SettingsActivity : ComponentActivity() {
                                 )
                             }
                             profiles.forEach { p ->
+                                val online = p.id in onlineHubs
                                 Row(
                                     Modifier.fillMaxWidth()
-                                        .clickable { PhoneAgentService.instance?.switchAgent(p.id) }
+                                        .clickable { PhoneAgentService.instance?.switchHub(p.id) ?: Agents.setActive(this@SettingsActivity, p.id) }
                                         .padding(horizontal = 16.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     RadioButton(
                                         selected = p.id == activeId,
-                                        onClick = { PhoneAgentService.instance?.switchAgent(p.id) },
+                                        onClick = { PhoneAgentService.instance?.switchHub(p.id) ?: Agents.setActive(this@SettingsActivity, p.id) },
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Column(Modifier.weight(1f)) {
-                                        Text(p.name, style = MaterialTheme.typography.titleSmall)
-                                        // Friendly status instead of the raw relay URL/IP.
+                                        Text(p.display(), style = MaterialTheme.typography.titleSmall)
+                                        // All hubs connect at once — show each hub's own live status.
                                         Text(
-                                            if (p.id == activeId) (if (connected) "Connected" else "Connecting…") else "Paired",
+                                            when {
+                                                p.id == activeId && connected -> "Connected"
+                                                online -> "Online"
+                                                else -> "Offline"
+                                            },
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1,
                                         )
                                     }
+                                    TextButton(onClick = { renaming = p }) { Text("Rename") }
                                     TextButton(onClick = {
-                                        val wasActive = p.id == activeId
-                                        Agents.remove(this@SettingsActivity, p.id)
-                                        if (wasActive) PhoneAgentService.instance?.reconnect()
+                                        PhoneAgentService.instance?.forgetHub(p.id) ?: Agents.remove(this@SettingsActivity, p.id)
                                     }) { Text("Forget") }
                                 }
                             }

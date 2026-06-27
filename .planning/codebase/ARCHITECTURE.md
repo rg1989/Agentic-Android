@@ -42,15 +42,16 @@
 - Purpose: Foreground service that maintains relay connection; render chat UI; dispatch capability requests; manage consent policies; handle wake words and voice input
 - Location: `android/app/src/main/java/com/agenticandroid/`
 - Contains:
-  - `PhoneAgentService.kt`: Foreground service holding the relay connection; request handler; consent dispatch
-  - `MainActivity.kt`: Compose chat UI; message rendering; media picker; session switcher
+  - `PhoneAgentService.kt`: Foreground service orchestrating a `Map<hubId, HubConnection>` (one connection per paired hub, all live at once); request handler; consent dispatch. Exposes state flows `onlineHubs`, `allAgents` (unioned across online hubs), `unreadHubs`; service API `switchHub`/`switchAgent` (re-point foreground hub, no reconnect), `selectAgent` (within foreground hub), `selectAgentOnHub` (cross-hub), `forgetHub`, `ensureConnections`
+  - `HubConnection.kt`: Per-hub connection owning one `BusEndpoint` plus that hub's roster + online state (a hub is "online" only once it answers the phone's whoami, not merely when its relay accepts the socket)
+  - `MainActivity.kt`: Compose chat UI; message rendering; media picker; session switcher; header agent picker (lists agents across all online hubs, grouped by hub)
   - `BusEndpoint.kt`: Relay client (Kotlin mirror of `backbone/src/peer.ts`)
   - `Capabilities.kt`: Capability registry; Tier-1 implementations (camera, location, SMS, notifications, device info, flashlight, ring, vibrate, UI automation)
   - `Consent.kt` / `ConsentPolicy`: Policy engine (DENY/ASK/ALLOW per agent per capability)
   - `Crypto.kt`: E2E encryption (libsodium via JNI)
   - Voice pipeline: `WakeWordService.kt`, `VoiceInput.kt`, `SpeechText.kt`, `Chimes.kt`
-  - `Agents.kt`: Multi-agent roster state (which agents have paired, which is active)
-  - `SettingsStore.kt`: UI state (relay URL, wake-word enabled, connection switch)
+  - `Agents.kt`: Per-hub `AgentProfile` state (name from hub, optional per-phone `localName`; `display()` = `localName ?: name`) and roster of paired agents
+  - `SettingsStore.kt`: UI state (relay URL, wake-word enabled)
 - Depends on: `BusEndpoint` (relay client), `Crypto` (libsodium), Android capabilities (Compose, Camera, Location, etc.)
 - Used by: User (Compose UI); relay (envelopes in/out); capabilities (listen to requests)
 
@@ -171,13 +172,13 @@
   - Render chat UI in Compose
   - Handle user input (text, voice, media attach)
   - Display capability status / responses
-  - Switch sessions and agents
+  - Switch sessions; pick an agent across any online hub (header picker). Drawer hub list is info-only (online/offline dot per hub, no switching); Settings > Hubs handles rename (local label), Forget/unpair, and Pair another hub
 
 **Hub (Panel / Web Server):**
 - Location: `backbone/src/panel.ts` main() or `pnpm panel` / `pnpm hub`
 - Triggers: Manual `pnpm panel`
 - Responsibilities:
-  - Start HTTP server (`:8123` web UI)
+  - Start HTTP server (`:8123` web UI; shows QR plus a `host/CODE` for manual pairing; `POST /hub-name` sets the hub's display name, stored as `hubName` in `agent.json`, default `os.hostname()`)
   - Start WebSocket server (`:8124` for agents)
   - Connect to relay as phone's paired identity
   - Load/restore state from disk
@@ -211,6 +212,7 @@
   - Queue envelopes for offline peers
   - Route envelopes by fingerprint
   - Serve blobs over HTTP
+  - Pair-code rendezvous: `POST /pair-code` registers a hub's (non-secret) pairing payload and returns an 8-char code; `GET /pair-code/:code` returns the payload (~10 min TTL) so the phone can pair by typing the code instead of scanning the QR
 
 ## Error Handling
 

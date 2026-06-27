@@ -31,7 +31,9 @@ not Telegram's.
   download / share), and tables.
 - **Voice** — always‑on offline wake word (Vosk), hold‑to‑talk, spoken replies (TTS) with a
   speech sanitizer, configurable wake phrase / sensitivity / DND windows.
-- **Multiple agents** — pair several, switch between them, per‑agent color themes.
+- **Multiple hubs & agents** — pair several hubs and stay connected to all of them at once; the
+  header agent picker lists every agent across all online hubs (grouped by hub) and routes to the
+  right one. Per‑agent color themes; rename or forget a hub from Settings.
 - **Multiple chat sessions** — named, persisted, with auto‑titles and history replay.
 - **Consent engine** — per‑agent × per‑capability `deny` / `ask` / `allow`, biometric confirm for
   sensitive actions.
@@ -73,8 +75,10 @@ Three processes plus the phone. The relay only ever sees opaque ciphertext addre
   capability registry, the consent engine, and the voice pipeline.
 
 **Identity & trust:** an ed25519 keypair *is* the identity — no passwords, no email. Pairing is
-QR + trust‑on‑first‑use; the phone is the approver. After pairing, phone and hub know each other's
-static key and E2E encryption works both ways forever (libsodium `crypto_box`: X25519 + XSalsa20‑Poly1305).
+trust‑on‑first‑use with the phone as the approver — scan the QR or type the short pairing code
+(registered at the relay for ~10 min). Each hub also carries a name (set in the web UI, defaults to
+the machine hostname). After pairing, phone and hub know each other's static key and E2E encryption
+works both ways forever (libsodium `crypto_box`: X25519 + XSalsa20‑Poly1305).
 
 **Message model:** four kinds inside the encrypted payload — `request` → `response` (tool calls,
 within seconds), `event` (phone‑initiated: wake word, notifications, deferred‑task results), and
@@ -98,7 +102,7 @@ within seconds), `event` (phone‑initiated: wake word, notifications, deferred�
 ```bash
 cd backbone
 pnpm install
-pnpm test          # optional: 36 tests — protocol, crypto, relay, consent, media, scheduling, pairing, full E2E
+pnpm test          # optional: 46 tests — protocol, crypto, relay, consent, media, scheduling, pairing, full E2E
 cd ..
 ```
 
@@ -133,8 +137,10 @@ make install   # builds the APK, installs it over adb, launches it
 
 ### 3. Pair the phone with the hub
 
-On the setup page (`:8123`), choose **add / pair a phone** — it shows a QR / token. In the phone app,
-scan it (or enter the token) and approve. They exchange public keys and E2E is live.
+On the setup page (`:8123`), choose **add / pair a phone** — it shows a QR plus a short `host/CODE`.
+In the phone app, scan the QR or tap **Enter code instead** and type the code, then approve. They
+exchange public keys and E2E is live. You can rename the hub on the setup page (defaults to the
+machine hostname); pair more hubs the same way and the phone stays connected to all of them.
 
 **Connectivity:** with Tailscale, set the phone's hub address to your Mac's tailnet IP
 (`http://<tailscale-ip>:8799`). Over USB instead, run `adb reverse tcp:8799 tcp:8799`.
@@ -172,7 +178,7 @@ machine and a **private tailnet**, not on a public address.
 
 | Piece | State |
 |---|---|
-| Protocol, crypto, relay, hub, scheduler, blobs, consent, pairing | ✅ built + tested (36 TS tests, typecheck clean) |
+| Protocol, crypto, relay, hub, scheduler, blobs, consent, pairing | ✅ built + tested (46 TS tests, typecheck clean) |
 | Key‑free agent (`agent:claude`) + phone MCP server (`phone-mcp.ts`) | ✅ built; model leg verified on a logged‑in machine |
 | Android app: chat UI, voice, multi‑agent, sessions, Tier‑1 + Tier‑2 capabilities | ✅ built + device‑verified (OnePlus, Android) |
 | Concierge `ask_agent` (one agent routing to another) | 🟡 staged — needs ≥2 live brains to verify |

@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,6 +40,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
@@ -108,6 +110,8 @@ class PairingActivity : ComponentActivity() {
         setContent {
             var status by remember { mutableStateOf("Point camera at the bridge QR code") }
             var scanning by remember { mutableStateOf(true) }
+            var showManual by remember { mutableStateOf(false) }
+            var manualCode by remember { mutableStateOf("") }
             val isSuccess = status.startsWith("Paired")
             val isError = status.startsWith("Pairing failed") || status.startsWith("Couldn't")
 
@@ -170,7 +174,25 @@ class PairingActivity : ComponentActivity() {
                                 Spacer(Modifier.height(12.dp))
                                 Text(status, style = MaterialTheme.typography.bodyLarge)
                             }
-                            else -> Text(status, style = MaterialTheme.typography.bodyLarge)
+                            else -> {
+                                Text(status, style = MaterialTheme.typography.bodyLarge)
+                                Spacer(Modifier.height(16.dp))
+                                // Manual fallback when the camera can't read the QR: type the code shown
+                                // beside it in the hub web UI (format "host/CODE").
+                                if (showManual) {
+                                    OutlinedTextField(
+                                        value = manualCode, onValueChange = { manualCode = it },
+                                        singleLine = true, label = { Text("Pairing code (host/CODE)") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Button(onClick = { if (manualCode.isNotBlank()) scope.launch { processManualCode(manualCode) } }) {
+                                        Text("Pair with code")
+                                    }
+                                } else {
+                                    TextButton(onClick = { showManual = true }) { Text("Enter code instead") }
+                                }
+                            }
                         }
                     }
                 }
@@ -265,8 +287,9 @@ class PairingActivity : ComponentActivity() {
             // Append this agent as a profile (or update it) and make it active. Supports pairing
             // several agents and switching between them; the phone keeps one identity (selfId).
             com.agenticandroid.Agents.init(this) // ensure existing profiles are loaded before appending
-            com.agenticandroid.Agents.add(this, token.fp.take(8), token.edPub, token.relayUrl)
-            update("Paired with ${token.fp.take(12)}…")
+            // Name the hub by its announced name (default = its machine hostname); fall back to the fingerprint.
+            com.agenticandroid.Agents.add(this, token.hubName?.takeIf { it.isNotBlank() } ?: token.fp.take(8), token.edPub, token.relayUrl)
+            update("Paired with ${token.hubName ?: token.fp.take(12)}…")
 
             // Reconnect the running service to the newly-active agent (or start it if not running).
             val svc = PhoneAgentService.instance
@@ -282,6 +305,34 @@ class PairingActivity : ComponentActivity() {
                 else
                     "Pairing failed: ${e.message}. Scan again to retry.",
             )
+        }
+    }
+
+    /**
+     * Manual-code pairing: the user typed the "host/CODE" shown beside the QR in the hub web UI.
+     * Fetch the (same) pairing payload the relay is holding under that code, then run the normal
+     * [processPairing] path. Only needed when the camera can't read the QR.
+     */
+    private suspend fun processManualCode(raw: String) {
+        val update = statusUpdater ?: {}
+        if (!scanned.compareAndSet(false, true)) return
+        update("Pairing…")
+        runCatching {
+            val s = raw.trim()
+            val idx = s.lastIndexOf('/')
+            require(idx in 1 until s.length - 1) { "Code should look like host/CODE" }
+            val host = s.substring(0, idx).let { if (it.startsWith("http")) it else "http://$it" }
+            val code = s.substring(idx + 1).trim()
+            val req = okhttp3.Request.Builder().url("$host/pair-code/$code").get().build()
+            okhttp3.OkHttpClient().newCall(req).execute().use {
+                if (!it.isSuccessful) error("Code not found (${it.code}). Check it and that the hub is running.")
+                it.body!!.string()
+            }
+        }.onSuccess { payload ->
+            processPairing(payload) // keep the scan guard held so a stray camera frame can't double-fire
+        }.onFailure { e ->
+            scanned.set(false)
+            update("Pairing failed: ${e.message}. Try again.")
         }
     }
 

@@ -53,10 +53,13 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
   const ws = new WebSocket(HUB_WS);
   const emit = (topic: string, data: Record<string, unknown>) => ws.send(JSON.stringify({ t: "event", topic, data }));
   const status = (data: Record<string, unknown>) => emit("agent_status", data);
+  let beat: ReturnType<typeof setInterval> | null = null;
 
   ws.on("open", () => {
     ws.send(JSON.stringify({ t: "hello", name: process.env.AGENT_NAME ?? adapter.name, id: process.env.AGENT_INSTANCE_ID }));
     console.error(`agent "${adapter.name}" connected to hub ${HUB_WS}`);
+    // Heartbeat so the hub can tell "alive" from "socket open but process dead".
+    beat = setInterval(() => { try { ws.send(JSON.stringify({ t: "heartbeat" })); } catch { /* socket closing */ } }, 15000);
     try { adapter.onConnect?.(emit); } catch (e) { console.error("onConnect failed:", String(e)); }
     // Don't claim "Ready" on the link alone if the adapter can verify auth — show the truth (and the fix).
     if (adapter.probe) {
@@ -67,6 +70,9 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
 
   ws.on("message", (raw) => {
     let m: any; try { m = JSON.parse(raw.toString()); } catch { return; }
+    // Liveness check from the hub — answer in code (no brain turn) so it knows the read-loop is alive.
+    if (m.t === "selftest") { ws.send(JSON.stringify({ t: "selftest_ok", token: m.token })); return; }
+    if (m.t === "diag") { console.error(`hub diagnostic: ${m.problem}\n  remedy: ${m.remedy}`); return; }
     if (m.t !== "user") return; // phone-mcp fetches the catalog itself; nothing else to handle here
     const text = String(m.text ?? "");
     const files: AttachedFile[] = Array.isArray(m.files) ? m.files : [];
@@ -87,6 +93,6 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
     });
   });
 
-  ws.on("close", () => { console.error("hub connection closed — exiting"); process.exit(1); });
+  ws.on("close", () => { if (beat) clearInterval(beat); console.error("hub connection closed — exiting"); process.exit(1); });
   ws.on("error", (e) => console.error("hub ws error:", String(e)));
 }

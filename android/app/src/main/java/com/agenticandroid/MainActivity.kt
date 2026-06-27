@@ -189,6 +189,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
         requestPerms.launch(perms.toTypedArray())
         startForegroundService(Intent(this, PhoneAgentService::class.java))
+        intent?.getStringExtra("open_hub")?.let { PhoneAgentService.instance?.switchHub(it) }
 
         setContent {
             AgentTheme {
@@ -204,6 +205,9 @@ class MainActivity : ComponentActivity() {
                 val profiles by Agents.profiles.collectAsState()
                 val activeId by Agents.activeId.collectAsState()
                 val roster by PhoneAgentService.roster.collectAsState() // agents on the active hub (switch w/o reconnect)
+                val allAgents by PhoneAgentService.allAgents.collectAsState() // agents across ALL online hubs (header picker)
+                val onlineHubs by PhoneAgentService.onlineHubs.collectAsState()
+                val unreadHubs by PhoneAgentService.unreadHubs.collectAsState()
                 val sessionList by PhoneAgentService.sessions.collectAsState()
                 val activeSessionId by PhoneAgentService.activeSessionId.collectAsState()
                 val paired = profiles.isNotEmpty()
@@ -217,7 +221,7 @@ class MainActivity : ComponentActivity() {
                     if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex, scrollOffset = 100_000)
                 }
                 val active = profiles.firstOrNull { it.id == activeId }
-                val who = agentName ?: active?.name ?: if (paired) "your agent" else "no agent"
+                val who = agentName ?: active?.display() ?: if (paired) "your agent" else "no agent"
                 // Compact name for the header + placeholder: drop a "(your subscription)"-style qualifier
                 // (the agent names itself in agent-cli.ts; the full name still shows in Settings → Agents).
                 val shortWho = who.substringBefore(" (").trim().ifBlank { who }
@@ -353,10 +357,9 @@ class MainActivity : ComponentActivity() {
                     drawerState = drawerState,
                     drawerContent = {
                         ChatDrawer(
-                            hubs = profiles, activeHubId = activeId,
+                            hubs = profiles,
+                            onlineHubs = onlineHubs, unreadHubs = unreadHubs,
                             sessions = sessionList, activeSessionId = activeSessionId,
-                            onSwitchHub = { PhoneAgentService.instance?.switchAgent(it) },
-                            onPair = { startActivity(Intent(this@MainActivity, PairingActivity::class.java)) },
                             onNewChat = { PhoneAgentService.instance?.newSession() },
                             onSelectSession = { PhoneAgentService.instance?.selectSession(it) },
                             onDeleteSession = { PhoneAgentService.instance?.deleteSession(it) },
@@ -376,7 +379,7 @@ class MainActivity : ComponentActivity() {
                         // Agent name = a tab. Chevron + dropdown to switch agents on this hub (only if >1).
                         Box(Modifier.align(Alignment.Center).padding(horizontal = 100.dp)) {
                             var agentMenu by remember { mutableStateOf(false) }
-                            val canSwitch = roster.size > 1
+                            val canSwitch = allAgents.size > 1 // agents across every online hub
                             Column(
                                 Modifier
                                     .clip(RoundedCornerShape(10.dp))
@@ -407,18 +410,30 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             DropdownMenu(expanded = agentMenu, onDismissRequest = { agentMenu = false }) {
-                                roster.forEach { a ->
-                                    DropdownMenuItem(
-                                        text = { Text(a.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                        leadingIcon = {
-                                            Icon(
-                                                if (a.external) Icons.Rounded.Cloud else Icons.Rounded.SmartToy,
-                                                contentDescription = if (a.external) "Cloud agent — connects from elsewhere" else "Local agent",
-                                            )
-                                        },
-                                        trailingIcon = { if (a.active) Icon(Icons.Rounded.Check, contentDescription = "active") },
-                                        onClick = { PhoneAgentService.instance?.selectAgent(a.id); agentMenu = false },
+                                // Every agent across every online hub, grouped under its hub when there's more than one.
+                                val byHub = allAgents.groupBy { it.hubId }
+                                val multiHub = byHub.size > 1
+                                byHub.forEach { (_, agentsOnHub) ->
+                                    if (multiHub) Text(
+                                        agentsOnHub.firstOrNull()?.hubName?.ifBlank { "Hub" } ?: "Hub",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
                                     )
+                                    agentsOnHub.forEach { a ->
+                                        val globallyActive = a.hubId == activeId && a.active
+                                        DropdownMenuItem(
+                                            text = { Text(a.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    if (a.external) Icons.Rounded.Cloud else Icons.Rounded.SmartToy,
+                                                    contentDescription = if (a.external) "Cloud agent — connects from elsewhere" else "Local agent",
+                                                )
+                                            },
+                                            trailingIcon = { if (globallyActive) Icon(Icons.Rounded.Check, contentDescription = "active") },
+                                            onClick = { PhoneAgentService.instance?.selectAgentOnHub(a.hubId, a.id); agentMenu = false },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -759,17 +774,23 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra("open_hub")?.let { PhoneAgentService.instance?.switchHub(it) }
+    }
 }
 
-/** Left drawer: switch hubs, start a new chat, and open / delete past chats. (Agents switch in the header.) */
+/** Left drawer: switch between your online hubs, start a new chat, and open / delete past chats.
+ *  (Agents switch in the header; hubs are paired/renamed/forgotten in Settings.) */
 @Composable
 private fun ChatDrawer(
     hubs: List<AgentProfile>,
-    activeHubId: String?,
+    onlineHubs: Set<String>,
+    unreadHubs: Set<String>,
     sessions: List<SessionInfo>,
     activeSessionId: String?,
-    onSwitchHub: (String) -> Unit,
-    onPair: () -> Unit,
     onNewChat: () -> Unit,
     onSelectSession: (String) -> Unit,
     onDeleteSession: (String) -> Unit,
@@ -777,24 +798,34 @@ private fun ChatDrawer(
 ) {
     ModalDrawerSheet(Modifier.fillMaxWidth(0.84f)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 6.dp)) {
-            // Hubs — each pairing is a hub (its own agents); switching reconnects the bus to it.
-            // (Switching agents *within* a hub happens in the header dropdown.)
+            // Hubs — info only: which paired computers are reachable right now (all stay live at once).
+            // You don't pick a hub here; pick an agent in the header and its hub comes along.
             Text("Hubs", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
-            hubs.forEach { h ->
-                NavigationDrawerItem(
-                    label = { Text(h.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    selected = h.id == activeHubId,
-                    icon = { Icon(Icons.Rounded.Hub, contentDescription = null) },
-                    onClick = { onSwitchHub(h.id); onClose() },
-                )
+            if (hubs.isEmpty()) {
+                Text("No hubs yet — pair one in Settings.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 6.dp))
             }
-            NavigationDrawerItem(
-                label = { Text("Pair another hub") },
-                selected = false,
-                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                onClick = { onPair(); onClose() },
-            )
+            // Compact, non-interactive rows — just a status dot + name, so they read as info, not buttons.
+            hubs.sortedByDescending { it.id in onlineHubs }.forEach { h ->
+                val online = h.id in onlineHubs
+                val dot = when {
+                    h.id in unreadHubs -> MaterialTheme.colorScheme.primary
+                    online -> Color(0xFF34C759)
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 3.dp, bottom = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(dot))
+                    Spacer(Modifier.width(10.dp))
+                    Text(h.display(), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (online) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             NavigationDrawerItem(
                 label = { Text("New chat") },
