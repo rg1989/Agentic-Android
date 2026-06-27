@@ -14,6 +14,20 @@ import { WebSocket } from "ws";
 
 const HUB_WS = process.env.HUB_URL ?? `ws://127.0.0.1:${process.env.AGENT_PORT ?? 8124}`;
 
+/** Parse AGENT_HUBS ("label=url,label2=url2") into MCP server entries that spawn hub-mcp per hub. */
+export function buildHubServers(agentHubs: string | undefined, tsxBin: string, hubMcpPath: string, askDepth = "0"): Record<string, { command: string; args: string[]; env: Record<string, string> }> {
+  const out: Record<string, { command: string; args: string[]; env: Record<string, string> }> = {};
+  for (const pair of (agentHubs ?? "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    const eq = pair.indexOf("=");
+    if (eq < 0) continue;
+    const label = pair.slice(0, eq).trim();
+    const hubUrl = pair.slice(eq + 1).trim();
+    if (!label || !hubUrl) continue;
+    out[`hub_${label}`] = { command: tsxBin, args: [hubMcpPath], env: { HUB_HTTP: hubUrl, HUB_LABEL: label, ASK_DEPTH: askDepth } };
+  }
+  return out;
+}
+
 /** A file the user attached, already saved to disk by the hub (the adapter acts on it by path). */
 export type AttachedFile = { path: string; name: string; mime?: string; size?: number };
 

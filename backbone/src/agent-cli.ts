@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
-import { runAgent, type AgentAdapter } from "./agent-runner.ts";
+import { runAgent, buildHubServers, type AgentAdapter } from "./agent-runner.ts";
 export { buildPrompt } from "./agent-runner.ts"; // shared with the other agents (and unit-tested here)
 
 /** The headless token saved via the setup UI (~/.agentic-android/agent.json brain.oauthToken). */
@@ -45,6 +45,10 @@ const SYSTEM =
   "location, device info, flashlight, ring, open apps, and more). When the user asks you to do something on " +
   "the phone, actually use those tools, then reply concisely about what happened. If the user asks where you " +
   `are running, answer truthfully: on their computer (${HOST}) via the hub — the phone is only the device you operate.`;
+const ORCH = process.env.AGENT_HUBS
+  ? " You also coordinate other agents. Use the hub_* tools: list_agents to see who is available and their strengths; ask_agent to delegate a subtask (use the agent's id when names repeat) and get its answer. For a large task, split it, delegate to the best-suited workers (in parallel when independent), then synthesize one reply. Never delegate to the agent marked active — that is you."
+  : "";
+const SYSTEM_FULL = SYSTEM + ORCH;
 
 function tsxBin(): string {
   const local = path.join(HERE, "..", "node_modules", ".bin", "tsx");
@@ -136,6 +140,7 @@ function mcpConfig(): string {
   return JSON.stringify({
     mcpServers: {
       phone: { command: tsxBin(), args: [path.join(HERE, "phone-mcp.ts")], env: { HUB_HTTP } },
+      ...buildHubServers(process.env.AGENT_HUBS, tsxBin(), path.join(HERE, "hub-mcp.ts"), process.env.ASK_DEPTH ?? "0"),
     },
   });
 }
@@ -189,7 +194,7 @@ function runTurn(text: string): Promise<string> {
   return new Promise((resolve) => {
     const args = ["-p", "--output-format", "json", "--mcp-config", mcpConfig(), "--dangerously-skip-permissions"];
     if (sessionId) args.push("--resume", sessionId);      // continue the same conversation (memory!)
-    else args.push("--append-system-prompt", SYSTEM);     // seed identity/instructions on the first turn
+    else args.push("--append-system-prompt", SYSTEM_FULL); // seed identity/instructions on the first turn
     args.push(text);
     const child = spawn(CLI, args, { env: claudeEnv() });
     // The prompt rides as an arg — close stdin so the CLI doesn't block 3s waiting for piped input.
