@@ -1,3 +1,5 @@
+![Agentic Android — give any AI agent a phone](docs/hero.png)
+
 # Agentic Android
 
 Connect **any harness** (Claude Code, your Claude subscription, or your own script) to your **Android
