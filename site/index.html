@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Agentic Android — give any AI agent a phone</title>
 <meta name="description" content="Connect any AI harness — Claude Code, your Claude subscription, or your own script — to your Android phone, both ways. Self-hosted, end-to-end encrypted, no API key." />
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+<meta property="og:title" content="Agentic Android — give any AI agent a phone" />
+<meta property="og:description" content="Connect any AI harness to your Android phone, both ways. Self-hosted, end-to-end encrypted, no API key." />
+<meta property="og:image" content="assets/logo.svg" /><meta name="theme-color" content="#6366f1" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -39,8 +43,7 @@
     background:rgba(8,9,16,.6);border-bottom:1px solid var(--border)}
   .navin{display:flex;align-items:center;gap:24px;height:64px}
   .brand{display:flex;align-items:center;gap:11px;font-weight:700;font-size:16px;letter-spacing:-.01em}
-  .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(140deg,var(--accent),var(--accent-2));position:relative;box-shadow:0 4px 16px rgba(99,102,241,.45);flex:none}
-  .logo::after{content:"";position:absolute;inset:7px 7px;border-radius:4px;border:2px solid rgba(255,255,255,.9);border-bottom-color:transparent;transform:rotate(45deg)}
+  .logo{width:34px;height:34px;flex:none;display:block}
   .navlinks{display:flex;gap:28px;margin-left:auto;font-size:14px;color:var(--dim)}
   .navlinks a:hover{color:var(--text)}
   .btn{display:inline-flex;align-items:center;gap:9px;border-radius:11px;padding:11px 18px;font-weight:600;font-size:14px;cursor:pointer;transition:.18s;border:1px solid transparent;white-space:nowrap}
@@ -226,7 +229,7 @@
 
 <nav>
   <div class="wrap navin">
-    <a class="brand"><span class="logo"></span>Agentic&nbsp;Android</a>
+    <a class="brand"><img class="logo" src="assets/logo.svg" alt="Agentic Android logo" />Agentic&nbsp;Android</a>
     <div class="navlinks">
       <a href="#features">Features</a>
       <a href="#orchestration">Orchestration</a>

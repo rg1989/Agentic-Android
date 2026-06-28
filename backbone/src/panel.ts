@@ -39,6 +39,7 @@ const AGENT_PRESETS: Record<string, string> = {
   claude: 'claude -p "{prompt}"',
   codex: 'codex exec "{prompt}"',
   omp: 'omp -p "{prompt}"',
+  cursor: 'cursor-agent -p "{prompt}"',
   custom: "",
 };
 const ALL_TYPES: EventType[] = ["user_message", "assistant_message", "llm", "tool", "request", "response", "error", "phone_event", "agent_run", "connection", "config"];
@@ -315,11 +316,7 @@ const BASE_CSS = `
   body{font:15px/1.6 var(--sans);margin:0;color:var(--text);background:var(--bg);
     background-image:radial-gradient(1100px 560px at 78% -12%,rgba(99,102,241,0.10),transparent 62%);
     -webkit-font-smoothing:antialiased;}
-  .mark{width:30px;height:30px;border-radius:9px;flex:none;position:relative;
-    background:radial-gradient(circle at 30% 28%,#a5b4fc,transparent 46%),linear-gradient(145deg,#6366f1,#4f46e5 55%,#7c3aed);
-    box-shadow:0 0 0 1px rgba(255,255,255,0.10) inset,0 6px 18px rgba(79,70,229,0.40);}
-  .mark::after{content:"";position:absolute;inset:0;border-radius:inherit;
-    background:radial-gradient(circle at 72% 78%,rgba(255,255,255,0.22),transparent 40%);}`;
+  .mark{width:32px;height:32px;flex:none;background:url(/public/logo.svg) center/contain no-repeat;}`;
 /** The frame shared by every page — geometry only; tokens + mark come from BASE_CSS. */
 const SHELL_CSS = `
   .app { display: flex; min-height: 100vh; align-items: stretch; }
@@ -361,7 +358,7 @@ const HEADER_CSS = `
 
 /** A minimal full page in the shell — for the simple/new pages (Chat, Settings). */
 const shellDoc = (active: string, title: string, bodyInner: string, extraCss = "") => `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/public/logo.svg">
 <title>Agentic Android — ${title}</title>
 <style>
   ${BASE_CSS}
@@ -442,7 +439,7 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
 <script src="/public/chat.js"></script>`;
 
 const PAGE = (caps: Cap[], relayUrl: string) => `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/public/logo.svg">
 <title>Agentic Android — Control Panel</title>
 <style>
   ${BASE_CSS}
@@ -660,7 +657,7 @@ loadCfg();
 
 /** Guided, self-service setup page — connect an agent, then pair the phone (QR). Lives at "/". */
 const SETUP_PAGE = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/public/logo.svg">
 <title>Agentic Android — Setup</title>
 <style>
   ${BASE_CSS}
@@ -737,19 +734,22 @@ const SETUP_PAGE = `<!doctype html>
   .presetlist { display: flex; flex-direction: column; gap: 9px; margin: 14px 0 6px; }
   .preset {
     display: flex; align-items: center; gap: 14px; background: var(--surface);
-    border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px;
-    transition: border-color .15s, background .15s, box-shadow .15s;
+    border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; cursor: pointer;
+    transition: border-color .15s, background .15s, box-shadow .15s, transform .08s;
   }
-  .preset:hover { border-color: var(--border-strong); }
+  .preset:hover { border-color: var(--border-strong); background: var(--surface-2); }
+  .preset:active { transform: translateY(1px); }
   .preset.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .preset.busy { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); cursor: progress; }
   .preset .pinfo { flex: 1; min-width: 0; }
   .preset .pt { font-size: 14.5px; font-weight: 600; }
   .preset .pd { font-size: 12.5px; color: var(--text-dim); margin-top: 3px; }
   .preset .pcmd { display: inline-block; margin-top: 8px; font-family: var(--mono); font-size: 11.5px;
     color: var(--text-dim); background: rgba(8,9,13,0.5); border: 1px solid var(--border); border-radius: 7px; padding: 3px 9px; }
   .preset .pcfg { flex: none; }
-  .ptoggle { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; cursor: pointer; }
-  .ptoggle input { width: 19px; height: 19px; cursor: pointer; accent-color: var(--accent); }
+  .ptoggle { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
+  /* the checkbox is a passive indicator now — the whole .preset row owns the click */
+  .ptoggle input { width: 19px; height: 19px; pointer-events: none; accent-color: var(--accent); }
   .preset.busy .ptoggle input { visibility: hidden; }
   .pspin { display: none; position: absolute; width: 16px; height: 16px; border: 2px solid var(--accent-soft);
     border-top-color: var(--accent-hi); border-radius: 50%; animation: ospin .7s linear infinite; }
@@ -852,24 +852,28 @@ const SETUP_PAGE = `<!doctype html>
       <div class="presetlist">
         <div class="preset" data-type="claude">
           <div class="pinfo"><div class="pt">Claude</div><div class="pd">Runs the <code>claude</code> CLI on this computer.</div><code class="pcmd">claude -p "…"</code></div>
-          <label class="ptoggle" title="Add / remove this harness"><input type="checkbox" class="ptogglebox" data-type="claude" /><span class="pspin"></span></label>
+          <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="claude" /><span class="pspin"></span></span>
         </div>
         <div class="preset" data-type="omp">
           <div class="pinfo"><div class="pt">omp (Oh My Pi)</div><div class="pd">Open-source coding harness. Full phone control via MCP.</div><code class="pcmd">omp -p "…"</code></div>
-          <label class="ptoggle" title="Add / remove this harness"><input type="checkbox" class="ptogglebox" data-type="omp" /><span class="pspin"></span></label>
+          <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="omp" /><span class="pspin"></span></span>
+        </div>
+        <div class="preset" data-type="cursor">
+          <div class="pinfo"><div class="pt">Cursor</div><div class="pd">Runs the <code>cursor-agent</code> CLI on this computer. Full phone control via MCP.</div><code class="pcmd">cursor-agent -p "…"</code></div>
+          <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="cursor" /><span class="pspin"></span></span>
         </div>
         <div class="preset" data-type="basic">
           <div class="pinfo"><div class="pt">Built-in helper</div><div class="pd">No setup, no login. Basic replies — good for a first test.</div><code class="pcmd">built-in · no external command</code></div>
-          <label class="ptoggle" title="Add / remove this harness"><input type="checkbox" class="ptogglebox" data-type="basic" /><span class="pspin"></span></label>
+          <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="basic" /><span class="pspin"></span></span>
         </div>
         <div class="preset cfg" data-type="other">
-          <div class="pinfo"><div class="pt">Other local harness</div><div class="pd">Hermes, Pi, Cursor, Codex… any CLI on this computer.</div></div>
+          <div class="pinfo"><div class="pt">Other local harness</div><div class="pd">Hermes, Pi, Codex… any CLI on this computer.</div></div>
           <button class="ghost pcfg" data-type="other">Configure</button>
         </div>
         <div id="otherform" style="display:none;">
           <input id="oname" placeholder="Name (e.g. Hermes)" style="width:100%;margin:0 0 8px;" />
           <input id="ocmd" placeholder="command to run (e.g. hermes, pi, cursor-agent)" style="width:100%;margin:0 0 8px;font-family:var(--mono);" />
-          <label class="phonechk"><input type="checkbox" id="ophone" checked /><span>Can control the phone <span class="hint" style="margin:0;">— for Claude Code-compatible CLIs (Claude, Cursor, Hermes, Pi). Off = chat only.</span></span></label>
+          <label class="phonechk"><input type="checkbox" id="ophone" checked /><span>Can control the phone <span class="hint" style="margin:0;">— for Claude Code-compatible CLIs (Claude, Hermes, Pi). Off = chat only.</span></span></label>
           <div class="cmdrow" style="margin-top:10px;"><button id="connect">Add harness</button><span id="astate" class="hint" style="margin:0;"></span></div>
         </div>
         <div class="preset cfg" data-type="remote">
@@ -934,13 +938,15 @@ const SETUP_PAGE = `<!doctype html>
     </div>
   </div>
 <script>
-  // Configure rows (other / remote) expand their own form; the fixed presets use checkboxes instead.
-  document.querySelectorAll('.pcfg').forEach(b=>b.onclick=()=>{
-    const t=b.dataset.type, of=document.getElementById('otherform'), ri=document.getElementById('remoteinfo');
+  // Configure rows (other / remote) expand their own form below them.
+  function toggleCfg(t){
+    const of=document.getElementById('otherform'), ri=document.getElementById('remoteinfo');
     if(t==='other'){ const show=of.style.display==='none'; of.style.display=show?'block':'none'; ri.style.display='none'; if(show) document.getElementById('oname').focus(); }
     else { const show=ri.style.display==='none'; ri.style.display=show?'block':'none'; of.style.display='none'; if(show) loadRemotePrompt(); }
-  });
-  // Checkbox = add/remove a fixed-preset harness. Source of truth is /status; a spinner covers the in-flight gap.
+  }
+  // Clicking a preset row ADDS that harness; once it's running it moves to the list above and leaves the
+  // add-list (no duplicate). Disconnect happens from its row up there. Source of truth is /status; a spinner
+  // covers the in-flight gap.
   let _lastAgents=[]; const presetWant={}, presetPending={};
   async function togglePreset(kind, want){
     presetWant[kind]=want; presetPending[kind]=true; syncPresets(_lastAgents);
@@ -957,16 +963,28 @@ const SETUP_PAGE = `<!doctype html>
     poll(); for(let i=1;i<=10;i++) setTimeout(poll, i*600);
   }
   function syncPresets(list){
-    ['claude','omp','basic'].forEach(kind=>{
-      const box=document.querySelector('.ptogglebox[data-type="'+kind+'"]'); if(!box) return;
-      const row=box.closest('.preset'), running=list.some(a=>a.managed && a.kind===kind);
-      if(presetPending[kind] && running===presetWant[kind]) presetPending[kind]=false;
+    ['claude','omp','cursor','basic'].forEach(kind=>{
+      const row=document.querySelector('.preset[data-type="'+kind+'"]'); if(!row) return;
+      const running=list.some(a=>a.managed && a.kind===kind);
+      if(presetPending[kind] && running===presetWant[kind]) presetPending[kind]=false; // settled
       const pending=!!presetPending[kind];
-      box.checked = pending ? presetWant[kind] : running; box.disabled = pending;
-      row.classList.toggle('busy', pending); row.classList.toggle('on', box.checked);
+      // Running (and not mid-start) → it lives in the list above; hide its add-row so there's no duplicate.
+      // While starting, keep the row but show it busy (spinner + colour). Disconnecting it above flips
+      // running false and the row reappears in its original slot.
+      row.style.display=(running && !pending)?'none':'';
+      const box=row.querySelector('.ptogglebox'); if(box){ box.checked=false; box.disabled=pending; }
+      row.classList.toggle('busy', pending);
     });
   }
-  document.querySelectorAll('.ptogglebox').forEach(b=>b.onchange=()=>togglePreset(b.dataset.type, b.checked));
+  // The WHOLE row is the click target now (not just the checkbox/button).
+  document.querySelectorAll('.preset[data-type]').forEach(row=>{
+    const kind=row.dataset.type;
+    row.onclick=()=>{
+      if(kind==='other'||kind==='remote'){ toggleCfg(kind); return; } // config rows expand their form
+      if(presetPending[kind]) return;                                  // already starting — ignore repeats
+      togglePreset(kind, true);                                        // add it (disconnect is up in the list)
+    };
+  });
   let _promptLoaded=false;
   async function loadRemotePrompt(){ if(_promptLoaded) return; _promptLoaded=true;
     try{ const t=await (await fetch('/remote-prompt')).text(); document.getElementById('remoteprompt').textContent=t; }
@@ -1036,7 +1054,7 @@ const SETUP_PAGE = `<!doctype html>
     if(!a.connected){ const b=document.createElement('span'); b.className='badge'; b.textContent='starting…'; row.appendChild(b); }
     else if(a.active){ const b=document.createElement('span'); b.className='badge act'; b.textContent='Active'; row.appendChild(b); }
     else { const btn=document.createElement('button'); btn.className='ghost'; btn.textContent='Set active'; btn.onclick=()=>setActive(a.id); row.appendChild(btn); }
-    if(a.managed){ const btn=document.createElement('button'); btn.className='ghost'; btn.textContent='Stop'; btn.onclick=()=>stopAgent(a.id); row.appendChild(btn); }
+    if(a.managed){ const btn=document.createElement('button'); btn.className='ghost'; btn.textContent='Disconnect'; btn.onclick=()=>stopAgent(a.id); row.appendChild(btn); }
     return row;
   }
   let _agentsSig='';
@@ -1127,7 +1145,7 @@ const SETTINGS_PAGE = (s: SettingsInfo) => {
       ? `<span class="copyfield"><code>${esc(value)}</code><button class="iconbtn copy" title="Copy" aria-label="Copy">${icon("copy", 13)}</button></span>`
       : `<code>${esc(value)}</code>`}</span></div>`;
   return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/public/logo.svg">
 <title>Agentic Android — Settings</title>
 <style>
   ${BASE_CSS}
@@ -1451,6 +1469,7 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     let baseName = "Built-in helper";
     if (kind === "claude") { script = "src/agent-cli.ts"; env = claudeSpawnEnv(); baseName = "Claude"; }            // your Claude
     else if (kind === "omp") { script = "src/agent-omp.ts"; baseName = "omp"; }                                     // Oh My Pi — keeps its own env (provider keys / OAuth)
+    else if (kind === "cursor") { script = "src/agent-cursor.ts"; baseName = "Cursor"; }                            // Cursor — keeps its own env (cursor-agent login / CURSOR_API_KEY)
     else if (kind === "other" || kind === "custom") {
       baseName = opts.name?.trim() || command || "agent";
       if (opts.phone === false) { script = "src/agent-text.ts"; env.AGENT_CMD = command || ""; }                    // chat-only: any CLI
