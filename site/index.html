@@ -283,23 +283,24 @@
 
     <div style="height:64px"></div>
 
-    <div class="show rev">
-      <div class="showtext rv">
-        <span class="ktag">Flow view</span>
-        <h2>Or watch it as an automation graph.</h2>
-        <p>Flip to Flow and the same run becomes a pannable, zoomable node graph — task in, result out. It auto-fits while it grows, then hands you the controls to zoom in and read any node.</p>
-        <ul class="checklist">
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Each box shows the task passed forward and the result returned</li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Bezier edges colour by completion — green done, red error</li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Pan, zoom, fit — built for runs with dozens of agents</li>
-        </ul>
-      </div>
-      <div class="rv">
-        <div class="twocol">
-          <div class="frame"><img src="assets/web-flow-detail.png" alt="Flow view node detail" style="height:340px;object-fit:cover;object-position:left top" /></div>
-          <div class="frame"><img src="assets/web-flow.png" alt="Full orchestration flow graph" style="height:340px;object-fit:contain;background:#0a0b12" /></div>
-        </div>
-        <div class="framecap">Left: readable node boxes (task → result). Right: the full graph, auto-fit.</div>
+    <div class="shead rv" style="margin-bottom:34px">
+      <span class="ktag">Flow view</span>
+      <h2>Or watch it as an automation graph.</h2>
+      <p>Flip to Flow and the same run becomes a pannable, zoomable node graph — task in, result out. It auto-fits while it grows, then hands you the controls to zoom in and read any node.</p>
+    </div>
+    <div class="rv" style="max-width:1000px;margin:0 auto">
+      <div class="frame"><div class="bbar"><i></i><i></i><i></i><span class="burl">Orchestration · Flow</span></div><img src="assets/web-flow-read.png" alt="Flow view — a delegate node and its sub-agents, with task and result" /></div>
+      <div class="framecap">Scout's branch up close — the task it received, the result it returned, and its sub-agents fanning out. Edges turn green as each completes.</div>
+    </div>
+    <div class="twocol rv" style="max-width:1000px;margin:40px auto 0;align-items:center">
+      <ul class="checklist" style="margin:0">
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Each box shows the task passed forward and the result returned</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Bezier edges colour by completion — green done, red error</li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Pan, zoom, fit — built for runs with dozens of agents</li>
+      </ul>
+      <div>
+        <div class="frame"><img src="assets/web-flow.png" alt="The full orchestration run, auto-fit" style="height:230px;object-fit:contain;background:#0a0b12" /></div>
+        <div class="framecap">…and the whole run at a glance — 130+ nodes, auto-fit.</div>
       </div>
     </div>
   </div>

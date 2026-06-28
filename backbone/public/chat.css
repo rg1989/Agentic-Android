@@ -221,7 +221,7 @@ svg.ic { display: block; flex: none; }
 .oline { display: flex; align-items: center; gap: 6px; }
 .okind { flex: none; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); border: 1px solid var(--border); border-radius: 5px; padding: 0 4px; line-height: 1.5; }
 .okind.subagent { color: var(--accent-hi); border-color: var(--accent); }
-.okind.delegate { color: var(--ok); border-color: rgba(52,211,153,.4); }
+.okind.delegation { color: var(--ok); border-color: rgba(52,211,153,.4); }
 .oname { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ometa { font-size: 11px; color: var(--text-faint); margin-left: auto; white-space: nowrap; flex: none; }
 .olabel { font-size: 11.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
@@ -262,7 +262,7 @@ svg.ic { display: block; flex: none; }
 .ofn-head { display: flex; align-items: center; gap: 6px; }
 .ofn-kind { flex: none; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); border: 1px solid var(--border); border-radius: 5px; padding: 0 4px; line-height: 1.5; }
 .ofn-kind.subagent { color: var(--accent-hi); border-color: var(--accent); }
-.ofn-kind.delegate { color: var(--ok); border-color: rgba(52,211,153,.4); }
+.ofn-kind.delegation { color: var(--ok); border-color: rgba(52,211,153,.4); }
 .ofn-name { font-weight: 600; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .ofn-meta { font-size: 10px; color: var(--text-faint); flex: none; }
 .oflow-node.done .ofn-meta { color: var(--ok); } .oflow-node.error .ofn-meta { color: var(--err); }
