@@ -42,6 +42,20 @@ const AGENT_PRESETS: Record<string, string> = {
   cursor: 'cursor-agent -p "{prompt}"',
   custom: "",
 };
+// Brand marks shown before each harness name (in the add-list AND the connected list). Real logos for
+// Claude (simple-icons) and Cursor (svgl cube); clean monograms for omp (π = Oh My Pi) and Hermes — neither
+// has a canonical brand logo. Neutral badges for basic/other/remote. All inlined (no CDN, matching the
+// vendored-assets convention), on a uniform dark app-icon badge; sized via the .alogo CSS.
+const LOGO_BG = "#1b1d24";
+const AGENT_LOGOS: Record<string, string> = {
+  claude: `<svg class="alogo" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="${LOGO_BG}"/><g transform="translate(4.3 4.3) scale(.64)" fill="#D97757"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></g></svg>`,
+  cursor: `<svg class="alogo" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="${LOGO_BG}"/><g transform="translate(5.4 4.5) scale(.0282)" fill="#E6E6E6"><path d="M457.43,125.94L244.42,2.96c-6.84-3.95-15.28-3.95-22.12,0L9.3,125.94c-5.75,3.32-9.3,9.46-9.3,16.11v247.99c0,6.65,3.55,12.79,9.3,16.11l213.01,122.98c6.84,3.95,15.28,3.95,22.12,0l213.01-122.98c5.75-3.32,9.3-9.46,9.3-16.11v-247.99c0-6.65-3.55-12.79-9.3-16.11h-.01ZM444.05,151.99l-205.63,356.16c-1.39,2.4-5.06,1.42-5.06-1.36v-233.21c0-4.66-2.49-8.97-6.53-11.31L24.87,145.67c-2.4-1.39-1.42-5.06,1.36-5.06h411.26c5.84,0,9.49,6.33,6.57,11.39h-.01Z"/></g></svg>`,
+  omp: `<svg class="alogo" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="${LOGO_BG}"/><text x="12" y="17.4" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="15" font-weight="700" fill="#2DD4BF">&#960;</text></svg>`,
+  hermes: `<svg class="alogo" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="${LOGO_BG}"/><text x="12" y="17.2" text-anchor="middle" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="13.5" font-weight="700" fill="#818CF8">H</text></svg>`,
+  basic: `<svg class="alogo" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="${LOGO_BG}"/><circle cx="12" cy="12" r="4.4" fill="#6b7280"/></svg>`,
+  other: `<svg class="alogo" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="${LOGO_BG}"/><text x="12" y="16.4" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="11" font-weight="700" fill="#94a3b8">&#8250;_</text></svg>`,
+  remote: `<svg class="alogo" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="${LOGO_BG}"/><path transform="translate(4.4 6.6) scale(.62)" fill="#94a3b8" d="M19 18H6a4 4 0 0 1 0-8 5.5 5.5 0 0 1 10.6-1.4A4 4 0 0 1 19 18z"/></svg>`,
+};
 const ALL_TYPES: EventType[] = ["user_message", "assistant_message", "llm", "tool", "request", "response", "error", "phone_event", "agent_run", "connection", "config"];
 
 function configDir(): string {
@@ -316,7 +330,7 @@ const BASE_CSS = `
   body{font:15px/1.6 var(--sans);margin:0;color:var(--text);background:var(--bg);
     background-image:radial-gradient(1100px 560px at 78% -12%,rgba(99,102,241,0.10),transparent 62%);
     -webkit-font-smoothing:antialiased;}
-  .mark{width:32px;height:32px;flex:none;background:url(/public/logo.svg) center/contain no-repeat;}`;
+  .mark{width:42px;height:42px;flex:none;background:url(/public/logo.svg) center/contain no-repeat;}`;
 /** The frame shared by every page — geometry only; tokens + mark come from BASE_CSS. */
 const SHELL_CSS = `
   .app { display: flex; min-height: 100vh; align-items: stretch; }
@@ -778,6 +792,13 @@ const SETUP_PAGE = `<!doctype html>
   .agentrow .badge { font-size: 11px; font-weight: 560; padding: 3px 10px; border-radius: 99px; background: var(--surface-3); color: var(--text-dim); flex: none; }
   .agentrow .badge.act { background: var(--ok); color: #04130c; }
   .agentrow button { padding: 6px 12px; font-size: 12px; flex: none; }
+  /* brand mark before each harness name — same size across brands; a touch larger in the add-list
+     (not yet enabled), smaller once it's an enabled/connected harness. */
+  .alogo { display: block; flex: none; border-radius: 6px; }
+  .preset .alogo { width: 26px; height: 26px; }
+  .agentrow .alg { display: inline-flex; flex: none; }
+  .agentrow .alogo { width: 18px; height: 18px; }
+  .agentrow .cloud { margin: 0 2px 0 0; font-size: 14px; cursor: help; flex: none; opacity: .85; }
   .addbox { border-top: 1px dashed var(--border-strong); padding-top: 16px; margin-top: 12px; }
   .addlabel { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; font-weight: 540; }
   .phonechk { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; color: var(--text); cursor: pointer; }
@@ -851,22 +872,27 @@ const SETUP_PAGE = `<!doctype html>
       <div class="addlabel">Add a harness</div>
       <div class="presetlist">
         <div class="preset" data-type="claude">
+          ${AGENT_LOGOS.claude}
           <div class="pinfo"><div class="pt">Claude</div><div class="pd">Runs the <code>claude</code> CLI on this computer.</div><code class="pcmd">claude -p "…"</code></div>
           <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="claude" /><span class="pspin"></span></span>
         </div>
         <div class="preset" data-type="omp">
+          ${AGENT_LOGOS.omp}
           <div class="pinfo"><div class="pt">omp (Oh My Pi)</div><div class="pd">Open-source coding harness. Full phone control via MCP.</div><code class="pcmd">omp -p "…"</code></div>
           <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="omp" /><span class="pspin"></span></span>
         </div>
         <div class="preset" data-type="cursor">
+          ${AGENT_LOGOS.cursor}
           <div class="pinfo"><div class="pt">Cursor</div><div class="pd">Runs the <code>cursor-agent</code> CLI on this computer. Full phone control via MCP.</div><code class="pcmd">cursor-agent -p "…"</code></div>
           <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="cursor" /><span class="pspin"></span></span>
         </div>
         <div class="preset" data-type="basic">
+          ${AGENT_LOGOS.basic}
           <div class="pinfo"><div class="pt">Built-in helper</div><div class="pd">No setup, no login. Basic replies — good for a first test.</div><code class="pcmd">built-in · no external command</code></div>
           <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="basic" /><span class="pspin"></span></span>
         </div>
         <div class="preset cfg" data-type="other">
+          ${AGENT_LOGOS.other}
           <div class="pinfo"><div class="pt">Other local harness</div><div class="pd">Hermes, Pi, Codex… any CLI on this computer.</div></div>
           <button class="ghost pcfg" data-type="other">Configure</button>
         </div>
@@ -877,6 +903,7 @@ const SETUP_PAGE = `<!doctype html>
           <div class="cmdrow" style="margin-top:10px;"><button id="connect">Add harness</button><span id="astate" class="hint" style="margin:0;"></span></div>
         </div>
         <div class="preset cfg" data-type="remote">
+          ${AGENT_LOGOS.remote}
           <div class="pinfo"><div class="pt">Remote / cloud harness</div><div class="pd">A Hermes (or anything) running elsewhere that connects to this hub itself.</div></div>
           <button class="ghost pcfg" data-type="remote">Set up</button>
         </div>
@@ -938,6 +965,18 @@ const SETUP_PAGE = `<!doctype html>
     </div>
   </div>
 <script>
+  const LOGOS = ${JSON.stringify(AGENT_LOGOS)};
+  // Pick a brand mark for a connected harness: by kind first (claude/omp/cursor/basic), else by name for
+  // self-connected externals (Hermes etc.); fall back to the neutral "other" badge.
+  function logoKeyFor(a){
+    const k=(a.kind||'').toLowerCase(); if(LOGOS[k]) return k;
+    const n=(a.name||'').toLowerCase();
+    if(n.indexOf('hermes')>=0) return 'hermes';
+    if(n.indexOf('claude')>=0) return 'claude';
+    if(n.indexOf('cursor')>=0) return 'cursor';
+    if(n.indexOf('omp')>=0||n.indexOf('oh my pi')>=0) return 'omp';
+    return 'other';
+  }
   // Configure rows (other / remote) expand their own form below them.
   function toggleCfg(t){
     const of=document.getElementById('otherform'), ri=document.getElementById('remoteinfo');
@@ -1044,13 +1083,17 @@ const SETUP_PAGE = `<!doctype html>
   function agentRow(a){
     const row=document.createElement('div'); row.className='agentrow'+(a.active?' active':'');
     const dot=document.createElement('span');
-    dot.className='dot '+(!a.connected?'wait':(a.active?(a.ready===false?'bad':'on'):'lit'));
+    // Every CONNECTED harness is green (it IS connected); a connected-but-not-signed-in active one stays
+    // amber. Not-yet-connected = amber "starting". The active harness is set apart by the row border alone.
+    dot.className='dot '+(!a.connected?'wait':(a.active&&a.ready===false?'bad':'on'));
     row.appendChild(dot);
-    if(a.connected && !a.managed){ const c=document.createElement('span'); c.textContent='☁'; c.title='Cloud / external harness — it connected to this hub on its own (a remote brain or a hand-started CLI), not launched here.'; c.style.cssText='margin:0 4px 0 0;font-size:14px;cursor:help;'; row.appendChild(c); }
+    const lg=document.createElement('span'); lg.className='alg'; lg.innerHTML=LOGOS[logoKeyFor(a)]||''; row.appendChild(lg);
     const nm=document.createElement('div'); nm.className='nm';
     const an=document.createElement('div'); an.className='anm'; an.textContent=a.name; nm.appendChild(an);
     if(a.description){ const ad=document.createElement('div'); ad.className='adesc'; ad.textContent=a.description; nm.appendChild(ad); }
     row.appendChild(nm);
+    // Cloud marker lives on the RIGHT, next to the active area — it flags a self-connected external harness.
+    if(a.connected && !a.managed){ const c=document.createElement('span'); c.className='cloud'; c.textContent='☁'; c.title='Cloud / external harness — it connected to this hub on its own (a remote brain or a hand-started CLI), not launched here.'; row.appendChild(c); }
     if(!a.connected){ const b=document.createElement('span'); b.className='badge'; b.textContent='starting…'; row.appendChild(b); }
     else if(a.active){ const b=document.createElement('span'); b.className='badge act'; b.textContent='Active'; row.appendChild(b); }
     else { const btn=document.createElement('button'); btn.className='ghost'; btn.textContent='Set active'; btn.onclick=()=>setActive(a.id); row.appendChild(btn); }
