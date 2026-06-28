@@ -1,4 +1,4 @@
-![Agentic Android — give any AI agent a phone](docs/hero.png)
+[![Agentic Android — give any AI agent a phone](docs/hero.png)](https://agentic-android.grinevich.cc/)
 
 # Agentic Android
 
