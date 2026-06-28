@@ -481,7 +481,7 @@
     <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M12 3v18"/><circle cx="12" cy="12" r="9"/></svg> Self-hosted, your channel</span>
     <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg> No accounts, no API key</span>
     <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg> Open-source</span>
-    <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M8 12l3 3 5-6"/></svg> 24 phone capabilities</span>
+    <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M8 12l3 3 5-6"/></svg> 55 phone capabilities</span>
   </div>
 </div>
 
@@ -496,7 +496,7 @@
     <div class="feats">
       <div class="feat rv"><div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 6h4a2 2 0 0 1 2 2v1M9 18h4a2 2 0 0 0 2-2v-1"/></svg></div><h3>Promote any harness to orchestrator</h3><p>Give one harness the driver seat and it commands the rest — delegating subtasks to your other harnesses in parallel, even across several hubs, then merging it all into one answer.</p></div>
       <div class="feat rv"><div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 4-5"/></svg></div><h3>Two live views</h3><p>Watch every delegation as a file-system <b>tree</b> or a pannable <b>flow graph</b> — connectors light up green as results propagate back up the chain.</p></div>
-      <div class="feat rv"><div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M11 18h2"/></svg></div><h3>Real phone control</h3><p>Camera, location, SMS, notifications, torch, ring, clipboard — and <b>read &amp; tap any app's screen</b> via accessibility computer-use.</p></div>
+      <div class="feat rv"><div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M11 18h2"/></svg></div><h3>Real phone control</h3><p>Camera, location, SMS, calls, notifications, torch, ring, clipboard, alarms, navigation — <b>wake &amp; keep the phone awake</b>, and <b>read &amp; tap any app's screen</b> via accessibility computer-use.</p></div>
       <div class="feat rv"><div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M3 12a9 9 0 0 1 18 0M5 17l2-2M19 17l-2-2"/></svg></div><h3>Take a photo, it sees it</h3><p>The agent snaps a photo on your phone, it renders in the chat, and the model receives the actual pixels — so it can describe and reason about what it sees.</p></div>
       <div class="feat rv"><div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div><h3>Talk or speak</h3><p>Type from the phone, or use the always-on offline wake word and hold-to-talk; replies come back in chat or spoken aloud.</p></div>
       <div class="feat rv"><div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><h3>Consent &amp; encryption</h3><p>Per-harness × per-capability allow / ask / deny with biometric confirm. The relay only ever sees opaque ciphertext routed by fingerprint.</p></div>
@@ -670,11 +670,11 @@
     <div class="tiers rv">
       <div class="tier">
         <div class="tt">Structured APIs <span>Tier 1</span></div>
-        <p>Camera, location, SMS, notifications (listen &amp; post), device info, battery, flashlight, ring, vibrate, clipboard, launch apps, photos — fast, typed, reliable.</p>
+        <p>~40 typed actions: camera, location, sensors; SMS, calls, share, email, navigation; notifications, alarms &amp; timers; torch, ring, vibrate, volume, clipboard; launch / list / uninstall apps; battery, network &amp; screen state; and <b>wake / unlock / keep-awake</b> — fast, typed, reliable.</p>
       </div>
       <div class="tier">
         <div class="tt">Computer-use <span>Tier 2</span></div>
-        <p>Drive <i>any</i> app's UI through the accessibility service: <code>ui.read</code>, <code>ui.tap</code>, <code>ui.text</code>, <code>ui.swipe</code>, <code>ui.screenshot</code>, back / home / recents — when there's no API, it uses the screen like you would.</p>
+        <p>Drive <i>any</i> app's UI through the accessibility service: <code>ui.find</code>, <code>ui.tap</code>, <code>ui.set_text</code>, <code>ui.scroll_to</code>, <code>ui.wait</code>, <code>ui.screenshot</code>, back / home / recents / lock — locate elements by text, act on the node, and wait for the screen to settle, instead of guessing pixels.</p>
       </div>
     </div>
   </div>

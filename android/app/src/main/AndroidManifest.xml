@@ -18,6 +18,9 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- list/launch installed apps (Android 11+ package visibility) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- network.state (read-only) + alarm.set/timer.set (both normal, auto-granted) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <application
         android:label="Agentic Android"
@@ -46,6 +49,18 @@
         <!-- QR-scan pairing screen (Q5). Launched from MainActivity's "Pair agent" button. -->
         <activity
             android:name=".pairing.PairingActivity"
+            android:exported="false" />
+
+        <!-- device.wake: transparent activity that turns the screen on, shows over the keyguard,
+             and dismisses an insecure lock. Finishes immediately; the Waker keeps the screen on. -->
+        <activity
+            android:name=".capabilities.WakeActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:exported="false" />
 
         <!-- Transparent biometric approval activity for `ask`-sensitivity capabilities (Q8). -->
@@ -104,6 +119,18 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Notification access: lets notification.listen work and powers notifications.active /
+             media.transport / OTP-and-SMS-text reads without the Play-restricted READ_SMS.
+             User must also grant it in Settings > Notification access. -->
+        <service
+            android:name=".capabilities.AgentNotificationListenerService"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
 

@@ -6,8 +6,8 @@ Connect **any harness** (Claude Code, your Claude subscription, or your own scri
 phone**, both ways:
 
 - **Harness → phone** — the harness drives the phone: take a photo, get location, send an SMS, read
-  notifications, ring, flash the torch, and even **read and tap the screen of any app** (Tier‑2
-  computer‑use).
+  notifications, ring, flash the torch, **wake the phone and keep it awake**, and even **read and tap
+  the screen of any app** (Tier‑2 computer‑use).
 - **Phone → harness** — you talk to the harness from the phone: type or speak (wake word + voice), and
   the harness replies in chat or out loud.
 
@@ -20,12 +20,17 @@ not Telegram's.
 
 ## Features
 
-**Phone capabilities the harness can call** (all consent‑gated on the phone):
+**Phone capabilities the harness can call** — ~55 consent‑gated actions on the phone:
 
-| Tier | Capabilities |
+| Group | Capabilities |
 |---|---|
-| **1 — Structured APIs** | `camera.capture`, `location.get`, `sms.send`, `notification.listen` / `notify.post`, `device.info`, `battery`, `flashlight`, `phone.ring` / `phone.stop_ring`, `vibrate`, `clipboard.set`, `app.launch` / `apps.list`, photos |
-| **2 — Computer‑use** | drive any app's UI: `ui.read` (screen contents), `ui.tap`, `ui.text`, `ui.swipe`, `ui.screenshot`, `ui.global` (back/home/recents) — via AccessibilityService |
+| **Sense** | `camera.capture`, `location.get`, `sensors.read`, `battery.status`, `device.info`, `screen.state`, `display.state`, `network.state`, `location.mode`, `storage.stat`, `volume.state`, `foreground.app` |
+| **Act on the device** | `torch.set`, `vibrate`, `volume.set`, `phone.ring` / `phone.stop_ring`, `clipboard.get` / `clipboard.set`, `notify.post`, `alarm.set` / `timer.set`, `settings.panel`, **`device.wake`** (wake · unlock swipe locks · keep‑awake) / `device.release` |
+| **Comms & apps** | `sms.send`, `phone.dial`, `share.send`, `email.compose`, `navigation.start`, `url.open`, `app.launch` / `apps.list` / `app.uninstall` |
+| **Notifications** | `notification.listen` (live notifications incl. OTP/2FA text), `notify.post` |
+| **Computer‑use** *(Tier 2 · AccessibilityService)* | **locate** `ui.find` / `ui.read` / `ui.dump` · **act** `ui.tap` / `ui.long_press` / `ui.swipe` / `ui.scroll` / `ui.scroll_to` / `ui.text` / `ui.set_text` / `ui.node_action` · **sync** `ui.wait` · **capture** `ui.screenshot` · **system** `ui.global` / `ui.system_action` (back/home/recents/lock/power) |
+
+> Unlocking: a swipe lock is dismissed automatically; a secure PIN/pattern/biometric lock can't be bypassed by any app — `device.wake` surfaces the system unlock prompt for you (or biometric) to complete.
 
 **The phone app** (native Kotlin/Compose, sideloaded):
 

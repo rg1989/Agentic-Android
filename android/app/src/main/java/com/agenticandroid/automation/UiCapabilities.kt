@@ -123,4 +123,15 @@ fun registerTier2(registry: com.agenticandroid.CapabilityRegistry, bus: BusEndpo
     registry.register(UiGlobalCapability())
     registry.register(UiReadCapability())
     registry.register(UiScreenshotCapability(bus))
+    // Free batch: query/act primitives + waits + extended system actions (held accessibility access).
+    registry.register(UiFindCapability())
+    registry.register(UiNodeActionCapability())
+    registry.register(UiSetTextCapability())
+    registry.register(UiLongPressCapability())
+    registry.register(UiScrollCapability())
+    registry.register(UiScrollToCapability())
+    registry.register(UiWaitCapability())
+    registry.register(UiDumpCapability())
+    registry.register(UiSystemActionCapability())
+    registry.register(ForegroundAppCapability())
 }

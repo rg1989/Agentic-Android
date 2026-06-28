@@ -61,6 +61,33 @@ fun registerTier1(registry: CapabilityRegistry, bus: BusEndpoint, context: Conte
     registry.register(PostNotificationCapability(context))
     registry.register(ClipboardSetCapability(context))
 
+    // Free batch — read-only situational awareness (no permission, except network.state = normal).
+    registry.register(BatteryStatusCapability(context))
+    registry.register(ScreenStateCapability(context))
+    registry.register(DisplayStateCapability(context))
+    registry.register(VolumeStateCapability(context))
+    registry.register(StorageStatCapability(context))
+    registry.register(LocationModeCapability(context))
+    registry.register(SettingsReadCapability(context))
+    registry.register(ClipboardGetCapability(context))
+    registry.register(NetworkStateCapability(context))
+    registry.register(SensorsReadCapability(context))
+
+    // Cheap batch — intent hand-offs (no restricted permission; alarm/timer use normal SET_ALARM).
+    registry.register(DialCapability(context))
+    registry.register(ShareCapability(context))
+    registry.register(EmailComposeCapability(context))
+    registry.register(NavigationCapability(context))
+    registry.register(AlarmSetCapability(context))
+    registry.register(TimerSetCapability(context))
+    registry.register(SettingsPanelCapability(context))
+    registry.register(AppUninstallCapability(context))
+
+    // Wake / unlock / keep-awake — share one Waker so device.wake and device.release act on the same lock.
+    val waker = Waker(context)
+    registry.register(WakeCapability(context, waker))
+    registry.register(WakeReleaseCapability(waker))
+
     // Wire bus into the listener service singleton so it can forward events (capability B).
     // The service is bound by Android separately; this just sets the shared reference.
     AgentNotificationListenerService.bus = bus
