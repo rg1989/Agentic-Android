@@ -14,7 +14,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runAgent, buildHubServers, type AgentAdapter } from "./agent-runner.ts";
+import { runAgent, buildHubServers, type AgentAdapter, type TurnContext } from "./agent-runner.ts";
+import { makeLineParser } from "./parse-claude-stream.ts";
+import { parseOmpEvent } from "./parse-omp-stream.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HUB_HTTP = process.env.HUB_HTTP ?? "http://127.0.0.1:8123";
@@ -34,7 +36,7 @@ const SYSTEM =
   "the phone, actually use those tools, then reply concisely about what happened. If the user asks where you " +
   `are running, answer truthfully: on their computer (${HOST}) via the hub — the phone is only the device you operate.`;
 const ORCH = process.env.AGENT_HUBS
-  ? " You also coordinate other agents. Use the hub_* tools: list_agents to see who is available and their strengths; ask_agent to delegate a subtask (use the agent's id when names repeat) and get its answer. For a large task, split it, delegate to the best-suited workers (in parallel when independent), then synthesize one reply. Never delegate to the agent marked active — that is you."
+  ? " You also coordinate other harnesses. Use the hub_* tools: list_agents to see who is available and their strengths; ask_agent to delegate ONE subtask to ONE harness. When you have independent subtasks for DIFFERENT harnesses, call ask_agents (plural) with all of them in one call so they run AT THE SAME TIME — do not chain ask_agent calls, that runs them one-after-another. For a large task: split it, ask_agents the best-suited workers in parallel, then synthesize one reply. Never delegate to the harness marked active — that is you."
   : "";
 const SYSTEM_FULL = SYSTEM + ORCH;
 
@@ -64,27 +66,45 @@ const AUTH_HELP =
   "key) in the environment, or run `omp` once interactively to sign in, then try again.";
 const NEEDS_AUTH = /api[\s._-]?key|unauthor|401|403|credential|not (?:configured|authenticated)|no .*provider|sign[\s-]?in|log[\s-]?in/i;
 
-/** Run one user turn through `omp -p` — text mode, so the reply is just stdout. */
-function runTurn(text: string): Promise<string> {
+/** Run one user turn through omp. Text mode normally; `--mode=json` when the hub is watching internals
+ *  (ctx.onActivity), so we can narrate omp's tool calls + subagents the same way Claude does. */
+function runTurn(text: string, ctx?: TurnContext): Promise<string> {
   return new Promise((resolve) => {
-    const args = ["-p", "--auto-approve", "--session-dir", sessionDir];
+    const watch = !!ctx?.onActivity;
+    const args = ["-p", ...(watch ? ["--mode", "json"] : []), "--auto-approve", "--session-dir", sessionDir];
     if (hasSession) args.push("--continue");            // keep the same conversation going (memory!)
     else args.push("--append-system-prompt", SYSTEM_FULL); // seed identity/instructions on the first turn
     args.push(text);
     const child = spawn(CLI, args, { cwd: workDir, env: process.env });
     // The prompt rides as an arg — close stdin so omp doesn't block waiting for piped input.
     try { child.stdin?.end(); } catch { /* */ }
-    let out = "", err = "";
-    child.stdout.on("data", (d) => (out += d));
+    ctx?.signal?.addEventListener("abort", () => { try { child.kill("SIGTERM"); } catch { /* */ } }); // Stop → kill this run
+    let err = "";
     child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => resolve(`Couldn't run "${CLI}": ${String(e)}. Is it installed and on PATH?`));
-    child.on("close", () => {
-      const reply = out.trim();
-      if (reply) { hasSession = true; return resolve(reply); } // a session now exists to --continue next turn
+    const settle = (reply: string) => {
+      const r = reply.trim();
+      if (r) { hasSession = true; return resolve(r); } // a session now exists to --continue next turn
       const e = err.trim();
-      if (e && NEEDS_AUTH.test(e)) return resolve(AUTH_HELP);
-      resolve(e || "(no reply)");
-    });
+      resolve(e && NEEDS_AUTH.test(e) ? AUTH_HELP : (e || "(no reply)"));
+    };
+
+    if (watch) {
+      let final: string | null = null, lastText = "";
+      const feed = makeLineParser((obj) => {
+        const ev = parseOmpEvent(obj);
+        for (const a of ev.activities) ctx!.onActivity!(a);
+        if (ev.text) lastText = ev.text;
+        if (ev.final) final = ev.final.text || lastText;
+      });
+      child.stdout.on("data", (d) => feed(d.toString()));
+      child.on("close", () => settle(final ?? lastText));
+      return;
+    }
+
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.on("close", () => settle(out));
   });
 }
 

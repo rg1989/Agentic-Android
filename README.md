@@ -1,13 +1,13 @@
 # Agentic Android
 
-Connect **any agent** (Claude Code, your Claude subscription, or your own script) to your **Android
+Connect **any harness** (Claude Code, your Claude subscription, or your own script) to your **Android
 phone**, both ways:
 
-- **Agent → phone** — the agent drives the phone: take a photo, get location, send an SMS, read
+- **Harness → phone** — the harness drives the phone: take a photo, get location, send an SMS, read
   notifications, ring, flash the torch, and even **read and tap the screen of any app** (Tier‑2
   computer‑use).
-- **Phone → agent** — you talk to the agent from the phone: type or speak (wake word + voice), and
-  the agent replies in chat or out loud.
+- **Phone → harness** — you talk to the harness from the phone: type or speak (wake word + voice), and
+  the harness replies in chat or out loud.
 
 Self‑hosted, open‑source, end‑to‑end encrypted. No accounts, no API key required, your own channel —
 not Telegram's.
@@ -18,7 +18,7 @@ not Telegram's.
 
 ## Features
 
-**Phone capabilities the agent can call** (all consent‑gated on the phone):
+**Phone capabilities the harness can call** (all consent‑gated on the phone):
 
 | Tier | Capabilities |
 |---|---|
@@ -31,15 +31,15 @@ not Telegram's.
   download / share), and tables.
 - **Voice** — always‑on offline wake word (Vosk), hold‑to‑talk, spoken replies (TTS) with a
   speech sanitizer, configurable wake phrase / sensitivity / DND windows.
-- **Multiple hubs & agents** — pair several hubs and stay connected to all of them at once; the
-  header agent picker lists every agent across all online hubs (grouped by hub) and routes to the
-  right one. Per‑agent color themes; rename or forget a hub from Settings.
+- **Multiple hubs & harnesses** — pair several hubs and stay connected to all of them at once; the
+  header harness picker lists every harness across all online hubs (grouped by hub) and routes to the
+  right one. Per‑harness color themes; rename or forget a hub from Settings.
 - **Multiple chat sessions** — named, persisted, with auto‑titles and history replay.
-- **Consent engine** — per‑agent × per‑capability `deny` / `ask` / `allow`, biometric confirm for
+- **Consent engine** — per‑harness × per‑capability `deny` / `ask` / `allow`, biometric confirm for
   sensitive actions.
 - Auto‑reconnect with backoff; auto‑start on boot; FCM push as a wake doorbell.
 
-**The agent side** — three ways to attach a brain, no app changes:
+**The harness side** — three ways to attach a brain, no app changes:
 
 - **Built‑in basic** — a keyword stub, no model, no login. Always works for testing.
 - **Your Claude** — runs *your* `claude` CLI (subscription auth, **no API key in this project**).
@@ -65,10 +65,10 @@ Three processes plus the phone. The relay only ever sees opaque ciphertext addre
   destination fingerprint, queues for offline peers, serves media blobs over HTTP with a TTL. It can
   never read message contents.
 - **Hub** (`backbone/src/panel.ts`) — the glue and the only stateful piece. Owns the phone connection
-  (speaks as the phone's paired identity), the agent roster, chat sessions, media, the event log, and
-  a persistent scheduler. Serves the **web setup page on `:8123`** and an **agent WebSocket on
+  (speaks as the phone's paired identity), the harness roster, chat sessions, media, the event log, and
+  a persistent scheduler. Serves the **web setup page on `:8123`** and a **harness WebSocket on
   `:8124`**.
-- **Agent** (`backbone/src/agent.ts` / `agent-cli.ts`) — a replaceable process that connects to the
+- **Harness** (`backbone/src/agent.ts` / `agent-cli.ts`) — a replaceable process that connects to the
   hub, receives your messages plus the phone's capability catalog, runs its reasoning loop, and calls
   tools back to the phone.
 - **Phone** (`android/`) — a foreground service holding the relay connection, the Compose chat UI, the
@@ -82,14 +82,14 @@ works both ways forever (libsodium `crypto_box`: X25519 + XSalsa20‑Poly1305).
 
 **Message model:** four kinds inside the encrypted payload — `request` → `response` (tool calls,
 within seconds), `event` (phone‑initiated: wake word, notifications, deferred‑task results), and
-`ack`. Every response carries a typed `{status, result, error?}` so the agent can **chain and recover**
+`ack`. Every response carries a typed `{status, result, error?}` so the harness can **chain and recover**
 (e.g. `capture → CAMERA_IN_USE → release → capture`) inside one run.
 
 ---
 
 ## Orchestration
 
-One agent you talk to can know about your other agents and delegate work to them by strength — an
+One harness you talk to can know about your other harnesses and delegate work to them by strength — an
 **orchestrator** occupying a hub's *driver seat*. Roster access is an opt-in tool, so workers never
 orchestrate each other. See **[docs/orchestration.md](docs/orchestration.md)** for the architecture,
 diagrams, and safety mechanisms.
@@ -123,7 +123,7 @@ make start     # relay + hub + built-in basic agent (no model, no login)
 make claude    # relay + hub + YOUR Claude (run `claude login` once first — no API key)
 ```
 
-This puts the relay on `:8799`, the hub web UI on `http://127.0.0.1:8123`, and the agent socket on
+This puts the relay on `:8799`, the hub web UI on `http://127.0.0.1:8123`, and the harness socket on
 `:8124`. Open the setup page:
 
 ```bash
@@ -131,6 +131,11 @@ make open      # → http://127.0.0.1:8123
 ```
 
 Other commands: `make stop`, `make restart`, `make logs`, `make install`.
+
+> **Prefer `make` / `./start.sh`** — they `cd` into `backbone` and start the whole stack for you. The
+> lower-level `pnpm` scripts (`pnpm hub`, `pnpm relay`, `pnpm agent:claude`, `pnpm agent:orchestrator`,
+> `pnpm test`) run from the **repo root** (via root-`package.json` proxies) **or** from `backbone/` —
+> just don't run a single process and expect the others; that's what `start.sh` wires together.
 
 ### 2. Build and install the phone app
 
@@ -175,9 +180,9 @@ This is a **single‑user, self‑hosted, private‑network tool.** It is design
 machine and a **private tailnet**, not on a public address.
 
 - The **hub's agent WebSocket (`:8124`) and the relay are not authenticated.** On a shared or exposed
-  network, a rogue client could impersonate an agent. **Keep them on localhost / Tailscale only.**
-- `make claude` / `pnpm agent:claude` runs the agent with `--dangerously-skip-permissions` — it's a
-  trusted brain on your own machine. Consent is still enforced **on the phone** per agent and
+  network, a rogue client could impersonate a harness. **Keep them on localhost / Tailscale only.**
+- `make claude` / `pnpm agent:claude` runs the harness with `--dangerously-skip-permissions` — it's a
+  trusted brain on your own machine. Consent is still enforced **on the phone** per harness and
   capability.
 - The relay has no rate limiting or DDoS protection — **do not expose it to untrusted networks.**
 
@@ -188,14 +193,14 @@ machine and a **private tailnet**, not on a public address.
 | Piece | State |
 |---|---|
 | Protocol, crypto, relay, hub, scheduler, blobs, consent, pairing | ✅ built + tested (46 TS tests, typecheck clean) |
-| Key‑free agent (`agent:claude`) + phone MCP server (`phone-mcp.ts`) | ✅ built; model leg verified on a logged‑in machine |
-| Android app: chat UI, voice, multi‑agent, sessions, Tier‑1 + Tier‑2 capabilities | ✅ built + device‑verified (OnePlus, Android) |
+| Key‑free harness (`agent:claude`) + phone MCP server (`phone-mcp.ts`) | ✅ built; model leg verified on a logged‑in machine |
+| Android app: chat UI, voice, multi‑harness, sessions, Tier‑1 + Tier‑2 capabilities | ✅ built + device‑verified (OnePlus, Android) |
 | Concierge `ask_agent` (one agent routing to another) | 🟡 staged — needs ≥2 live brains to verify |
 | Hub auth, log/blob rotation, Porcupine wake engine, Noise‑IK, menu‑bar installer | ⬜ designed / deferred (see [.planning/codebase/CONCERNS.md](.planning/codebase/CONCERNS.md)) |
 
 ## Layout
 
-- **`backbone/`** — TypeScript: wire protocol, E2E crypto, relay, hub, agents, MCP server. _(`make`
+- **`backbone/`** — TypeScript: wire protocol, E2E crypto, relay, hub, harnesses, MCP server. _(`make`
   targets and `pnpm` scripts here.)_
 - **`android/`** — native Kotlin/Compose phone app. See [android/README.md](android/README.md).
 - **`launchd/`** — macOS service plist for the hub.

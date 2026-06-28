@@ -1,10 +1,20 @@
-<!-- Launcher background: solid brand indigo. -->
+<!-- Launcher background: brand indigo→cyan gradient (distinct from stock Android green). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#5B5BD6"
-        android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="6" android:startY="0"
+                android:endX="102" android:endY="108">
+                <item android:offset="0" android:color="#FF8B93FF"/>
+                <item android:offset="0.52" android:color="#FF6366F1"/>
+                <item android:offset="1" android:color="#FF22D3EE"/>
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>

@@ -8,7 +8,7 @@
  */
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { runAgent } from "./agent-runner.ts";
+import { runAgent, type TurnContext } from "./agent-runner.ts";
 
 const CMD = (process.env.AGENT_CMD ?? "").trim();
 // ponytail: split "program --flag" on whitespace (no quote handling); the prompt is passed as the LAST
@@ -16,11 +16,12 @@ const CMD = (process.env.AGENT_CMD ?? "").trim();
 // prompt from stdin need a one-line wrapper — upgrade to a configurable prompt-mode if that comes up.
 const [bin, ...baseArgs] = CMD.split(/\s+/).filter(Boolean);
 
-function runTurn(prompt: string): Promise<string> {
+function runTurn(prompt: string, ctx?: TurnContext): Promise<string> {
   return new Promise((resolve) => {
     if (!bin) return resolve("(no command is configured for this agent — set it in the hub setup page)");
     const child = spawn(bin, [...baseArgs, prompt], { env: process.env });
     try { child.stdin?.end(); } catch { /* */ }
+    ctx?.signal?.addEventListener("abort", () => { try { child.kill("SIGTERM"); } catch { /* */ } }); // Stop → kill this run
     let out = "", err = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));

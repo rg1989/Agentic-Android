@@ -28,8 +28,8 @@ data class AgentProfile(
 fun AgentProfile.display(): String = localName?.takeIf { it.isNotBlank() } ?: name
 
 /**
- * The phone's list of paired agents + which one is active. The phone keeps a single identity keypair
- * (owned by [Pairing]); each agent knows the phone's pubkey. The active profile is the one the
+ * The phone's list of paired harnesses + which one is active. The phone keeps a single identity keypair
+ * (owned by [Pairing]); each harness knows the phone's pubkey. The active profile is the one the
  * [PhoneAgentService] bus connects to — switching rebuilds the connection.
  *
  * A legacy single pairing is migrated into profile #1 on first init. Persisted (encrypted) so it
@@ -74,7 +74,7 @@ object Agents {
             ?: list.firstOrNull()?.id
     }
 
-    /** The phone's own identity (shared across all agents). */
+    /** The phone's own identity (shared across all harnesses). */
     fun self(ctx: Context): Identity = Pairing.selfIdentity(ctx)
 
     fun active(): AgentProfile? {

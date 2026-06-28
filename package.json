@@ -1,0 +1,19 @@
+{
+  "name": "agentic-android",
+  "private": true,
+  "description": "Root proxies: the real scripts live in backbone/. These let `pnpm <script>` work from the repo root too, so running it from the wrong directory no longer fails silently. The blessed entry point is still `make start` / `./start.sh`.",
+  "scripts": {
+    "hub": "pnpm -C backbone hub",
+    "panel": "pnpm -C backbone panel",
+    "relay": "pnpm -C backbone relay",
+    "agent": "pnpm -C backbone agent",
+    "agent:claude": "pnpm -C backbone agent:claude",
+    "agent:omp": "pnpm -C backbone agent:omp",
+    "agent:cursor": "pnpm -C backbone agent:cursor",
+    "agent:orchestrator": "pnpm -C backbone agent:orchestrator",
+    "test": "pnpm -C backbone test",
+    "typecheck": "pnpm -C backbone typecheck",
+    "start": "./start.sh",
+    "stop": "./stop.sh"
+  }
+}
