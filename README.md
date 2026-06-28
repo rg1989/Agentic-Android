@@ -39,13 +39,21 @@ not Telegram's.
   sensitive actions.
 - Auto‑reconnect with backoff; auto‑start on boot; FCM push as a wake doorbell.
 
-**The harness side** — three ways to attach a brain, no app changes:
+**The harness side** — attach a brain with no app changes; add and switch them from the hub's
+**Connections** page (or the `pnpm agent:*` scripts):
 
 - **Built‑in basic** — a keyword stub, no model, no login. Always works for testing.
 - **Your Claude** — runs *your* `claude` CLI (subscription auth, **no API key in this project**).
-- **Anthropic API** — set `ANTHROPIC_API_KEY` and use the built‑in Claude loop.
+- **omp / Cursor** — the `omp` or `cursor-agent` CLI as the brain, full phone control via MCP.
+- **Any other local CLI** — Hermes, Pi, Codex… either Claude‑Code‑compatible (full phone control) or
+  chat‑only.
+- **Anthropic API** — set `ANTHROPIC_API_KEY` to use the built‑in Claude loop.
 - **Any MCP host** — `phone-mcp.ts` exposes the phone as Model Context Protocol tools, so Claude Code
   or any MCP client can drive the phone.
+- **Remote / cloud** — a harness running elsewhere connects to the hub itself (no local process).
+
+The hub verifies a harness's CLI is installed **before** it's added, so a missing tool fails fast with
+install guidance instead of erroring later, mid‑chat.
 
 ---
 
@@ -66,11 +74,11 @@ Three processes plus the phone. The relay only ever sees opaque ciphertext addre
   never read message contents.
 - **Hub** (`backbone/src/panel.ts`) — the glue and the only stateful piece. Owns the phone connection
   (speaks as the phone's paired identity), the harness roster, chat sessions, media, the event log, and
-  a persistent scheduler. Serves the **web setup page on `:8123`** and a **harness WebSocket on
-  `:8124`**.
-- **Harness** (`backbone/src/agent.ts` / `agent-cli.ts`) — a replaceable process that connects to the
-  hub, receives your messages plus the phone's capability catalog, runs its reasoning loop, and calls
-  tools back to the phone.
+  a persistent scheduler. Serves the **web control panel on `:8123`** (Control Panel, Connections, Chat,
+  Settings) and a **harness WebSocket on `:8124`**.
+- **Harness** (`backbone/src/agent.ts`, `agent-cli.ts`, `agent-omp.ts`, `agent-cursor.ts`, …) — a
+  replaceable process that connects to the hub, receives your messages plus the phone's capability
+  catalog, runs its reasoning loop, and calls tools back to the phone.
 - **Phone** (`android/`) — a foreground service holding the relay connection, the Compose chat UI, the
   capability registry, the consent engine, and the voice pipeline.
 
@@ -89,10 +97,13 @@ within seconds), `event` (phone‑initiated: wake word, notifications, deferred�
 
 ## Orchestration
 
-One harness you talk to can know about your other harnesses and delegate work to them by strength — an
-**orchestrator** occupying a hub's *driver seat*. Roster access is an opt-in tool, so workers never
-orchestrate each other. See **[docs/orchestration.md](docs/orchestration.md)** for the architecture,
-diagrams, and safety mechanisms.
+The harness you talk to can know about your other harnesses and delegate work to them by strength —
+whichever harness holds a hub's *driver seat* can call `ask_agent` to fan work out to the others, **in
+parallel**, and merge their replies. Loop prevention is positional (you can't delegate back into the
+driver seat), so workers never orchestrate each other. The hub's web UI shows the whole run live as a
+**Tree** (delegation hierarchy) or a pannable **Flow** node‑graph, each box reporting the task it took
+and the result it returned. See **[docs/orchestration.md](docs/orchestration.md)** for the
+architecture, diagrams, and safety mechanisms.
 
 ---
 
@@ -111,7 +122,7 @@ diagrams, and safety mechanisms.
 ```bash
 cd backbone
 pnpm install
-pnpm test          # optional: 46 tests — protocol, crypto, relay, consent, media, scheduling, pairing, full E2E
+pnpm test          # optional: 95 tests — protocol, crypto, relay, consent, media, scheduling, pairing, orchestration, full E2E
 cd ..
 ```
 
@@ -190,13 +201,20 @@ machine and a **private tailnet**, not on a public address.
 
 ## Status
 
+Built end‑to‑end, tested, and device‑verified.
+
 | Piece | State |
 |---|---|
-| Protocol, crypto, relay, hub, scheduler, blobs, consent, pairing | ✅ built + tested (46 TS tests, typecheck clean) |
-| Key‑free harness (`agent:claude`) + phone MCP server (`phone-mcp.ts`) | ✅ built; model leg verified on a logged‑in machine |
-| Android app: chat UI, voice, multi‑harness, sessions, Tier‑1 + Tier‑2 capabilities | ✅ built + device‑verified (OnePlus, Android) |
-| Concierge `ask_agent` (one agent routing to another) | 🟡 staged — needs ≥2 live brains to verify |
-| Hub auth, log/blob rotation, Porcupine wake engine, Noise‑IK, menu‑bar installer | ⬜ designed / deferred (see [.planning/codebase/CONCERNS.md](.planning/codebase/CONCERNS.md)) |
+| Protocol, crypto, relay, hub, scheduler, blobs, consent, pairing | ✅ built + tested (95 TS tests, typecheck clean) |
+| Harnesses — built‑in, your Claude, Anthropic API, omp, Cursor, any other CLI, MCP host, remote/cloud | ✅ built, with a pre‑flight install check before a harness is added |
+| Multi‑harness orchestration — driver‑seat delegation, parallel `ask_agent`, live Tree + Flow views | ✅ built + tested |
+| Phone MCP server (`phone-mcp.ts`) — drive the phone from Claude Code / any MCP host | ✅ built |
+| Android app — chat, voice, multi‑hub / multi‑harness, sessions, Tier‑1 + Tier‑2 capabilities | ✅ built + device‑verified |
+
+**Deliberately out of scope** for a single‑user, private‑network tool: hub/relay authentication (off by
+design — it runs on localhost / Tailscale, see the security model above), log/blob rotation, alternative
+wake (Porcupine) and handshake (Noise‑IK) engines, and a GUI installer. These are non‑goals, not
+pending work; the rationale is in [.planning/codebase/CONCERNS.md](.planning/codebase/CONCERNS.md).
 
 ## Layout
 
