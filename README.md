@@ -225,3 +225,10 @@ pending work; the rationale is in [.planning/codebase/CONCERNS.md](.planning/cod
 - **`.planning/codebase/`** — generated architecture map (ARCHITECTURE, STRUCTURE, STACK, INTEGRATIONS,
   CONVENTIONS, TESTING, CONCERNS).
 - **[DESIGN.md](DESIGN.md)** — the design rationale; **[PLAN.md](PLAN.md)** — the build plan/log.
+
+## Authors
+
+Built by **[Roman Grinevich](https://www.linkedin.com/in/roman-grinevich/)**.
+
+Contributors are credited in **[AUTHORS.md](AUTHORS.md)** — open a PR and add your line. That list is the
+project's signature; sign your work.

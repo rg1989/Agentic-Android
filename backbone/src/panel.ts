@@ -1300,6 +1300,10 @@ const SETTINGS_PAGE = (s: SettingsInfo) => {
       <div class="sh"><span class="si">${icon("info", 19)}</span><div><h2>Coming soon</h2><div class="sd">On the roadmap for this page.</div></div></div>
       <div class="note">Editable hub name, relay/connectivity, per-agent defaults, consent policy, and orchestration limits — all configurable right here.</div>
     </div>
+    <div class="scard">
+      <div class="sh"><span class="si">${icon("info", 19)}</span><div><h2>About</h2><div class="sd">Who built this.</div></div></div>
+      <div class="note">Agentic Android — built by <a href="https://www.linkedin.com/in/roman-grinevich/" target="_blank" rel="noopener">Roman Grinevich</a>. Open-source; contributors are credited in <code>AUTHORS.md</code> — add your line when you send a PR, and sign your work.</div>
+    </div>
   </div>
 <script>
   document.querySelectorAll('.copyfield .copy').forEach(function(b){ b.onclick=function(){
