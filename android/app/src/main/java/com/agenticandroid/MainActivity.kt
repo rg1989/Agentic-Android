@@ -445,13 +445,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                         DropdownMenuItem(
                                             text = { Text(a.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    if (a.external) Icons.Rounded.Cloud else Icons.Rounded.SmartToy,
-                                                    contentDescription = if (a.external) "Cloud harness — connects from elsewhere" else "Local harness",
-                                                    tint = vColor,
-                                                )
-                                            },
+                                            leadingIcon = { AgentLogo(a.name, a.external, fallbackTint = vColor) },
                                             trailingIcon = { if (globallyActive) Icon(Icons.Rounded.Check, contentDescription = "active") },
                                             onClick = { PhoneAgentService.instance?.selectAgentOnHub(a.hubId, a.id); agentMenu = false },
                                         )

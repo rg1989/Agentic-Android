@@ -87,14 +87,16 @@ test("ask resolves even if the worker is selected active mid-flight (askId routi
   worker.close();
 });
 
-test("an orchestrator self-declares in /status and POST /ask to it is 409 (no orchestrator→orchestrator)", async () => {
-  await fakeAgent("Boss");                                  // first connected → becomes active
-  const sub = await fakeAgent("Sub", { orchestrator: true }); // a connected orchestrator worker (not active)
+test("a non-active orchestrator self-declares in /status and is a valid /ask target (positional model)", async () => {
+  await fakeAgent("Boss");                                  // first connected → becomes active (driver seat)
+  // A connected delegation-capable harness that is NOT in the driver seat — under the positional model it's
+  // a perfectly good worker (the old orchestrator→orchestrator 409 is gone).
+  const sub = await fakeAgent("Sub", { orchestrator: true, onUser: (m, ws) => ws.send(JSON.stringify({ t: "event", topic: "assistant_message", data: { text: `did:${m.text}`, askId: m.askId } })) });
   const s = await status() as any;
   const subEntry = s.agents.find((a: any) => a.name === "Sub");
   assert.equal(subEntry.orchestrator, true, "hello orchestrator flag surfaces in /status");
-  const r = await fetch(`http://127.0.0.1:${httpPort}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent: subEntry.id, text: "x" }) });
-  assert.equal(r.status, 409);
+  const r = await fetch(`http://127.0.0.1:${httpPort}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent: subEntry.id, text: "x" }) }).then((x) => x.json()) as any;
+  assert.equal(r.reply, "did:x");
   sub.close();
 });
 
@@ -106,4 +108,12 @@ test("ask to the active agent on a phone-backed hub is rejected; bad depth is 50
   assert.equal(r.status, 400);
   const r2 = await fetch(`http://127.0.0.1:${httpPort}/ask`, { method: "POST", headers: { "content-type": "application/json", "x-ask-depth": "99" }, body: JSON.stringify({ agent: activeId, text: "x" }) });
   assert.equal(r2.status, 508);
+});
+
+test("/agent/start refuses a harness whose CLI isn't installed, with install guidance (not a mid-chat error)", async () => {
+  const bogus = "definitely-not-installed-cli-xyz123";
+  const r = await fetch(`http://127.0.0.1:${httpPort}/agent/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "other", command: bogus, phone: false }) }).then((x) => x.json()) as any;
+  assert.equal(r.ok, false, "a missing CLI is refused at selection time, not later when you chat");
+  assert.match(String(r.error), new RegExp(bogus), "the error names the missing command");
+  assert.match(String(r.error), /isn't installed|not found|PATH/i, "the error tells the user to install it");
 });

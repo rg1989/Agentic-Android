@@ -85,8 +85,8 @@ export async function runAgent(adapter: AgentAdapter): Promise<void> {
   let current: AbortController | null = null; // the in-flight turn, so the hub's Stop can abort it
 
   ws.on("open", () => {
-    // orchestrator harness = launched with AGENT_HUBS (it holds the hub's driver-seat tools). The hub uses this
-    // to hide orchestrator harnesses from each other's list_agents and to 409 /ask targeting one (loop prevention).
+    // orchestrator = launched with AGENT_HUBS, so it holds the hub's driver-seat tools (list_agents/ask_agent).
+    // Hub-launched harnesses always get it; the flag just tells the roster which harnesses can delegate.
     ws.send(JSON.stringify({ t: "hello", name: process.env.AGENT_NAME ?? adapter.name, id: process.env.AGENT_INSTANCE_ID, description: process.env.AGENT_DESC ?? adapter.description, orchestrator: !!process.env.AGENT_HUBS }));
     console.error(`agent "${adapter.name}" connected to hub ${HUB_WS}`);
     // Heartbeat so the hub can tell "alive" from "socket open but process dead".

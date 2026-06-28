@@ -296,6 +296,7 @@ const ICON_PATHS: Record<string, string> = {
   cable: "M19 7V4h-2v3h-2V4h-2v5h6v2c0 1.1-.9 2-2 2h-4c-2.21 0-4 1.79-4 4v4h2v-4c0-1.1.9-2 2-2h4c2.21 0 4-1.79 4-4V9h-2V7h2zM5 4v5h6V4H9v3H7V4H5z",
   storage: "M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z",
   schedule: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z",
+  pin: "M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z",
 };
 /** An inline Material-icon SVG, coloured by currentColor. */
 const icon = (name: string, size = 18) =>
@@ -308,11 +309,19 @@ const NAV = [
   { href: "/chat", label: "Chat", icon: "chat" },
   { href: "/settings", label: "Settings", icon: "settings" },
 ];
-/** The left nav, with the current page marked active. Pure string → safe to interpolate into any page. */
-const sidebar = (active: string) => `<aside class="sidebar">
-  <div class="brand"><div class="mark" aria-hidden="true"></div><div class="bt">Agentic Android</div></div>
-  ${NAV.map((n) => `<a class="navitem${n.href === active ? " on" : ""}" href="${n.href}"><span class="ni">${icon(n.icon, 19)}</span>${n.label}</a>`).join("\n  ")}
-</aside>`;
+/** The left nav, with the current page marked active. Pure string → safe to interpolate into any page.
+ *  Unpinned, it collapses to an icon rail and expands on hover; the pin state persists in localStorage.
+ *  The inline script ships with the nav so every page (chat, settings, panel, connections) gets it. */
+const sidebar = (active: string) => `<aside class="sidebar" id="sidebar">
+  <div class="brand"><div class="mark" aria-hidden="true"></div><div class="bt">Agentic Android</div>
+    <button class="navpin" id="navpin" aria-label="Pin sidebar" title="Pin sidebar">${icon("pin", 17)}</button></div>
+  ${NAV.map((n) => `<a class="navitem${n.href === active ? " on" : ""}" href="${n.href}"><span class="ni">${icon(n.icon, 19)}</span><span class="nl">${n.label}</span></a>`).join("\n  ")}
+</aside>
+<script>(function(){var sb=document.getElementById("sidebar"),btn=document.getElementById("navpin");if(!sb||!btn)return;
+  function apply(p){sb.classList.toggle("nav-collapsed",!p);btn.classList.toggle("on",p);btn.title=p?"Unpin sidebar (auto-collapse)":"Pin sidebar (keep open)";}
+  apply(localStorage.getItem("nav-pinned")!=="0");
+  btn.addEventListener("click",function(){var p=localStorage.getItem("nav-pinned")==="0";localStorage.setItem("nav-pinned",p?"1":"0");apply(p);});
+})();</script>`;
 /** Canonical base — design tokens, document reset, body, and the brand mark — defined ONCE and
  *  included by every page so the shared shell (sidebar, header, logo) is pixel-identical across
  *  navigation. Each page layers its own component styles on top of this. */
@@ -335,9 +344,14 @@ const BASE_CSS = `
 const SHELL_CSS = `
   .app { display: flex; min-height: 100vh; align-items: stretch; }
   .sidebar { width: 232px; flex: none; box-sizing: border-box; padding: 18px 14px; display: flex; flex-direction: column; gap: 4px;
-    border-right: 1px solid var(--border); background: rgba(10,11,16,0.55); position: sticky; top: 0; height: 100vh; }
+    border-right: 1px solid var(--border); background: rgba(10,11,16,0.55); position: sticky; top: 0; height: 100vh;
+    white-space: nowrap; overflow: hidden; transition: width .16s ease; }
   .sidebar .brand { display: flex; align-items: center; gap: 11px; padding: 6px 8px 18px; }
-  .sidebar .brand .bt { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+  .sidebar .brand .bt { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; flex: 1; min-width: 0; }
+  .sidebar .navpin { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+    background: none; border: 0; border-radius: 8px; color: var(--text-faint); cursor: pointer; transition: color .15s, background .15s; }
+  .sidebar .navpin:hover { background: var(--surface); color: var(--text-dim); }
+  .sidebar .navpin.on { color: var(--accent-hi); }
   .sidebar .navitem { display: flex; align-items: center; gap: 11px; color: var(--text-dim); text-decoration: none;
     font-size: 14px; font-weight: 540; padding: 10px 12px; border-radius: 10px; transition: background .15s, color .15s; }
   .sidebar .navitem .ni { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-faint); transition: color .15s; }
@@ -347,6 +361,20 @@ const SHELL_CSS = `
   .sidebar .navitem.on { background: var(--accent-soft); color: var(--text); }
   .sidebar .navitem.on .ni { color: var(--accent-hi); }
   .appmain { flex: 1; min-width: 0; }
+  /* Unpinned: collapse to an icon rail, expand on hover. Wide screens only — the mobile bar (below) is untouched. */
+  @media (min-width: 761px) {
+    .sidebar.nav-collapsed { width: 66px; }
+    .sidebar.nav-collapsed .nl, .sidebar.nav-collapsed .brand .bt { opacity: 0; }
+    .sidebar.nav-collapsed .navpin { display: none; }
+    .sidebar.nav-collapsed .navitem { justify-content: center; padding: 10px; }
+    .sidebar.nav-collapsed .brand { gap: 0; padding-left: 0; padding-right: 0; justify-content: center; }
+    .sidebar.nav-collapsed .brand .mark { width: 34px; height: 34px; }
+    .sidebar.nav-collapsed:hover { width: 232px; }
+    .sidebar.nav-collapsed:hover .nl, .sidebar.nav-collapsed:hover .brand .bt { opacity: 1; }
+    .sidebar.nav-collapsed:hover .navpin { display: inline-flex; }
+    .sidebar.nav-collapsed:hover .navitem { justify-content: flex-start; padding: 10px 12px; }
+    .sidebar .nl, .sidebar .brand .bt { transition: opacity .12s ease; }
+  }
   @media (max-width: 760px) {
     .app { flex-direction: column; }
     .sidebar { width: auto; height: auto; position: static; flex-direction: row; gap: 4px; overflow-x: auto;
@@ -406,10 +434,6 @@ const CHAT_BODY = `<link rel="stylesheet" href="/public/vendor/github-dark.min.c
       <button class="iconbtn drawer" id="drawer" aria-label="Toggle chat list">${icon("menu", 20)}</button>
       <div class="seat">
         <select id="agentsel" class="sel" aria-label="Harness"></select>
-        <div class="modeseg" id="modeseg" role="tablist" aria-label="Harness mode">
-          <button type="button" data-m="regular" class="on" role="tab">Regular</button>
-          <button type="button" data-m="orchestrator" role="tab">Orchestrator<span class="info">${icon("info", 13)}</span></button>
-        </div>
       </div>
       <div class="seatstatus" id="seatstatus" aria-live="polite"></div>
       <button class="iconbtn orchtoggle" id="orchtoggle" aria-label="Orchestration panel" title="Orchestration — watch delegations live">${icon("tree", 18)}</button>
@@ -559,7 +583,6 @@ const PAGE = (caps: Cap[], relayUrl: string) => `<!doctype html>
 <div class="app">${sidebar("/panel")}<main class="appmain">
 <header>
   <div class="brand">
-    <div class="mark" aria-hidden="true"></div>
     <div>
       <h1>Control Panel</h1>
       <div class="sub">harness → relay <span class="mono">${relayUrl}</span> → phone · ${caps.length} capabilities</div>
@@ -669,6 +692,15 @@ document.getElementById('savecfg').onclick=async()=>{
 loadCfg();
 </script></main></div></body></html>`;
 
+/** A preset card's "run it yourself" snippet: collapsed by default, the exact terminal command, copy-on-hover.
+ *  Clicking the button adds the harness for you; this is the equivalent command if you'd rather launch it manually. */
+const cmdSnippet = (script: string) =>
+  `<details class="cmdsnip"><summary>Run in a terminal instead</summary>` +
+  `<span class="copyfield"><code>cd backbone &amp;&amp; ${script}</code>` +
+  `<button class="iconbtn snipcopy" title="Copy command" aria-label="Copy command">` +
+  `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>` +
+  `</button></span></details>`;
+
 /** Guided, self-service setup page — connect an agent, then pair the phone (QR). Lives at "/". */
 const SETUP_PAGE = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/public/logo.svg">
@@ -760,6 +792,17 @@ const SETUP_PAGE = `<!doctype html>
   .preset .pd { font-size: 12.5px; color: var(--text-dim); margin-top: 3px; }
   .preset .pcmd { display: inline-block; margin-top: 8px; font-family: var(--mono); font-size: 11.5px;
     color: var(--text-dim); background: rgba(8,9,13,0.5); border: 1px solid var(--border); border-radius: 7px; padding: 3px 9px; }
+  .preset .cmdsnip { margin-top: 8px; }
+  .preset .cmdsnip summary { display: inline-flex; align-items: center; gap: 5px; width: max-content; cursor: pointer;
+    list-style: none; user-select: none; font-size: 11.5px; color: var(--text-dim); }
+  .preset .cmdsnip summary::-webkit-details-marker { display: none; }
+  .preset .cmdsnip summary::before { content: '▸'; font-size: 9px; transition: transform .12s; }
+  .preset .cmdsnip[open] summary::before { transform: rotate(90deg); }
+  .preset .cmdsnip summary:hover { color: var(--text); }
+  .preset .cmdsnip .copyfield { margin-top: 7px; }
+  .preset .cmdsnip .copyfield code { font-family: var(--mono); font-size: 11.5px; color: var(--text); white-space: nowrap; }
+  .preset .cmdsnip .iconbtn { opacity: 0; transition: opacity .12s, background .15s, color .15s; }
+  .preset .cmdsnip:hover .iconbtn, .preset .cmdsnip:focus-within .iconbtn { opacity: 1; }
   .preset .pcfg { flex: none; }
   .ptoggle { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
   /* the checkbox is a passive indicator now — the whole .preset row owns the click */
@@ -873,17 +916,17 @@ const SETUP_PAGE = `<!doctype html>
       <div class="presetlist">
         <div class="preset" data-type="claude">
           ${AGENT_LOGOS.claude}
-          <div class="pinfo"><div class="pt">Claude</div><div class="pd">Runs the <code>claude</code> CLI on this computer.</div><code class="pcmd">claude -p "…"</code></div>
+          <div class="pinfo"><div class="pt">Claude</div><div class="pd">Runs the <code>claude</code> CLI on this computer.</div>${cmdSnippet("pnpm agent:claude")}</div>
           <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="claude" /><span class="pspin"></span></span>
         </div>
         <div class="preset" data-type="omp">
           ${AGENT_LOGOS.omp}
-          <div class="pinfo"><div class="pt">omp (Oh My Pi)</div><div class="pd">Open-source coding harness. Full phone control via MCP.</div><code class="pcmd">omp -p "…"</code></div>
+          <div class="pinfo"><div class="pt">omp (Oh My Pi)</div><div class="pd">Open-source coding harness. Full phone control via MCP.</div>${cmdSnippet("pnpm agent:omp")}</div>
           <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="omp" /><span class="pspin"></span></span>
         </div>
         <div class="preset" data-type="cursor">
           ${AGENT_LOGOS.cursor}
-          <div class="pinfo"><div class="pt">Cursor</div><div class="pd">Runs the <code>cursor-agent</code> CLI on this computer. Full phone control via MCP.</div><code class="pcmd">cursor-agent -p "…"</code></div>
+          <div class="pinfo"><div class="pt">Cursor</div><div class="pd">Runs the <code>cursor-agent</code> CLI on this computer. Full phone control via MCP.</div>${cmdSnippet("pnpm agent:cursor")}</div>
           <span class="ptoggle" title="Click the row to add"><input type="checkbox" class="ptogglebox" data-type="cursor" /><span class="pspin"></span></span>
         </div>
         <div class="preset" data-type="basic">
@@ -1023,6 +1066,16 @@ const SETUP_PAGE = `<!doctype html>
       if(presetPending[kind]) return;                                  // already starting — ignore repeats
       togglePreset(kind, true);                                        // add it (disconnect is up in the list)
     };
+  });
+  // The "run in a terminal instead" snippet lives inside the clickable row — keep its expand/copy clicks
+  // from bubbling up and adding the harness. Copy button writes the command and flashes a check.
+  document.querySelectorAll('.preset .cmdsnip').forEach(function(d){
+    d.addEventListener('click', function(e){ e.stopPropagation(); });
+    const btn=d.querySelector('.snipcopy');
+    if(btn) btn.onclick=function(){ const t=d.querySelector('code').textContent;
+      if(navigator.clipboard&&t) navigator.clipboard.writeText(t);
+      const o=btn.innerHTML; btn.classList.add('ok'); btn.innerHTML='✓';
+      setTimeout(function(){ btn.innerHTML=o; btn.classList.remove('ok'); },1200); };
   });
   let _promptLoaded=false;
   async function loadRemotePrompt(){ if(_promptLoaded) return; _promptLoaded=true;
@@ -1329,8 +1382,9 @@ export async function startPanel(opts: StartPanelOpts = {}) {
   let activeAgentId: string | null = null;
   // `external` = the agent dialed in on its own (a remote/cloud brain or a hand-started CLI), i.e. the
   // hub didn't spawn it. The phone + web show a cloud icon for these.
-  // `orchestrator` = it holds this hub's driver seat (list_agents/ask_agent). Authoritative source is the
-  // managed-spawn flag; external agents self-declare it in their hello. Used for loop prevention.
+  // `orchestrator` = it holds this hub's driver seat (list_agents/ask_agent). Hub-launched agents always
+  // do; external agents self-declare it in their hello. Display-only now (which harnesses can delegate);
+  // loop prevention is positional — see POST /ask. Kept so the roster can flag delegation-capable workers.
   const isOrchestrator = (id: string) => managed.get(id)?.orchestrator ?? !!agents.get(id)?.orchestrator;
   const rosterList = () => [...agents].map(([id, a]) => ({ id, name: a.name, description: a.description, active: id === activeAgentId, external: !managed.has(id), orchestrator: isOrchestrator(id), verified: verifier.status(id) ?? "verifying" }));
   const announceRoster = () => bus.event("agents_roster", { agents: rosterList() });
@@ -1522,11 +1576,13 @@ export async function startPanel(opts: StartPanelOpts = {}) {
     env.AGENT_INSTANCE_ID = instanceId;
     env.AGENT_NAME = name;
     if (opts.desc) env.AGENT_DESC = opts.desc;                 // strength shown in the roster (list_agents)
-    // Orchestrator: hand this agent the hub's OWN driver seat (hub-mcp via AGENT_HUBS) so it can
-    // list_agents / ask_agent the other harnesses on this hub. Loopback — it's co-located with the hub.
-    if (opts.orchestrator) env.AGENT_HUBS = `self=http://127.0.0.1:${process.env.PANEL_PORT ?? 8123}`;
+    // Every hub-launched agent gets the hub's OWN driver seat (hub-mcp via AGENT_HUBS) so it can
+    // list_agents / ask_agent the other harnesses whenever it's the one you're talking to. Loopback —
+    // it's co-located with the hub. Loop prevention is positional now (you can't delegate to the
+    // driver-seat agent), so there's no longer a regular-vs-orchestrator distinction to spawn.
+    env.AGENT_HUBS = `self=http://127.0.0.1:${process.env.PANEL_PORT ?? 8123}`;
     const child = spawn(tsxBin(), [script], { cwd: backboneDir, env });
-    const m: Managed = { child, kind, name, log: "", orchestrator: !!opts.orchestrator };
+    const m: Managed = { child, kind, name, log: "", orchestrator: true };
     const cap = (d: Buffer) => { m.log = (m.log + d.toString()).slice(-3000); };
     child.stdout?.on("data", cap); child.stderr?.on("data", cap);
     child.on("exit", (code) => { m.log += `\n[agent process exited: ${code}]`; });
@@ -1565,6 +1621,24 @@ export async function startPanel(opts: StartPanelOpts = {}) {
       });
     });
   }
+  // Fast "is this command even on PATH?" gate. Used for harnesses we can't probe the Claude way
+  // (omp, cursor, chat-only CLIs) so selecting a missing one fails HERE with install guidance,
+  // instead of only erroring later, mid-chat, when the adapter spawns it. Fails open (resolve true)
+  // if `which` itself is missing or slow — the adapter's own ENOENT message is the backstop.
+  function binInstalled(bin: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!bin) return resolve(true);
+      const c = spawn("which", [bin], { env: process.env });
+      const t = setTimeout(() => { try { c.kill(); } catch { /* */ } resolve(true); }, 4000);
+      c.on("error", () => { clearTimeout(t); resolve(true); });
+      c.on("close", (code) => { clearTimeout(t); resolve(code === 0); });
+    });
+  }
+  // Harnesses with a known external binary + how to install it, for a clear "not installed" message.
+  const BIN_INFO: Record<string, { bin: string; label: string; command?: string }> = {
+    omp: { bin: "omp", label: "omp (Oh My Pi)" },
+    cursor: { bin: "cursor-agent", label: "Cursor", command: "curl https://cursor.com/install -fsS | bash" },
+  };
 
   /** The hub owns media: when a tool result carries an image blob, save it to ~/.agentic-android/media. */
   async function saveMediaFromResult(result: unknown) {
@@ -1984,6 +2058,16 @@ export async function startPanel(opts: StartPanelOpts = {}) {
           } else if ((kind === "other" || kind === "custom") && wantsPhone) {
             const probe = await probeClaude(cmd.split(/\s+/)[0] || "claude");
             if (!probe.ok) return json({ ok: false, error: probe.message, command: probe.command });
+          } else if (BIN_INFO[kind]) {
+            // omp / cursor — not Claude-compatible, so probe is a plain PATH check.
+            const info = BIN_INFO[kind];
+            if (!(await binInstalled(info.bin)))
+              return json({ ok: false, error: `${info.label} isn't installed on this computer — the "${info.bin}" command wasn't found on your PATH. Install it, then add it again.`, command: info.command });
+          } else if ((kind === "other" || kind === "custom") && !wantsPhone) {
+            // chat-only custom CLI: at least confirm the binary exists before we spawn it.
+            const bin = cmd.split(/\s+/)[0];
+            if (!(await binInstalled(bin)))
+              return json({ ok: false, error: `"${bin}" isn't installed on this computer — that command wasn't found on your PATH. Install it (or fix the command), then add it again.` });
           }
           const id = spawnAgent(kind, cmd, { name: typeof name === "string" ? name : undefined, phone: wantsPhone, orchestrator: !!orchestrator, desc: typeof desc === "string" ? desc : undefined });
           logEvent("connection", `started agent process: ${kind}${orchestrator ? " [orchestrator]" : ""}${cmd ? ` (${cmd})` : ""} phone=${wantsPhone} (${id})`);
@@ -2204,16 +2288,17 @@ export async function startPanel(opts: StartPanelOpts = {}) {
           if (Number(req.headers["x-ask-depth"] ?? 0) > MAX_ASK_DEPTH) return json({ error: "ask depth exceeded" }, 508);
           const r = resolveAgentId(String(agent ?? ""));
           if ("error" in r) return json(r, 404);
-          // ponytail: single-hub convenience guard — only when a phone is paired is `active` the user-facing brain.
-          if (peerEdPub && r.id === activeAgentId) return json({ error: "that harness is user-facing — delegate to a worker" }, 400);
-          // Loop prevention: orchestrators are invisible to each other — an orchestrator can't delegate to one.
-          if (isOrchestrator(r.id)) return json({ error: "that harness is an orchestrator — orchestrators don't delegate to each other" }, 409);
-          logEvent("request", `/ask → ${agents.get(r.id)?.name ?? r.id}`, { text });
           // Source attribution for the orchestration tree: hub-mcp tags the caller (x-ask-from-*); fall
-          // back to the active orchestrator at depth ≤ 1 (the driver-seat brain making the first hop).
+          // back to the active agent at depth ≤ 1 (the driver-seat brain making the first hop).
           const depth = Number(req.headers["x-ask-depth"] ?? 1);
           const fromId = String(req.headers["x-ask-from-id"] ?? "") || (depth <= 1 ? activeAgentId ?? "" : "");
           const fromName = String(req.headers["x-ask-from-name"] ?? "") || agents.get(fromId)?.name || "";
+          // Positional loop prevention: every harness can delegate, so the only forbidden targets are the
+          // driver-seat agent (the user-facing brain — "you" from its own turn) and the caller itself.
+          // Longer cycles (worker→worker→worker) are bounded by MAX_ASK_DEPTH above.
+          if (r.id === activeAgentId) return json({ error: "that harness is in the driver seat — delegate to a different worker" }, 400);
+          if (fromId && r.id === fromId) return json({ error: "a harness can't delegate to itself" }, 400);
+          logEvent("request", `/ask → ${agents.get(r.id)?.name ?? r.id}`, { text });
           const reply = await delegator.ask(r.id, String(text ?? ""), { fromId, fromName, depth });
           logEvent("response", "/ask reply", { reply });
           json({ reply });

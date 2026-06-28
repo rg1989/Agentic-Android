@@ -1,18 +1,19 @@
 /* Web chat client — a live peer of the phone app. Served statically (GET /public/chat.js).
  * Receives over SSE (GET /stream), sends non-blocking (POST /ask-async), renders rich parts
  * (markdown/code/tables/mermaid/images/files), drives the shared session store, and keeps the
- * agent dropdown + Regular|Orchestrator seat picker. No build step — vanilla ES, vendored UMD libs. */
+ * agent dropdown. Whoever you pick takes the driver seat and can delegate to the others — no mode
+ * picker. No build step — vanilla ES, vendored UMD libs. */
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var msgs = $("msgs"), inp = $("inp"), composer = $("composer"), sendBtn = $("send"), stopBtn = $("stop"),
-      sel = $("agentsel"), seg = $("modeseg"), seatEl = $("seatstatus"),
+      sel = $("agentsel"), seatEl = $("seatstatus"),
       sxlist = $("sxlist"), newchat = $("newchat"), sxsearch = $("sxsearch"),
       drawer = $("drawer"), sx = $("sx"), scrim = $("scrim"), jump = $("jump"),
       chipsEl = $("chips"), attachBtn = $("attach"), filein = $("filein"), slashEl = $("slash"),
       shell = document.querySelector(".chatshell");
 
-  var roster = [], active = null, agentReady = null, mode = "regular", spawnedOrch = {};
+  var roster = [], active = null, agentReady = null;
   var sessions = [], activeSession = "";
   var attachments = [];        // {blobId,name,mime,size}
   var commands = [];           // slash catalog from the agent
@@ -201,57 +202,38 @@
   }
   stopBtn.onclick = function () { clearThinking(); setBusy(false); post("/agent/interrupt").catch(function () {}); };
 
-  // ---------- seat picker (agent dropdown + Regular|Orchestrator) ----------
+  // ---------- seat picker (agent dropdown) — whoever you pick drives + can delegate to the rest ----------
   function selectedAgent() { return roster.filter(function (a) { return a.id === sel.value; })[0] || null; }
-  function orchAllowed(a) { if (!a) return false; if (a.orchestrator) return true; return a.kind !== "external"; }
-  function syncModeButtons() { [].forEach.call(seg.querySelectorAll("button"), function (b) { b.classList.toggle("on", b.getAttribute("data-m") === mode); }); }
   function renderSeat() {
-    var a = selectedAgent(), oBtn = seg.querySelector('[data-m="orchestrator"]'), allowed = orchAllowed(a);
-    oBtn.disabled = !allowed;
-    if (!allowed && mode === "orchestrator") { mode = "regular"; syncModeButtons(); }
-    oBtn.title = allowed ? "Orchestrator: this harness takes the hub driver seat and can delegate to your other (regular) harnesses." : "Remote harness — start it with AGENT_HUBS on its own host to use it as an orchestrator.";
     seatEl.innerHTML = "";
-    var dot = document.createElement("span"); dot.className = "dot" + (active && agentReady ? " ok" : ""); seatEl.appendChild(dot);
-    var t = document.createElement("span"); t.textContent = active ? ("Driver seat: " + active.name + (agentReady === false ? " (not ready)" : "")) : "No harness in the driver seat"; seatEl.appendChild(t);
+    var dot = document.createElement("span"), t = document.createElement("span");
+    // A cloud/external agent runs off the hub machine, so the hub can't hand it the driver-seat tools —
+    // it can chat but can't delegate. Say so instead of the usual "Driver seat: <name>".
+    if (active && active.external && !active.orchestrator) {
+      dot.className = "dot warn"; t.textContent = "Cloud agent — can't orchestrate your other harnesses";
+    } else {
+      dot.className = "dot" + (active && agentReady ? " ok" : "");
+      t.textContent = active ? ("Driver seat: " + active.name + (agentReady === false ? " (not ready)" : "")) : "No harness in the driver seat";
+    }
+    seatEl.appendChild(dot); seatEl.appendChild(t);
   }
   function fillAgents() {
     var keep = sel.value;
     sel.innerHTML = "";
     if (!roster.length) { var o = document.createElement("option"); o.value = ""; o.textContent = "— no agents —"; sel.appendChild(o); sel.disabled = true; setBusy(busy); return; }
     sel.disabled = false;
-    roster.forEach(function (a) { var o = document.createElement("option"); o.value = a.id; o.textContent = a.name + (a.orchestrator ? " ⚡" : "") + (a.external ? " ☁" : ""); sel.appendChild(o); });
+    roster.forEach(function (a) { var o = document.createElement("option"); o.value = a.id; o.textContent = a.name + (a.external ? " ☁" : ""); sel.appendChild(o); });
     var def = keep && roster.some(function (a) { return a.id === keep; }) ? keep : (active && roster.some(function (a) { return a.id === active.id; }) ? active.id : roster[0].id);
     sel.value = def;
     sendBtn.disabled = busy || !roster.length;
   }
-  function waitConnected(id, timeout) {
-    var start = Date.now();
-    return new Promise(function (resolve, reject) {
-      (function poll() {
-        fetch("/status").then(function (r) { return r.json(); }).then(function (s) {
-          if ((s.agents || []).some(function (a) { return a.id === id && a.connected; })) return resolve(id);
-          if (Date.now() - start > timeout) return reject(new Error("orchestrator did not connect in time"));
-          setTimeout(poll, 500);
-        }).catch(function () { setTimeout(poll, 500); });
-      })();
-    });
-  }
   function ensureSeat() {
     var a = selectedAgent();
     if (!a) return Promise.reject(new Error("no agent connected"));
-    if (mode === "regular" || a.orchestrator) {
-      if (active && active.id === a.id) return Promise.resolve();
-      return post("/agent/select", { id: a.id });
-    }
-    var kind = a.kind || "claude", existing = spawnedOrch[kind];
-    if (existing && roster.some(function (x) { return x.id === existing; })) return post("/agent/select", { id: existing });
-    return post("/agent/start", { type: kind, orchestrator: true, name: a.name + " ⚡" }).then(function (r) {
-      if (!r || !r.ok) throw new Error((r && r.error) || "could not start an orchestrator");
-      spawnedOrch[kind] = r.id; return waitConnected(r.id, 20000);
-    }).then(function (id) { return post("/agent/select", { id: id }); });
+    if (active && active.id === a.id) return Promise.resolve();
+    return post("/agent/select", { id: a.id });
   }
   sel.addEventListener("change", renderSeat);
-  seg.addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b || b.disabled) return; mode = b.getAttribute("data-m"); syncModeButtons(); renderSeat(); });
 
   // ---------- sessions sidebar ----------
   function renderSessions() {

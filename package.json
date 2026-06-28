@@ -9,6 +9,7 @@
     "agent": "pnpm -C backbone agent",
     "agent:claude": "pnpm -C backbone agent:claude",
     "agent:omp": "pnpm -C backbone agent:omp",
+    "agent:cursor": "pnpm -C backbone agent:cursor",
     "agent:orchestrator": "pnpm -C backbone agent:orchestrator",
     "test": "pnpm -C backbone test",
     "typecheck": "pnpm -C backbone typecheck",

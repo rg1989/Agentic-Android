@@ -56,18 +56,13 @@ svg.ic { display: block; flex: none; }
 .seat { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .sel { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); border-radius: 9px;
   padding: 7px 10px; font: 14px var(--sans); max-width: 220px; }
-.modeseg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 9px; overflow: hidden; }
-.modeseg button { background: var(--surface); color: var(--text-dim); border: 0; padding: 7px 12px; font: 13px var(--sans); cursor: pointer; }
-.modeseg button.on { background: var(--accent-soft); color: var(--text); }
-.modeseg button:disabled { opacity: .4; cursor: not-allowed; }
-.modeseg button { display: inline-flex; align-items: center; }
-.modeseg .info { margin-left: 5px; opacity: .6; display: inline-flex; }
 .seatstatus { margin-left: auto; font-size: 12.5px; color: var(--text-dim); white-space: nowrap; }
 .seatstatus .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); margin-right: 6px; vertical-align: middle; }
 .seatstatus .dot.ok { background: var(--ok); }
+.seatstatus .dot.warn { background: var(--warn); }
 
 /* ---- thread ---- */
-.msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(16px, 6vw, 64px); display: flex; flex-direction: column; gap: 14px; }
+.msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 24px clamp(14px, 3vw, 30px); display: flex; flex-direction: column; gap: 14px; }
 .msg { position: relative; max-width: 760px; width: fit-content; padding: 11px 15px; border-radius: 14px; font-size: 14.5px; line-height: 1.6; }
 .msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 5px; }
 .msg.bot { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 5px; max-width: min(760px, 100%); }
@@ -133,7 +128,7 @@ svg.ic { display: block; flex: none; }
 .jump:hover { background: var(--accent-soft); border-color: var(--accent); }
 
 /* ---- composer ---- */
-.composer-wrap { flex: none; padding: 12px clamp(16px, 6vw, 64px) 16px; border-top: 1px solid var(--border); position: relative; }
+.composer-wrap { flex: none; padding: 12px clamp(14px, 3vw, 30px) 16px; border-top: 1px solid var(--border); position: relative; }
 .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 8px; }
 .chips:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 7px; background: var(--surface-3); border: 1px solid var(--border-strong);
@@ -280,9 +275,8 @@ svg.ic { display: block; flex: none; }
   .chatshell.drawer-open .sx { transform: translateX(0); }
   .scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.5); }
   .seatstatus { display: none; }
-  /* keep the header on one line: let the agent picker shrink so the mode toggle + orch button stay visible */
+  /* keep the header on one line: let the agent picker shrink so the orch button stays visible */
   .chathead { gap: 8px; padding: 10px 12px; }
   .seat { flex: 1; gap: 6px; }
   .sel { flex: 1; min-width: 0; max-width: none; }
-  .modeseg { flex: none; }
 }

@@ -22,8 +22,10 @@ export function makeHubMcpServer(opts: { hubHttp: string; askDepth?: number; lab
     { description: "List the worker harnesses on this hub and their strengths. Returns id, name, description, active, kind. Prefer a harness's `id` when two share a name. Call this before ask_agent.", inputSchema: {} },
     async () => {
       const s: any = await fetch(`${HUB}/status`).then((r) => r.json()).catch((e) => ({ error: String(e) }));
+      // Show every connected harness EXCEPT the driver-seat (active) one — that's the caller itself, and
+      // the hub 400s any attempt to delegate to it (positional loop prevention).
       const agents = Array.isArray(s.agents)
-        ? s.agents.filter((a: any) => a.connected && a.orchestrator !== true).map((a: any) => ({ id: a.id, name: a.name, description: a.description ?? null, active: !!a.active, kind: a.kind }))
+        ? s.agents.filter((a: any) => a.connected && a.active !== true).map((a: any) => ({ id: a.id, name: a.name, description: a.description ?? null, active: !!a.active, kind: a.kind }))
         : [];
       return jtext({ hub: s.hubName ?? null, agents });
     },

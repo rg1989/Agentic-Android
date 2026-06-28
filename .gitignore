@@ -16,3 +16,6 @@ android/app/google-services.json
 
 # stack run logs
 .logs/
+
+# archives / backups
+*.zip
